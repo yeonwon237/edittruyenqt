@@ -5,51 +5,106 @@ import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/use-toast";
 import {
   ArrowLeft,
-  Key,
   Save,
   Trash2,
   ExternalLink,
   Loader2,
   Sparkles,
   LogOut,
+  Check,
 } from "lucide-react";
 import {
-  getGeminiKey,
-  saveGeminiKey,
-  clearGeminiKey,
-  testGeminiKey,
-} from "@/lib/gemini";
+  getProvider,
+  saveProvider,
+  getApiKey,
+  saveApiKey,
+  clearApiKey,
+  testLLMKey,
+} from "@/lib/llm";
+
+const PROVIDERS_INFO = {
+  gemini: {
+    label: "Google Gemini",
+    shortLabel: "Gemini",
+    emoji: "✨",
+    desc: "Nhanh, nhiều quota miễn phí — Gemini 2.0 Flash",
+    placeholder: "AIza...",
+    helpUrl: "https://aistudio.google.com/apikey",
+    helpStep1: "Truy cập Google AI Studio → chọn \"Get API Key\"",
+    accentText: "text-blue-600",
+    accentBorder: "border-blue-300",
+    accentBg: "bg-blue-50",
+    gradFrom: "from-blue-500",
+    gradTo: "to-cyan-500",
+  },
+  openai: {
+    label: "OpenAI GPT",
+    shortLabel: "GPT",
+    emoji: "🤖",
+    desc: "GPT-4o-mini — chất lượng tốt, trả phí",
+    placeholder: "sk-...",
+    helpUrl: "https://platform.openai.com/api-keys",
+    helpStep1: "Truy cập OpenAI Platform → API Keys → Create new secret key",
+    accentText: "text-emerald-600",
+    accentBorder: "border-emerald-300",
+    accentBg: "bg-emerald-50",
+    gradFrom: "from-emerald-500",
+    gradTo: "to-teal-500",
+  },
+  claude: {
+    label: "Anthropic Claude",
+    shortLabel: "Claude",
+    emoji: "🧠",
+    desc: "Claude 3.5 Sonnet — giỏi biên tập văn học",
+    placeholder: "sk-ant-...",
+    helpUrl: "https://console.anthropic.com/settings/keys",
+    helpStep1: "Truy cập Anthropic Console → API Keys → Create Key",
+    accentText: "text-amber-600",
+    accentBorder: "border-amber-300",
+    accentBg: "bg-amber-50",
+    gradFrom: "from-amber-500",
+    gradTo: "to-orange-500",
+  },
+};
 
 export default function Settings() {
   const { toast } = useToast();
-  const [apiKey, setApiKey] = useState(getGeminiKey());
   const [user, setUser] = useState(null);
+  const [provider, setProvider] = useState(getProvider());
+  const [keyInputs, setKeyInputs] = useState({
+    gemini: getApiKey("gemini"),
+    openai: getApiKey("openai"),
+    claude: getApiKey("claude"),
+  });
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
-    base44.auth
-      .me()
-      .then(setUser)
-      .catch(() => {});
+    base44.auth.me().then(setUser).catch(() => {});
   }, []);
 
-  const handleSave = () => {
-    saveGeminiKey(apiKey.trim());
-    toast({ title: "Đã lưu Gemini API Key 🔑" });
+  const handleSelectProvider = (p) => {
+    saveProvider(p);
+    setProvider(p);
+    toast({ title: `Đã chọn ${PROVIDERS_INFO[p].label} làm AI mặc định` });
   };
 
-  const handleClear = () => {
-    clearGeminiKey();
-    setApiKey("");
-    toast({ title: "Đã xóa API Key" });
+  const handleSaveKey = (p) => {
+    saveApiKey(p, keyInputs[p].trim());
+    toast({ title: `Đã lưu API Key (${PROVIDERS_INFO[p].shortLabel}) 🔑` });
   };
 
-  const handleTest = async () => {
+  const handleClearKey = (p) => {
+    clearApiKey(p);
+    setKeyInputs((prev) => ({ ...prev, [p]: "" }));
+    toast({ title: `Đã xóa API Key (${PROVIDERS_INFO[p].shortLabel})` });
+  };
+
+  const handleTest = async (p) => {
     setTesting(true);
     try {
-      saveGeminiKey(apiKey.trim());
-      await testGeminiKey(apiKey.trim());
-      toast({ title: "✅ Kết nối Gemini thành công!" });
+      saveApiKey(p, keyInputs[p].trim());
+      await testLLMKey(p, keyInputs[p].trim());
+      toast({ title: `✅ Kết nối ${PROVIDERS_INFO[p].shortLabel} thành công!` });
     } catch (e) {
       toast({
         title: "❌ Lỗi kết nối",
@@ -64,8 +119,10 @@ export default function Settings() {
     await base44.auth.logout("/login");
   };
 
+  const info = PROVIDERS_INFO[provider];
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50">
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50 pb-16">
       <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-violet-100">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -87,100 +144,143 @@ export default function Settings() {
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
-        {/* Account info */}
         {user && (
           <div className="bg-white rounded-2xl border border-violet-100 shadow-sm p-5">
-            <h2 className="text-sm font-semibold text-slate-700 mb-2">
+            <h2 className="text-sm font-semibold text-slate-700 mb-1">
               Tài khoản
             </h2>
             <p className="text-sm text-slate-500">
-              {user.full_name && <span className="font-medium">{user.full_name} · </span>}
+              {user.full_name && (
+                <span className="font-medium">{user.full_name} · </span>
+              )}
               {user.email}
             </p>
           </div>
         )}
 
-        {/* Gemini API Key */}
+        {/* AI Provider selection */}
         <div className="bg-white rounded-2xl border border-violet-100 shadow-sm p-6">
-          <div className="flex items-start gap-3 mb-5">
-            <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center text-violet-600 shrink-0">
-              <Key className="w-5 h-5" />
+          <div className="mb-4">
+            <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+              🤖 Nhà cung cấp AI
+            </h2>
+            <p className="text-sm text-slate-400 mt-0.5">
+              Chọn nhà cung cấp sẽ dùng khi bấm nút AI Edit trong Workspace.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+            {Object.entries(PROVIDERS_INFO).map(([key, p]) => {
+              const active = provider === key;
+              const hasKey = !!keyInputs[key].trim();
+              return (
+                <button
+                  key={key}
+                  onClick={() => handleSelectProvider(key)}
+                  className={`relative text-left p-4 rounded-xl border transition-all ${
+                    active
+                      ? `${p.accentBorder} ${p.accentBg} ring-2 ring-violet-200`
+                      : "border-violet-100 hover:border-violet-300 bg-white"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-2xl">{p.emoji}</span>
+                    {hasKey ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600 font-medium">
+                        ✓ có key
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">
+                        chưa key
+                      </span>
+                    )}
+                  </div>
+                  <p className={`text-sm font-semibold mt-2 ${active ? p.accentText : "text-slate-800"}`}>
+                    {p.shortLabel}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
+                    {p.desc}
+                  </p>
+                  {active && (
+                    <div className={`mt-2 inline-flex items-center gap-1 text-[10px] font-medium ${p.accentText}`}>
+                      <Check className="w-3 h-3" /> Đang dùng
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Active provider key form */}
+          <div className={`rounded-xl ${info.accentBg} border ${info.accentBorder} p-4`}>
+            <p className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+              <span className="text-lg">{info.emoji}</span> API Key — {info.label}
+            </p>
+            <input
+              type="password"
+              value={keyInputs[provider]}
+              onChange={(e) =>
+                setKeyInputs((prev) => ({ ...prev, [provider]: e.target.value }))
+              }
+              placeholder={info.placeholder}
+              className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-violet-100 bg-white focus:outline-none focus:border-violet-400 transition-colors mb-3"
+              spellCheck={false}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button
+                onClick={() => handleSaveKey(provider)}
+                className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
+              >
+                <Save className="w-4 h-4 mr-1.5" /> Lưu Key
+              </Button>
+              <Button
+                onClick={() => handleTest(provider)}
+                disabled={testing || !keyInputs[provider].trim()}
+                variant="outline"
+                className="border-violet-200 text-violet-600 rounded-xl"
+              >
+                {testing ? (
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 mr-1.5" />
+                )}
+                Test kết nối
+              </Button>
+              {keyInputs[provider] && (
+                <Button
+                  onClick={() => handleClearKey(provider)}
+                  variant="ghost"
+                  className="text-red-500 hover:bg-red-50 rounded-xl"
+                >
+                  <Trash2 className="w-4 h-4 mr-1.5" /> Xóa
+                </Button>
+              )}
             </div>
-            <div>
-              <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-                Google Gemini API Key
-              </h2>
-              <p className="text-sm text-slate-400">
-                Dùng AI tự động edit chương bằng Gemini cá nhân (miễn phí)
+            <div className="mt-4 p-3 rounded-lg bg-white/60 border border-violet-100 text-xs text-slate-500 space-y-1.5">
+              <p className="font-medium text-slate-700">💡 Hướng dẫn</p>
+              <ol className="list-decimal list-inside space-y-1 leading-relaxed">
+                <li>
+                  {info.helpStep1}
+                </li>
+                <li>
+                  Truy cập{" "}
+                  <a
+                    href={info.helpUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`inline-flex items-center gap-0.5 ${info.accentText} hover:underline`}
+                  >
+                    {info.helpUrl.replace("https://", "")} <ExternalLink className="w-3 h-3" />
+                  </a>
+                </li>
+                <li>Sao chép key và dán vào ô trên.</li>
+                <li>Bấm "Lưu Key" rồi "Test kết nối".</li>
+              </ol>
+              <p className="text-slate-400 pt-1 border-t border-violet-100 mt-2">
+                Key lưu riêng trên trình duyệt (localStorage), không chia sẻ. Bạn có
+                thể nhập key cho cả 3 nhà cung cấp và chuyển đổi tuỳ ý.
               </p>
             </div>
-          </div>
-
-          <label className="text-xs font-medium text-slate-500 mb-1.5 block">
-            API Key
-          </label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="AIza..."
-            className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors mb-4"
-            spellCheck={false}
-          />
-
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={handleSave}
-              className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
-            >
-              <Save className="w-4 h-4 mr-1.5" /> Lưu Key
-            </Button>
-            <Button
-              onClick={handleTest}
-              disabled={testing || !apiKey.trim()}
-              variant="outline"
-              className="border-violet-200 text-violet-600 rounded-xl"
-            >
-              {testing ? (
-                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4 mr-1.5" />
-              )}
-              Test kết nối
-            </Button>
-            {apiKey && (
-              <Button
-                onClick={handleClear}
-                variant="ghost"
-                className="text-red-500 hover:bg-red-50 rounded-xl"
-              >
-                <Trash2 className="w-4 h-4 mr-1.5" /> Xóa Key
-              </Button>
-            )}
-          </div>
-
-          <div className="mt-5 p-4 rounded-xl bg-violet-50/70 border border-violet-100 text-sm space-y-2">
-            <p className="font-medium text-slate-700">💡 Hướng dẫn lấy API Key</p>
-            <ol className="list-decimal list-inside text-slate-500 space-y-1 text-xs leading-relaxed">
-              <li>
-                Truy cập{" "}
-                <a
-                  href="https://aistudio.google.com/apikey"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-violet-600 hover:underline inline-flex items-center gap-0.5"
-                >
-                  Google AI Studio <ExternalLink className="w-3 h-3" />
-                </a>
-              </li>
-              <li>Đăng nhập tài khoản Google và chọn "Get API Key"</li>
-              <li>Sao chép key (bắt đầu bằng "AIza...") và dán vào ô trên</li>
-              <li>Bấm "Lưu Key" rồi "Test kết nối" để kiểm tra</li>
-            </ol>
-            <p className="text-xs text-slate-400 pt-1 border-t border-violet-100 mt-2">
-              Key được lưu riêng trên trình duyệt của bạn (localStorage), an toàn
-              và không chia sẻ với ai khác.
-            </p>
           </div>
         </div>
       </main>

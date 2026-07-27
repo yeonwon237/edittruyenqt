@@ -9,12 +9,20 @@ import GlossaryTermForm from "@/components/glossary/GlossaryTermForm";
 import BatchReplaceDialog from "@/components/workspace/BatchReplaceDialog";
 import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog";
 import { exportAsTxt, exportAsDoc, exportGlossaryJson } from "@/lib/exportUtils";
-import { callGemini, hasGeminiKey } from "@/lib/gemini";
+import { callLLM, hasCustomAI, getProvider } from "@/lib/llm";
 import ClearEditDialog from "@/components/workspace/ClearEditDialog";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
 import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
 import { Loader2, ArrowLeft, Plus, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+
+const COLUMN_DEFS = {
+  raw: { emoji: "📖", shortLabel: "Gốc" },
+  qt: { emoji: "✏️", shortLabel: "QT" },
+  edited: { emoji: "✨", shortLabel: "Edit" },
+};
+
+const COLUMN_INDEX = { raw: 0, qt: 1, edited: 2 };
 
 export default function Workspace() {
   const { projectId } = useParams();
@@ -26,10 +34,13 @@ export default function Workspace() {
   const [currentChapter, setCurrentChapter] = useState(null);
   const [glossaryTerms, setGlossaryTerms] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [viewMode, setViewMode] = useState("3col");
+  const [visibleColumns, setVisibleColumns] = useState(["raw", "qt", "edited"]);
+  const [mobileActiveCol, setMobileActiveCol] = useState("edited");
   const [saving, setSaving] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [showSidebar, setShowSidebar] = useState(
+    typeof window !== "undefined" ? window.innerWidth >= 768 : true
+  );
   const [panel1Mode, setPanel1Mode] = useState("view");
   const [panel2Mode, setPanel2Mode] = useState("view");
 
@@ -60,6 +71,11 @@ export default function Workspace() {
     try {
       const proj = await base44.entities.Project.get(projectId);
       setProject(proj);
+      const vc = Array.isArray(proj.visible_columns) && proj.visible_columns.length
+        ? proj.visible_columns
+        : ["raw", "qt", "edited"];
+      setVisibleColumns(vc);
+      setMobileActiveCol(vc.includes("edited") ? "edited" : vc[0]);
       const chaps = await base44.entities.Chapter.filter(
         { project_id: projectId },
         "chapter_order",
@@ -120,12 +136,30 @@ export default function Workspace() {
     if (ch) setCurrentChapter(ch);
   };
 
+  const handleToggleColumn = (col) => {
+    if (visibleColumns.includes(col) && visibleColumns.length === 1) {
+      toast({
+        title: "Phải giữ ít nhất 1 cột hiển thị",
+        variant: "destructive",
+      });
+      return;
+    }
+    const next = visibleColumns.includes(col)
+      ? visibleColumns.filter((c) => c !== col)
+      : [...visibleColumns, col];
+    setVisibleColumns(next);
+    if (!next.includes(mobileActiveCol)) {
+      setMobileActiveCol(next.includes("edited") ? "edited" : next[0]);
+    }
+    handleUpdateProject({ visible_columns: next }).catch(() => {});
+  };
+
   // Sync scroll
   const handlePanelScroll = (scrolledIndex) => {
     if (isSyncing.current) return;
     isSyncing.current = true;
 
-    const visibleIndices = viewMode === "3col" ? [0, 1, 2] : [0, 2];
+    const visibleIndices = visibleColumns.map((c) => COLUMN_INDEX[c]);
     const source = panelRefs[scrolledIndex].current;
     if (!source) {
       isSyncing.current = false;
@@ -170,6 +204,7 @@ export default function Workspace() {
       textarea.selectionStart = textarea.selectionEnd = pos;
     }, 0);
 
+    setMobileActiveCol("edited");
     toast({
       title: `Đã chèn: ${term.translation}`,
       description: `Từ "${term.source_term}"`,
@@ -327,6 +362,9 @@ export default function Workspace() {
         .filter((r) => r.find)
         .map((r) => `- Thay "${r.find}" bằng "${r.replace}"`)
         .join("\n");
+      const pronounMatrixText = buildPronounMatrixPrompt(
+        project?.contextual_pronoun_rules || []
+      );
 
       const prompt = `Bạn là trợ lý biên tập truyện dịch chuyên nghiệp, chuyên edit truyện Convert/QT. Hãy biên tập văn bản QT thô sau đây thành văn phong tiếng Việt mượt mà, tự nhiên, thoát ý, giữ đúng cảm xúc và ý nghĩa gốc.
 
@@ -336,12 +374,16 @@ QUY TẮC BẮT BUỘC:
 3. Sửa câu cưỡng ép, ngữ pháp lủng củng, lặp từ. Diễn đạt lại cho mượt mà nhưng giữ nguyên ý.
 4. Giữ nguyên các đoạn hội thoại trong ngoặc kép.
 5. KHÔNG thêm giải thích, ghi chú, hay tiêu đề. Chỉ xuất văn bản đã biên tập.
+6. ĐẶC BIỆT: Tự động nhận diện NGƯỜI NÓI và NGƯỜI NGHE trong từng câu hội thoại (dựa tên nhân vật, bối cảnh đoạn thoại, sở hữu cách câu nói, ngôi kể). Chọn đúng MA TRẬN XƯNG HÔ phù hợp với cặp người nói ↔ người nghe của đoạn. Nếu câu thoại không quy định đặc biệt cho người nghe cụ thể, dùng quy tắc MẶC ĐỊNH của nhân vật nói. Tuyệt đối không viết sai cách xưng hô của nhân vật.
 
 GLOSSARY (TUÂN THỦ 100%):
 ${glossaryText || "(trống)"}
 
 QUY TẮC THAY THẾ:
 ${batchRulesText || "(không có)"}
+
+MA TRẬN XƯNG HÔ THEO NGỮ CẢNH (AI tự nhận diện người nói ↔ người nghe, áp dụng chính xác đại từ):
+${pronounMatrixText || "(không có quy tắc cụ thể — dùng ngữ cảm tự nhiên theo văn bản gốc)"}
 
 VĂN BẢN CẦN BIÊN TẬP:
 ${sourceText}
@@ -419,15 +461,18 @@ ${sourceText}
 
 Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt hoàn chỉnh:`;
 
-      const editedText = await callGemini(prompt);
+      const editedText = await callLLM(prompt);
       setCurrentChapter({ ...currentChapter, edited: editedText });
+      const providerLabel =
+        ({ gemini: "Gemini", openai: "GPT", claude: "Claude" }[getProvider()] ||
+          "AI");
       toast({
-        title: "Gemini đã edit xong! ✨",
+        title: `${providerLabel} đã edit xong! ✨`,
         description: "Kiểm tra và chỉnh thêm nhé",
       });
     } catch (e) {
       toast({
-        title: "Lỗi Gemini",
+        title: "Lỗi AI",
         description: e.message,
         variant: "destructive",
       });
@@ -527,6 +572,10 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     toast({ title: "Đã xuất file! 📄" });
   };
 
+  const activeMobile = visibleColumns.includes(mobileActiveCol)
+    ? mobileActiveCol
+    : visibleColumns[0] || "edited";
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50">
@@ -597,7 +646,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
             {saving ? "💾 Đang lưu..." : "✅ Đã lưu"}
           </span>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 hidden md:flex">
             <button
               onClick={() => handleExport("txt")}
               className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-violet-100 text-slate-600 transition-colors"
@@ -630,103 +679,160 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
 
       {/* Toolbar */}
       <EditorToolbar
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
+        visibleColumns={visibleColumns}
+        onToggleColumn={handleToggleColumn}
         onQuickAddGlossary={handleQuickAddGlossary}
         onBatchReplace={() => setShowBatchReplace(true)}
         onPronounSwitcher={handleOpenPronoun}
         onAutoEdit={handleAutoEdit}
         aiEditing={aiEditing}
-        onGeminiEdit={handleGeminiEdit}
-        geminiEditing={geminiEditing}
-        hasGeminiKey={hasGeminiKey()}
+        onCustomEdit={handleGeminiEdit}
+        customAIEditing={geminiEditing}
+        hasCustomAI={hasCustomAI()}
+        customAIProvider={getProvider()}
         onOpenSettings={() => navigate("/settings")}
         onToggleSidebar={() => setShowSidebar(!showSidebar)}
       />
 
       {/* Main content */}
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
         {showSidebar && (
-          <GlossarySidebar
-            terms={glossaryTerms}
-            project={project}
-            onAddTerm={() => {
-              setEditingTerm(null);
-              setPrefillTerm("");
-              setShowGlossaryForm(true);
-            }}
-            onEditTerm={(term) => {
-              setEditingTerm(term);
-              setPrefillTerm("");
-              setShowGlossaryForm(true);
-            }}
-            onDeleteTerm={handleDeleteTerm}
-            onImportTerms={handleImportTerms}
-            onOpenContextualPronoun={() => setShowContextualPronoun(true)}
-          />
+          <>
+            <div
+              className="md:hidden fixed inset-0 bg-black/30 z-30"
+              onClick={() => setShowSidebar(false)}
+            />
+            <GlossarySidebar
+              terms={glossaryTerms}
+              project={project}
+              onAddTerm={() => {
+                setEditingTerm(null);
+                setPrefillTerm("");
+                setShowGlossaryForm(true);
+              }}
+              onEditTerm={(term) => {
+                setEditingTerm(term);
+                setPrefillTerm("");
+                setShowGlossaryForm(true);
+              }}
+              onDeleteTerm={handleDeleteTerm}
+              onImportTerms={handleImportTerms}
+              onOpenContextualPronoun={() => setShowContextualPronoun(true)}
+            />
+          </>
         )}
-        <div className="flex-1 flex gap-2 p-3 min-w-0">
+        <div className="flex-1 flex flex-col gap-2 p-3 min-w-0 min-h-0">
           {currentChapter ? (
             <>
-              <EditorPanel
-                ref={panelRefs[0]}
-                title="Văn bản gốc"
-                emoji="📖"
-                value={currentChapter.raw_original}
-                onChange={(v) =>
-                  setCurrentChapter({ ...currentChapter, raw_original: v })
-                }
-                mode={panel1Mode}
-                onToggleMode={() =>
-                  setPanel1Mode(panel1Mode === "view" ? "edit" : "view")
-                }
-                terms={glossaryTerms}
-                onTermClick={handleTermClick}
-                onScroll={() => handlePanelScroll(0)}
-                placeholder="Dán văn bản gốc (Trung/Anh) vào đây..."
-              />
-              {viewMode === "3col" && (
-                <EditorPanel
-                  ref={panelRefs[1]}
-                  title="QT thô"
-                  emoji="✏️"
-                  value={currentChapter.qt_raw}
-                  onChange={(v) =>
-                    setCurrentChapter({ ...currentChapter, qt_raw: v })
-                  }
-                  mode={panel2Mode}
-                  onToggleMode={() =>
-                    setPanel2Mode(panel2Mode === "view" ? "edit" : "view")
-                  }
-                  terms={glossaryTerms}
-                  onTermClick={handleTermClick}
-                  onScroll={() => handlePanelScroll(1)}
-                  placeholder="Dán văn bản QT/Convert thô vào đây..."
-                />
+              {visibleColumns.length > 1 && (
+                <div className="md:hidden flex gap-1.5 shrink-0">
+                  {visibleColumns.map((col) => {
+                    const def = COLUMN_DEFS[col];
+                    return (
+                      <button
+                        key={col}
+                        onClick={() => setMobileActiveCol(col)}
+                        className={`flex-1 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                          activeMobile === col
+                            ? "bg-violet-600 text-white"
+                            : "bg-white/70 text-slate-500 border border-violet-100"
+                        }`}
+                      >
+                        {def.emoji} {def.shortLabel}
+                      </button>
+                    );
+                  })}
+                </div>
               )}
-              <EditorPanel
-                ref={panelRefs[2]}
-                title="Bản Edit"
-                emoji="✨"
-                value={currentChapter.edited}
-                onChange={(v) =>
-                  setCurrentChapter({ ...currentChapter, edited: v })
-                }
-                mode="edit"
-                onScroll={() => handlePanelScroll(viewMode === "3col" ? 2 : 1)}
-                placeholder="Bản edit hoàn chỉnh sẽ hiện ở đây..."
-                extra={
-                  currentChapter.edited ? (
-                    <button
-                      onClick={() => setShowClearEdit(true)}
-                      className="text-xs px-2 py-1 rounded-lg bg-white/70 hover:bg-red-50 text-slate-500 hover:text-red-500 transition-colors border border-violet-100"
-                      title="Xóa toàn bộ bản edit"
-                    >
-                      🗑️ Xóa
-                    </button>
-                  ) : null
-                }
-              />
+              <div className="flex flex-1 gap-2 min-h-0 min-w-0">
+                {visibleColumns.includes("raw") && (
+                  <div
+                    className={
+                      activeMobile === "raw"
+                        ? "flex-1 flex flex-col min-w-0"
+                        : "hidden md:flex md:flex-1 md:flex-col md:min-w-0"
+                    }
+                  >
+                    <EditorPanel
+                      ref={panelRefs[0]}
+                      title="Văn bản gốc"
+                      emoji="📖"
+                      value={currentChapter.raw_original}
+                      onChange={(v) =>
+                        setCurrentChapter({ ...currentChapter, raw_original: v })
+                      }
+                      mode={panel1Mode}
+                      onToggleMode={() =>
+                        setPanel1Mode(panel1Mode === "view" ? "edit" : "view")
+                      }
+                      terms={glossaryTerms}
+                      onTermClick={handleTermClick}
+                      onScroll={() => handlePanelScroll(0)}
+                      placeholder="Dán văn bản gốc (Trung/Anh) vào đây..."
+                    />
+                  </div>
+                )}
+                {visibleColumns.includes("qt") && (
+                  <div
+                    className={
+                      activeMobile === "qt"
+                        ? "flex-1 flex flex-col min-w-0"
+                        : "hidden md:flex md:flex-1 md:flex-col md:min-w-0"
+                    }
+                  >
+                    <EditorPanel
+                      ref={panelRefs[1]}
+                      title="QT thô"
+                      emoji="✏️"
+                      value={currentChapter.qt_raw}
+                      onChange={(v) =>
+                        setCurrentChapter({ ...currentChapter, qt_raw: v })
+                      }
+                      mode={panel2Mode}
+                      onToggleMode={() =>
+                        setPanel2Mode(panel2Mode === "view" ? "edit" : "view")
+                      }
+                      terms={glossaryTerms}
+                      onTermClick={handleTermClick}
+                      onScroll={() => handlePanelScroll(1)}
+                      placeholder="Dán văn bản QT/Convert thô vào đây..."
+                    />
+                  </div>
+                )}
+                {visibleColumns.includes("edited") && (
+                  <div
+                    className={
+                      activeMobile === "edited"
+                        ? "flex-1 flex flex-col min-w-0"
+                        : "hidden md:flex md:flex-1 md:flex-col md:min-w-0"
+                    }
+                  >
+                    <EditorPanel
+                      ref={panelRefs[2]}
+                      title="Bản Edit"
+                      emoji="✨"
+                      value={currentChapter.edited}
+                      onChange={(v) =>
+                        setCurrentChapter({ ...currentChapter, edited: v })
+                      }
+                      mode="edit"
+                      onScroll={() => handlePanelScroll(2)}
+                      placeholder="Bản edit hoàn chỉnh sẽ hiện ở đây..."
+                      extra={
+                        currentChapter.edited ? (
+                          <button
+                            onClick={() => setShowClearEdit(true)}
+                            className="text-xs px-2 py-1 rounded-lg bg-white/70 hover:bg-red-50 text-slate-500 hover:text-red-500 transition-colors border border-violet-100"
+                            title="Xóa toàn bộ bản edit"
+                          >
+                            🗑️ Xóa
+                          </button>
+                        ) : null
+                      }
+                    />
+                  </div>
+                )}
+              </div>
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center">

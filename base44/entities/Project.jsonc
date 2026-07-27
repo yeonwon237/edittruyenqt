@@ -102,6 +102,23 @@
         }
       },
       "default": []
+    },
+    "visible_columns": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "raw",
+          "qt",
+          "edited"
+        ]
+      },
+      "default": [
+        "raw",
+        "qt",
+        "edited"
+      ],
+      "title": "C\u1ed9t hi\u1ec3n th\u1ecb trong Workspace"
     }
   },
   "required": [
