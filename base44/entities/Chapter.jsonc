@@ -1,0 +1,33 @@
+{
+  "name": "Chapter",
+  "type": "object",
+  "properties": {
+    "project_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string",
+      "title": "T\u00ean ch\u01b0\u01a1ng"
+    },
+    "chapter_order": {
+      "type": "number",
+      "default": 0
+    },
+    "raw_original": {
+      "type": "string",
+      "title": "V\u0103n b\u1ea3n g\u1ed1c"
+    },
+    "qt_raw": {
+      "type": "string",
+      "title": "QT th\u00f4"
+    },
+    "edited": {
+      "type": "string",
+      "title": "B\u1ea3n edit"
+    }
+  },
+  "required": [
+    "project_id",
+    "title"
+  ]
+}

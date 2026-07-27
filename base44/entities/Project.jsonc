@@ -1,0 +1,80 @@
+{
+  "name": "Project",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "title": "T\u00ean b\u1ed9 truy\u1ec7n"
+    },
+    "description": {
+      "type": "string",
+      "title": "M\u00f4 t\u1ea3"
+    },
+    "source_language": {
+      "type": "string",
+      "default": "Trung",
+      "title": "Ng\u00f4n ng\u1eef g\u1ed1c"
+    },
+    "cover_emoji": {
+      "type": "string",
+      "default": "\ud83d\udcda"
+    },
+    "custom_field_definitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "default": []
+    },
+    "batch_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "find": {
+            "type": "string"
+          },
+          "replace": {
+            "type": "string"
+          }
+        }
+      },
+      "default": []
+    },
+    "pronoun_rules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "from_words": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "to_words": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "default": []
+    }
+  },
+  "required": [
+    "title"
+  ]
+}
