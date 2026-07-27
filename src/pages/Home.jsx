@@ -10,7 +10,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Plus, LogOut, BookOpen } from "lucide-react";
+import { Plus, LogOut, BookOpen, Settings as SettingsIcon } from "lucide-react";
 
 const EMOJIS = ["📚", "🌸", "⚔️", "👑", "💎", "🔥", "🌙", "❄️", "🌿", "🐉", "🦋", "🌹"];
 
@@ -65,7 +65,7 @@ export default function Home() {
         qt_raw: "",
         edited: "",
       });
-      toast({ title: "Đã tạo bộ truyện! 🌸" });
+      toast({ title: "Đã tạo bộ truyện! ✨" });
       navigate(`/workspace/${created.id}`);
     } catch (e) {
       toast({
@@ -81,27 +81,35 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50 to-fuchsia-50">
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/70 backdrop-blur-md border-b border-rose-100">
+      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-violet-100">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <span className="text-3xl">🌸</span>
+            <span className="text-3xl">📖</span>
             <div>
-              <h1 className="text-lg font-bold bg-gradient-to-r from-rose-500 to-pink-600 bg-clip-text text-transparent">
+              <h1 className="text-lg font-bold text-slate-800">
                 Trợ Lý Dịch Thuật & Edit QT
               </h1>
               <p className="text-xs text-slate-400">
-                Góc làm việc của dịch giả 💕
+                Không gian làm việc của dịch giả
               </p>
             </div>
           </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-500 text-sm font-medium transition-colors"
-          >
-            <LogOut className="w-4 h-4" /> Đăng xuất
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/settings")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 text-sm font-medium transition-colors"
+            >
+              <SettingsIcon className="w-4 h-4" /> Cài đặt
+            </button>
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-medium transition-colors"
+            >
+              <LogOut className="w-4 h-4" /> Đăng xuất
+            </button>
+          </div>
         </div>
       </header>
 
@@ -121,7 +129,7 @@ export default function Home() {
               });
               setShowCreate(true);
             }}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-rose-400 to-pink-500 text-white text-sm font-semibold shadow-sm hover:shadow-md transition-all"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-sm hover:shadow-md transition-all"
           >
             <Plus className="w-4 h-4" /> Tạo bộ truyện mới
           </button>
@@ -129,7 +137,7 @@ export default function Home() {
 
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="w-8 h-8 border-4 border-rose-200 border-t-rose-500 rounded-full animate-spin" />
+            <div className="w-8 h-8 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin" />
           </div>
         ) : projects.length === 0 ? (
           <div className="text-center py-20">
@@ -139,7 +147,7 @@ export default function Home() {
             </p>
             <button
               onClick={() => setShowCreate(true)}
-              className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-rose-400 to-pink-500 text-white font-semibold shadow-sm hover:shadow-md transition-all"
+              className="px-6 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-semibold shadow-sm hover:shadow-md transition-all"
             >
               ➕ Tạo bộ truyện
             </button>
@@ -150,21 +158,21 @@ export default function Home() {
               <button
                 key={proj.id}
                 onClick={() => navigate(`/workspace/${proj.id}`)}
-                className="group p-5 rounded-2xl bg-white/80 border border-rose-100 hover:border-rose-200 hover:shadow-lg transition-all text-left"
+                className="group p-5 rounded-2xl bg-white/80 border border-violet-100 hover:border-violet-300 hover:shadow-lg transition-all text-left"
               >
                 <div className="flex items-start justify-between mb-3">
                   <span className="text-4xl">{proj.cover_emoji || "📚"}</span>
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-rose-50 text-rose-500">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-violet-50 text-violet-600">
                     {proj.source_language || "Trung"}
                   </span>
                 </div>
-                <h3 className="font-bold text-slate-800 mb-1 group-hover:text-rose-500 transition-colors">
+                <h3 className="font-bold text-slate-800 mb-1 group-hover:text-violet-600 transition-colors">
                   {proj.title}
                 </h3>
                 <p className="text-sm text-slate-400 line-clamp-2 mb-3">
                   {proj.description || "Chưa có mô tả"}
                 </p>
-                <div className="flex items-center gap-1 text-xs text-rose-400 group-hover:text-rose-500 transition-colors">
+                <div className="flex items-center gap-1 text-xs text-violet-500 group-hover:text-violet-600 transition-colors">
                   <BookOpen className="w-3 h-3" /> Mở workspace →
                 </div>
               </button>
@@ -175,10 +183,10 @@ export default function Home() {
 
       {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-md rounded-2xl border-rose-100">
+        <DialogContent className="max-w-md rounded-2xl border-violet-100">
           <DialogHeader>
-            <DialogTitle className="text-rose-600">
-              🌸 Tạo bộ truyện mới
+            <DialogTitle className="text-violet-700">
+              📚 Tạo bộ truyện mới
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
@@ -190,7 +198,7 @@ export default function Home() {
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 placeholder="VD: Vũ Động Càn Khôn"
-                className="w-full px-3 py-2 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors"
                 autoFocus
               />
             </div>
@@ -205,7 +213,7 @@ export default function Home() {
                 }
                 placeholder="Mô tả ngắn về bộ truyện..."
                 rows={2}
-                className="w-full px-3 py-2 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300 resize-none"
+                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors resize-none"
               />
             </div>
             <div>
@@ -217,7 +225,7 @@ export default function Home() {
                 onChange={(e) =>
                   setForm({ ...form, source_language: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 transition-colors"
               >
                 <option value="Trung">Trung</option>
                 <option value="Anh">Anh</option>
@@ -234,7 +242,7 @@ export default function Home() {
                   <button
                     key={emoji}
                     onClick={() => setForm({ ...form, cover_emoji: emoji })}
-                    className={`w-10 h-10 rounded-xl text-xl transition-all ${form.cover_emoji === emoji ? "bg-rose-100 ring-2 ring-rose-300" : "bg-rose-50 hover:bg-rose-100"}`}
+                    className={`w-10 h-10 rounded-xl text-xl transition-all ${form.cover_emoji === emoji ? "bg-violet-100 ring-2 ring-violet-400" : "bg-violet-50 hover:bg-violet-100"}`}
                   >
                     {emoji}
                   </button>
@@ -249,7 +257,7 @@ export default function Home() {
             <Button
               onClick={handleCreate}
               disabled={!form.title.trim()}
-              className="bg-gradient-to-r from-rose-400 to-pink-500 hover:from-rose-500 hover:to-pink-600 text-white border-0"
+              className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
             >
               Tạo mới
             </Button>

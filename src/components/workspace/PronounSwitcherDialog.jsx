@@ -66,7 +66,7 @@ export default function PronounSwitcherDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg rounded-2xl border-rose-100">
+      <DialogContent className="max-w-lg rounded-2xl border-violet-100">
         <DialogHeader>
           <DialogTitle className="text-violet-600 flex items-center gap-2">
             👥 Đổi đại từ xưng hô

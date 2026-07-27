@@ -1,6 +1,9 @@
-import { useState } from "react";
-import { Search, Plus, Pencil, Trash2 } from "lucide-react";
+import { useState, useRef } from "react";
+import { Search, Plus, Pencil, Trash2, Upload, Download } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
 import { CATEGORY_STYLES, CATEGORY_EMOJI, CATEGORIES } from "@/lib/highlight";
+import { parseGlossaryFile } from "@/lib/importGlossary";
+import { exportGlossaryJson } from "@/lib/exportUtils";
 
 export default function GlossarySidebar({
   terms,
@@ -8,9 +11,12 @@ export default function GlossarySidebar({
   onAddTerm,
   onEditTerm,
   onDeleteTerm,
+  onImportTerms,
 }) {
+  const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
+  const fileInputRef = useRef(null);
 
   const filtered = terms.filter((t) => {
     const matchSearch =
@@ -22,10 +28,47 @@ export default function GlossarySidebar({
     return matchSearch && matchCategory;
   });
 
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = parseGlossaryFile(text, file.name);
+      if (parsed.length === 0) {
+        toast({
+          title: "File không có thuật ngữ hợp lệ",
+          variant: "destructive",
+        });
+        return;
+      }
+      onImportTerms(parsed);
+    } catch (err) {
+      toast({
+        title: "Lỗi nhập file",
+        description: err.message,
+        variant: "destructive",
+      });
+    }
+    e.target.value = "";
+  };
+
+  const handleExport = () => {
+    if (terms.length === 0) {
+      toast({ title: "Chưa có thuật ngữ để xuất", variant: "destructive" });
+      return;
+    }
+    exportGlossaryJson(
+      terms,
+      project,
+      `${project?.title || "Glossary"} - Từ điển`
+    );
+    toast({ title: "Đã xuất từ điển 📤" });
+  };
+
   return (
-    <aside className="w-[280px] shrink-0 flex flex-col border-r border-rose-100 bg-white/50 backdrop-blur">
+    <aside className="w-[280px] shrink-0 flex flex-col border-r border-violet-100 bg-white/60 backdrop-blur">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-rose-100">
+      <div className="px-4 py-3 border-b border-violet-100">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
             📖 Từ điển
@@ -33,29 +76,53 @@ export default function GlossarySidebar({
               ({terms.length})
             </span>
           </h2>
-          <button
-            onClick={onAddTerm}
-            className="p-1.5 rounded-lg bg-rose-100 hover:bg-rose-200 text-rose-600 transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex gap-1">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
+              title="Nhập từ điển (JSON/CSV)"
+            >
+              <Upload className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleExport}
+              className="p-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
+              title="Xuất từ điển (JSON)"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onAddTerm}
+              className="p-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-violet-600 transition-colors"
+              title="Thêm thuật ngữ"
+            >
+              <Plus className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json,.csv,.tsv"
+          onChange={handleFileChange}
+          className="hidden"
+        />
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-300" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Tìm thuật ngữ..."
-            className="w-full pl-8 pr-3 py-1.5 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+            className="w-full pl-8 pr-3 py-1.5 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-300"
           />
         </div>
       </div>
 
       {/* Category tabs */}
-      <div className="flex gap-1 px-3 py-2 overflow-x-auto cute-scrollbar border-b border-rose-100">
+      <div className="flex gap-1 px-3 py-2 overflow-x-auto cute-scrollbar border-b border-violet-100">
         <button
           onClick={() => setActiveCategory("all")}
-          className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${activeCategory === "all" ? "bg-rose-400 text-white" : "bg-rose-50 text-slate-500 hover:bg-rose-100"}`}
+          className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${activeCategory === "all" ? "bg-violet-600 text-white" : "bg-violet-50 text-slate-500 hover:bg-violet-100"}`}
         >
           Tất cả
         </button>
@@ -63,7 +130,7 @@ export default function GlossarySidebar({
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
-            className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${activeCategory === cat ? "bg-rose-400 text-white" : "bg-rose-50 text-slate-500 hover:bg-rose-100"}`}
+            className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${activeCategory === cat ? "bg-violet-600 text-white" : "bg-violet-50 text-slate-500 hover:bg-violet-100"}`}
           >
             {CATEGORY_EMOJI[cat]} {cat}
           </button>
@@ -74,11 +141,11 @@ export default function GlossarySidebar({
       <div className="flex-1 overflow-y-auto cute-scrollbar p-3 space-y-2">
         {filtered.length === 0 ? (
           <div className="text-center py-8 text-slate-400 text-sm">
-            <p className="text-3xl mb-2">🌸</p>
+            <p className="text-3xl mb-2">📖</p>
             <p>Chưa có thuật ngữ nào</p>
             <button
               onClick={onAddTerm}
-              className="mt-2 text-rose-500 text-xs hover:underline"
+              className="mt-2 text-violet-600 text-xs hover:underline"
             >
               + Thêm thuật ngữ đầu tiên
             </button>
@@ -87,21 +154,21 @@ export default function GlossarySidebar({
           filtered.map((term) => (
             <div
               key={term.id}
-              className="group p-3 rounded-xl bg-white/80 border border-rose-100 hover:border-rose-200 hover:shadow-sm transition-all"
+              className="group p-3 rounded-xl bg-white/80 border border-violet-100 hover:border-violet-200 hover:shadow-sm transition-all"
             >
               <div className="flex items-start justify-between gap-2 mb-1">
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-800 truncate">
                     {term.source_term}
                   </p>
-                  <p className="text-sm text-rose-500 truncate">
+                  <p className="text-sm text-violet-600 truncate">
                     {term.translation}
                   </p>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => onEditTerm(term)}
-                    className="p-1 rounded-md hover:bg-rose-50 text-slate-400 hover:text-rose-500"
+                    className="p-1 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600"
                   >
                     <Pencil className="w-3 h-3" />
                   </button>

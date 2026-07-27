@@ -9,10 +9,14 @@ import GlossaryTermForm from "@/components/glossary/GlossaryTermForm";
 import BatchReplaceDialog from "@/components/workspace/BatchReplaceDialog";
 import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog";
 import { exportAsTxt, exportAsDoc, exportGlossaryJson } from "@/lib/exportUtils";
+import { callGemini, hasGeminiKey } from "@/lib/gemini";
+import ClearEditDialog from "@/components/workspace/ClearEditDialog";
 import { Loader2, ArrowLeft, Plus, LogOut } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 export default function Workspace() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
   const { toast } = useToast();
 
   const [project, setProject] = useState(null);
@@ -32,6 +36,8 @@ export default function Workspace() {
   const [prefillTerm, setPrefillTerm] = useState("");
   const [showBatchReplace, setShowBatchReplace] = useState(false);
   const [showPronoun, setShowPronoun] = useState(false);
+  const [showClearEdit, setShowClearEdit] = useState(false);
+  const [geminiEditing, setGeminiEditing] = useState(false);
   const [pronounSelection, setPronounSelection] = useState({
     text: "",
     start: 0,
@@ -359,6 +365,97 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     setAiEditing(false);
   };
 
+  // Gemini AI auto-edit (custom API key)
+  const handleGeminiEdit = async () => {
+    if (!currentChapter) {
+      toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
+      return;
+    }
+    const sourceText =
+      currentChapter.qt_raw || currentChapter.raw_original || "";
+    if (!sourceText.trim()) {
+      toast({
+        title: "Không có văn bản để edit!",
+        variant: "destructive",
+      });
+      return;
+    }
+    setGeminiEditing(true);
+    try {
+      const glossaryText = glossaryTerms
+        .map((t) => `- "${t.source_term}" → "${t.translation}"`)
+        .join("\n");
+      const batchRulesText = (project?.batch_rules || [])
+        .filter((r) => r.find)
+        .map((r) => `- Thay "${r.find}" bằng "${r.replace}"`)
+        .join("\n");
+      const prompt = `Bạn là trợ lý biên tập truyện dịch chuyên nghiệp, chuyên edit truyện Convert/QT. Hãy biên tập văn bản QT thô sau đây thành văn phong tiếng Việt mượt mà, tự nhiên, thoát ý, giữ đúng cảm xúc và ý nghĩa gốc.
+
+QUY TẮC BẮT BUỘC:
+1. PHẢI tuân thủ 100% các thuật ngữ trong Glossary. Nếu gặp từ gốc trong glossary, bắt buộc dùng bản dịch tương ứng.
+2. Áp dụng các quy tắc thay thế nếu có.
+3. Sửa câu cưỡng ép, ngữ pháp lủng củng, lặp từ. Diễn đạt lại cho mượt mà nhưng giữ nguyên ý.
+4. Giữ nguyên các đoạn hội thoại trong ngoặc kép.
+5. KHÔNG thêm giải thích, ghi chú, hay tiêu đề. Chỉ xuất văn bản đã biên tập.
+
+GLOSSARY (TUÂN THỦ 100%):
+${glossaryText || "(trống)"}
+
+QUY TẮC THAY THẾ:
+${batchRulesText || "(không có)"}
+
+VĂN BẢN CẦN BIÊN TẬP:
+${sourceText}
+
+Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt hoàn chỉnh:`;
+
+      const editedText = await callGemini(prompt);
+      setCurrentChapter({ ...currentChapter, edited: editedText });
+      toast({
+        title: "Gemini đã edit xong! ✨",
+        description: "Kiểm tra và chỉnh thêm nhé",
+      });
+    } catch (e) {
+      toast({
+        title: "Lỗi Gemini",
+        description: e.message,
+        variant: "destructive",
+      });
+    }
+    setGeminiEditing(false);
+  };
+
+  // Clear Edit (with confirm)
+  const handleClearEdit = () => {
+    setCurrentChapter({ ...currentChapter, edited: "" });
+    setShowClearEdit(false);
+    toast({ title: "Đã xóa bản edit 🗑️" });
+  };
+
+  // Import glossary terms (bulk create)
+  const handleImportTerms = async (terms) => {
+    try {
+      const withProjectId = terms.map((t) => ({
+        ...t,
+        project_id: projectId,
+      }));
+      let created = [];
+      for (let i = 0; i < withProjectId.length; i += 500) {
+        const batch = withProjectId.slice(i, i + 500);
+        const result = await base44.entities.GlossaryTerm.bulkCreate(batch);
+        created = created.concat(result);
+      }
+      setGlossaryTerms((prev) => [...created, ...prev]);
+      toast({ title: `Đã nhập ${created.length} thuật ngữ! 📥` });
+    } catch (e) {
+      toast({
+        title: "Lỗi nhập từ điển",
+        description: e.message,
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleCreateChapter = async () => {
     try {
       const order = chapters.length;
@@ -422,18 +519,18 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-rose-50 to-pink-50">
-        <Loader2 className="w-8 h-8 animate-spin text-rose-400" />
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50">
+        <Loader2 className="w-8 h-8 animate-spin text-violet-600" />
       </div>
     );
   }
 
   if (!project) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-rose-50 to-pink-50">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50">
         <div className="text-center">
           <p className="text-slate-500 mb-4">Không tìm thấy dự án</p>
-          <Link to="/" className="text-rose-500 hover:underline">
+          <Link to="/" className="text-violet-600 hover:underline">
             ← Về trang chủ
           </Link>
         </div>
@@ -442,13 +539,13 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-rose-50 via-pink-50 to-fuchsia-50 flex flex-col">
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 to-indigo-50 flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-rose-100">
+      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-violet-100">
         <div className="flex items-center gap-3 px-4 py-2.5">
           <Link
             to="/"
-            className="p-2 rounded-xl hover:bg-rose-50 text-slate-500 transition-colors"
+            className="p-2 rounded-xl hover:bg-violet-50 text-slate-500 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
@@ -470,7 +567,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
           <select
             value={currentChapter?.id || ""}
             onChange={(e) => switchChapter(e.target.value)}
-            className="text-sm px-3 py-1.5 rounded-xl border border-rose-100 bg-white/70 text-slate-700 focus:outline-none focus:border-rose-300 max-w-[180px]"
+            className="text-sm px-3 py-1.5 rounded-xl border border-violet-100 bg-white/70 text-slate-700 focus:outline-none focus:border-violet-400 max-w-[180px]"
           >
             {chapters.map((ch) => (
               <option key={ch.id} value={ch.id}>
@@ -480,7 +577,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
           </select>
           <button
             onClick={handleCreateChapter}
-            className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-500 transition-colors"
+            className="p-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
             title="Tạo chương mới"
           >
             <Plus className="w-4 h-4" />
@@ -493,19 +590,19 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
           <div className="flex items-center gap-1">
             <button
               onClick={() => handleExport("txt")}
-              className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-rose-100 text-slate-600 transition-colors"
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-violet-100 text-slate-600 transition-colors"
             >
               📄 Txt
             </button>
             <button
               onClick={() => handleExport("doc")}
-              className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-rose-100 text-slate-600 transition-colors"
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-violet-100 text-slate-600 transition-colors"
             >
               📝 Doc
             </button>
             <button
               onClick={() => handleExport("json")}
-              className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-rose-100 text-slate-600 transition-colors"
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-violet-100 text-slate-600 transition-colors"
             >
               📋 JSON
             </button>
@@ -513,7 +610,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
 
           <button
             onClick={handleLogout}
-            className="p-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-500 transition-colors"
+            className="p-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
             title="Đăng xuất"
           >
             <LogOut className="w-4 h-4" />
@@ -530,6 +627,10 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
         onPronounSwitcher={handleOpenPronoun}
         onAutoEdit={handleAutoEdit}
         aiEditing={aiEditing}
+        onGeminiEdit={handleGeminiEdit}
+        geminiEditing={geminiEditing}
+        hasGeminiKey={hasGeminiKey()}
+        onOpenSettings={() => navigate("/settings")}
         onToggleSidebar={() => setShowSidebar(!showSidebar)}
       />
 
@@ -550,6 +651,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
               setShowGlossaryForm(true);
             }}
             onDeleteTerm={handleDeleteTerm}
+            onImportTerms={handleImportTerms}
           />
         )}
         <div className="flex-1 flex gap-2 p-3 min-w-0">
@@ -602,13 +704,24 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
                 mode="edit"
                 onScroll={() => handlePanelScroll(viewMode === "3col" ? 2 : 1)}
                 placeholder="Bản edit hoàn chỉnh sẽ hiện ở đây..."
+                extra={
+                  currentChapter.edited ? (
+                    <button
+                      onClick={() => setShowClearEdit(true)}
+                      className="text-xs px-2 py-1 rounded-lg bg-white/70 hover:bg-red-50 text-slate-500 hover:text-red-500 transition-colors border border-violet-100"
+                      title="Xóa toàn bộ bản edit"
+                    >
+                      🗑️ Xóa
+                    </button>
+                  ) : null
+                }
               />
             </>
           ) : (
             <div className="flex-1 flex items-center justify-center">
               <button
                 onClick={handleCreateChapter}
-                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-rose-400 to-pink-500 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
+                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-violet-500 to-indigo-600 text-white font-semibold shadow-lg hover:shadow-xl transition-all"
               >
                 ➕ Tạo chương đầu tiên
               </button>
@@ -641,6 +754,11 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
         onUpdateProject={handleUpdateProject}
         onApply={handleApplyPronounRule}
         selectedText={pronounSelection.text}
+      />
+      <ClearEditDialog
+        open={showClearEdit}
+        onOpenChange={setShowClearEdit}
+        onConfirm={handleClearEdit}
       />
     </div>
   );

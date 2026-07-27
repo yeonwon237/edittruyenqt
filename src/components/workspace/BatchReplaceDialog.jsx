@@ -48,7 +48,7 @@ export default function BatchReplaceDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg rounded-2xl border-rose-100">
+      <DialogContent className="max-w-lg rounded-2xl border-violet-100">
         <DialogHeader>
           <DialogTitle className="text-amber-600 flex items-center gap-2">
             🔄 Thay thế hàng loạt
@@ -73,14 +73,14 @@ export default function BatchReplaceDialog({
                 value={rule.find}
                 onChange={(e) => updateRule(i, "find", e.target.value)}
                 placeholder="Từ cần thay"
-                className="flex-1 px-3 py-1.5 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+                className="flex-1 px-3 py-1.5 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
               />
               <span className="text-slate-300 text-xs">→</span>
               <input
                 value={rule.replace}
                 onChange={(e) => updateRule(i, "replace", e.target.value)}
                 placeholder="Thay bằng"
-                className="flex-1 px-3 py-1.5 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+                className="flex-1 px-3 py-1.5 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
               />
               <button
                 onClick={() => removeRule(i)}
@@ -93,19 +93,19 @@ export default function BatchReplaceDialog({
 
           <button
             onClick={addRule}
-            className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600"
+            className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-700"
           >
             <Plus className="w-3.5 h-3.5" /> Thêm quy tắc
           </button>
 
-          <div className="pt-2 border-t border-rose-100">
+          <div className="pt-2 border-t border-violet-100">
             <label className="text-xs font-medium text-slate-500 mb-1 block">
               Áp dụng vào cột
             </label>
             <select
               value={target}
               onChange={(e) => setTarget(e.target.value)}
-              className="px-3 py-1.5 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+              className="px-3 py-1.5 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
             >
               <option value="edited">Cột 3: Bản Edit</option>
               <option value="qt_raw">Cột 2: QT thô</option>

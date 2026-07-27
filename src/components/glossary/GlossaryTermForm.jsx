@@ -95,9 +95,9 @@ export default function GlossaryTermForm({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md rounded-2xl border-rose-100">
+      <DialogContent className="max-w-md rounded-2xl border-violet-100">
         <DialogHeader>
-          <DialogTitle className="text-rose-600 flex items-center gap-2">
+          <DialogTitle className="text-violet-700 flex items-center gap-2">
             {editingTerm ? "✏️ Sửa thuật ngữ" : "🌸 Thêm thuật ngữ mới"}
           </DialogTitle>
         </DialogHeader>
@@ -113,7 +113,7 @@ export default function GlossaryTermForm({
                 setForm({ ...form, source_term: e.target.value })
               }
               placeholder="VD: 林动"
-              className="w-full px-3 py-2 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+              className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
             />
           </div>
 
@@ -127,7 +127,7 @@ export default function GlossaryTermForm({
                 setForm({ ...form, translation: e.target.value })
               }
               placeholder="VD: Lâm Động"
-              className="w-full px-3 py-2 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+              className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
             />
           </div>
 
@@ -138,7 +138,7 @@ export default function GlossaryTermForm({
             <select
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
-              className="w-full px-3 py-2 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+              className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
             >
               {CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
@@ -157,7 +157,7 @@ export default function GlossaryTermForm({
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               placeholder="Ghi chú thêm về thuật ngữ này..."
               rows={2}
-              className="w-full px-3 py-2 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300 resize-none"
+              className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400 resize-none"
             />
           </div>
 
@@ -169,14 +169,14 @@ export default function GlossaryTermForm({
               </label>
               <button
                 onClick={() => setShowFieldManager(!showFieldManager)}
-                className="flex items-center gap-1 text-xs text-rose-500 hover:text-rose-600"
+                className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-700"
               >
                 <Pencil className="w-3 h-3" /> Quản lý trường
               </button>
             </div>
 
             {showFieldManager && (
-              <div className="mb-3 p-3 rounded-xl bg-rose-50/50 border border-rose-100 space-y-2">
+              <div className="mb-3 p-3 rounded-xl bg-violet-50/50 border border-violet-100 space-y-2">
                 {fieldDefs.length === 0 && (
                   <p className="text-xs text-slate-400 text-center py-2">
                     Chưa có trường tùy chỉnh nào
@@ -207,7 +207,7 @@ export default function GlossaryTermForm({
                           );
                         }
                       }}
-                      className="flex-1 px-2 py-1 text-xs rounded-lg border border-rose-100 bg-white focus:outline-none focus:border-rose-300"
+                      className="flex-1 px-2 py-1 text-xs rounded-lg border border-violet-100 bg-white focus:outline-none focus:border-violet-400"
                     />
                     <button
                       onClick={() => handleDeleteField(field.name)}
@@ -217,17 +217,17 @@ export default function GlossaryTermForm({
                     </button>
                   </div>
                 ))}
-                <div className="flex items-center gap-2 pt-1 border-t border-rose-100">
+                <div className="flex items-center gap-2 pt-1 border-t border-violet-100">
                   <input
                     value={newFieldLabel}
                     onChange={(e) => setNewFieldLabel(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleAddField()}
                     placeholder="Tên trường mới..."
-                    className="flex-1 px-2 py-1 text-xs rounded-lg border border-rose-100 bg-white focus:outline-none focus:border-rose-300"
+                    className="flex-1 px-2 py-1 text-xs rounded-lg border border-violet-100 bg-white focus:outline-none focus:border-violet-400"
                   />
                   <button
                     onClick={handleAddField}
-                    className="p-1 rounded-md bg-rose-100 hover:bg-rose-200 text-rose-600"
+                    className="p-1 rounded-md bg-violet-100 hover:bg-violet-200 text-violet-700"
                   >
                     <Plus className="w-3 h-3" />
                   </button>
@@ -251,7 +251,7 @@ export default function GlossaryTermForm({
                       },
                     })
                   }
-                  className="w-full px-3 py-1.5 text-sm rounded-xl border border-rose-100 bg-white/70 focus:outline-none focus:border-rose-300"
+                  className="w-full px-3 py-1.5 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
                 />
               </div>
             ))}
@@ -265,7 +265,7 @@ export default function GlossaryTermForm({
           <Button
             onClick={handleSubmit}
             disabled={!form.source_term.trim() || !form.translation.trim()}
-            className="bg-gradient-to-r from-rose-400 to-pink-500 hover:from-rose-500 hover:to-pink-600 text-white border-0"
+            className="bg-gradient-to-r from-violet-500 to-indigo-600 hover:from-violet-600 hover:to-indigo-700 text-white border-0"
           >
             {editingTerm ? "Cập nhật" : "Thêm mới"}
           </Button>
