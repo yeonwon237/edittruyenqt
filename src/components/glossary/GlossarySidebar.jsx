@@ -12,6 +12,7 @@ export default function GlossarySidebar({
   onEditTerm,
   onDeleteTerm,
   onImportTerms,
+  onOpenContextualPronoun,
 }) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -116,6 +117,19 @@ export default function GlossarySidebar({
             className="w-full pl-8 pr-3 py-1.5 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-300"
           />
         </div>
+        <button
+          onClick={onOpenContextualPronoun}
+          className="mt-2 w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-100 transition-colors"
+          title="Quản lý ma trận xưng hô theo nhân vật"
+        >
+          🗣️ Ma Trận Xưng Hô
+          <span className="ml-auto text-[10px] text-violet-400 font-normal">
+            {Array.isArray(project?.contextual_pronoun_rules)
+              ? project.contextual_pronoun_rules.length
+              : 0}{" "}
+            quy tắc
+          </span>
+        </button>
       </div>
 
       {/* Category tabs */}

@@ -72,6 +72,36 @@
         }
       },
       "default": []
+    },
+    "contextual_pronoun_rules": {
+      "type": "array",
+      "title": "Ma tr\u1eadn X\u01b0ng h\u00f4 theo ng\u1eef c\u1ea3nh",
+      "items": {
+        "type": "object",
+        "properties": {
+          "speaker": {
+            "type": "string",
+            "title": "Ng\u01b0\u1eddi n\u00f3i (Nh\u00e2n v\u1eadt)"
+          },
+          "listener": {
+            "type": "string",
+            "title": "Ng\u01b0\u1eddi nghe (* = t\u1ea5t c\u1ea3 m\u1ecdi ng\u01b0\u1eddi)"
+          },
+          "self_word": {
+            "type": "string",
+            "title": "C\u00e1ch x\u01b0ng (x\u01b0ng l\u00e0)"
+          },
+          "target_word": {
+            "type": "string",
+            "title": "C\u00e1ch g\u1ecdi \u0111\u1ed1i ph\u01b0\u01a1ng"
+          },
+          "note": {
+            "type": "string",
+            "title": "Ghi ch\u00fa"
+          }
+        }
+      },
+      "default": []
     }
   },
   "required": [

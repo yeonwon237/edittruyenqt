@@ -11,6 +11,8 @@ import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog"
 import { exportAsTxt, exportAsDoc, exportGlossaryJson } from "@/lib/exportUtils";
 import { callGemini, hasGeminiKey } from "@/lib/gemini";
 import ClearEditDialog from "@/components/workspace/ClearEditDialog";
+import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
+import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
 import { Loader2, ArrowLeft, Plus, LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -37,6 +39,7 @@ export default function Workspace() {
   const [showBatchReplace, setShowBatchReplace] = useState(false);
   const [showPronoun, setShowPronoun] = useState(false);
   const [showClearEdit, setShowClearEdit] = useState(false);
+  const [showContextualPronoun, setShowContextualPronoun] = useState(false);
   const [geminiEditing, setGeminiEditing] = useState(false);
   const [pronounSelection, setPronounSelection] = useState({
     text: "",
@@ -389,6 +392,9 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
         .filter((r) => r.find)
         .map((r) => `- Thay "${r.find}" bằng "${r.replace}"`)
         .join("\n");
+      const pronounMatrixText = buildPronounMatrixPrompt(
+        project?.contextual_pronoun_rules || []
+      );
       const prompt = `Bạn là trợ lý biên tập truyện dịch chuyên nghiệp, chuyên edit truyện Convert/QT. Hãy biên tập văn bản QT thô sau đây thành văn phong tiếng Việt mượt mà, tự nhiên, thoát ý, giữ đúng cảm xúc và ý nghĩa gốc.
 
 QUY TẮC BẮT BUỘC:
@@ -397,12 +403,16 @@ QUY TẮC BẮT BUỘC:
 3. Sửa câu cưỡng ép, ngữ pháp lủng củng, lặp từ. Diễn đạt lại cho mượt mà nhưng giữ nguyên ý.
 4. Giữ nguyên các đoạn hội thoại trong ngoặc kép.
 5. KHÔNG thêm giải thích, ghi chú, hay tiêu đề. Chỉ xuất văn bản đã biên tập.
+6. ĐẶC BIỆT: Tự động nhận diện NGƯỜI NÓI và NGƯỜI NGHE trong từng câu hội thoại (dựa tên nhân vật, bối cảnh đoạn hội thoại, sở hữu cách câu nói, ngôi kể). Chọn đúng MA TRẬN XƯNG HÔ phù hợp với cặp người nói ↔ người nghe trong đoạn đó. Nếu câu thoại không quy định đặc biệt cho người nghe cụ thể, dùng quy tắc MẬC ĐỊNH của nhân vật nói. Tuyệt đối không viết sai cách xưng hô của nhân vật.
 
 GLOSSARY (TUÂN THỦ 100%):
 ${glossaryText || "(trống)"}
 
 QUY TẮC THAY THẾ:
 ${batchRulesText || "(không có)"}
+
+MA TRẬN XƯNG HÔ THEO NGỮ CẢNH (AI tự nhận diện người nói ↔ người nghe, áp dụng chính xác đại từ):
+${pronounMatrixText || "(không có quy tắc cụ thể — dùng ngữ cảm tự nhiên theo văn bản gốc)"}
 
 VĂN BẢN CẦN BIÊN TẬP:
 ${sourceText}
@@ -652,6 +662,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
             }}
             onDeleteTerm={handleDeleteTerm}
             onImportTerms={handleImportTerms}
+            onOpenContextualPronoun={() => setShowContextualPronoun(true)}
           />
         )}
         <div className="flex-1 flex gap-2 p-3 min-w-0">
@@ -759,6 +770,12 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
         open={showClearEdit}
         onOpenChange={setShowClearEdit}
         onConfirm={handleClearEdit}
+      />
+      <ContextualPronounDialog
+        open={showContextualPronoun}
+        onOpenChange={setShowContextualPronoun}
+        project={project}
+        onUpdateProject={handleUpdateProject}
       />
     </div>
   );
