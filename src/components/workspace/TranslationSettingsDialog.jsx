@@ -59,11 +59,13 @@ export default function TranslationSettingsDialog({
   const [toggles, setToggles] = useState(styleToggles || {});
   const [saving, setSaving] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
+  const [suggestion, setSuggestion] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     if (!open) return;
     setToggles(styleToggles || {});
+    setSuggestion(null);
     const initialId = activePresetId || "";
     setSelectedId(initialId);
     const preset = (presets || []).find((p) => p.id === initialId);
@@ -73,6 +75,7 @@ export default function TranslationSettingsDialog({
 
   const handleSelectChange = (id) => {
     setSelectedId(id);
+    setSuggestion(null);
     onSelectPreset(id || null);
     const preset = (presets || []).find((p) => p.id === id);
     setForm(formFromPreset(preset));
@@ -80,6 +83,7 @@ export default function TranslationSettingsDialog({
 
   const handleNewPreset = () => {
     setSelectedId("");
+    setSuggestion(null);
     onSelectPreset(null);
     setForm(EMPTY_FORM);
   };
@@ -102,29 +106,49 @@ export default function TranslationSettingsDialog({
   const removeCharNote = (i) =>
     setForm((prev) => ({ ...prev, character_notes: prev.character_notes.filter((_, idx) => idx !== i) }));
 
-  // Fills in whichever fields are still empty from an AI read of the current
-  // chapter — never overwrites something the user already wrote, so it's
-  // safe to click even after starting to fill the form by hand.
+  // Reads the current chapter via AI and shows what it proposes for each
+  // field below — nothing is written into the form automatically. Each
+  // suggested field has its own "Dùng gợi ý này" button so the user can see
+  // exactly what the AI thinks the writing style should be (the whole point
+  // of this feature) and decide per field, even overwriting something
+  // already filled in — a silent "only fill empty fields" version of this
+  // hid the style suggestion whenever the field already had any text.
   const handleSuggest = async () => {
     if (!onSuggestPreset) return;
     setSuggesting(true);
+    setSuggestion(null);
     try {
-      const suggestion = await onSuggestPreset();
-      if (!suggestion) return;
-      setForm((prev) => ({
-        ...prev,
-        genres: prev.genres.length ? prev.genres : suggestion.genres,
-        setting_era: prev.setting_era.trim() ? prev.setting_era : suggestion.setting_era,
-        character_notes: prev.character_notes.length ? prev.character_notes : suggestion.character_notes,
-        prompt_instructions: prev.prompt_instructions.trim()
-          ? prev.prompt_instructions
-          : suggestion.prompt_instructions,
-      }));
-      toast({ title: "Đã điền gợi ý từ AI ✨", description: "Xem lại rồi bấm Lưu nhé, có thể sửa lại tùy ý." });
+      const result = await onSuggestPreset();
+      if (!result) return;
+      const isEmpty =
+        result.genres.length === 0 &&
+        !result.setting_era &&
+        result.character_notes.length === 0 &&
+        !result.prompt_instructions;
+      if (isEmpty) {
+        toast({
+          title: "AI không đủ căn cứ để gợi ý",
+          description: "Thử với chương có nhiều nội dung hơn, hoặc tự điền tay.",
+        });
+        return;
+      }
+      setSuggestion(result);
     } finally {
       setSuggesting(false);
     }
   };
+
+  const applyGenres = () => setForm((prev) => ({ ...prev, genres: suggestion.genres }));
+  const applyEra = () => setForm((prev) => ({ ...prev, setting_era: suggestion.setting_era }));
+  const applyStyle = () => setForm((prev) => ({ ...prev, prompt_instructions: suggestion.prompt_instructions }));
+  const applyCharNotes = () =>
+    setForm((prev) => {
+      const existingNames = new Set(prev.character_notes.map((n) => n.character.trim().toLowerCase()));
+      const toAdd = suggestion.character_notes.filter(
+        (n) => !existingNames.has(n.character.trim().toLowerCase())
+      );
+      return { ...prev, character_notes: [...prev.character_notes, ...toAdd] };
+    });
 
   const updateRule = (i, field, value) => {
     setForm((prev) => ({
@@ -210,7 +234,7 @@ export default function TranslationSettingsDialog({
                   onClick={handleSuggest}
                   disabled={suggesting}
                   className="w-full flex items-center justify-center gap-1.5 mb-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-violet-50 to-pink-50 hover:from-violet-100 hover:to-pink-100 text-violet-700 text-xs font-medium border border-violet-100 transition-colors disabled:opacity-50"
-                  title="AI đọc chương hiện tại để gợi ý Thể loại / Bối cảnh / Ghi chú nhân vật / Văn phong — chỉ điền vào ô đang trống, không đè lên gì bạn đã viết"
+                  title="AI đọc chương hiện tại để gợi ý Thể loại / Bối cảnh / Ghi chú nhân vật / Văn phong — bạn xem qua rồi tự chọn áp dụng mục nào"
                 >
                   {suggesting ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -219,6 +243,89 @@ export default function TranslationSettingsDialog({
                   )}
                   {suggesting ? "Đang phân tích chương..." : "Gợi ý preset bằng AI (từ chương đang mở)"}
                 </button>
+              )}
+
+              {suggestion && (
+                <div className="mb-2 rounded-xl border border-pink-200 bg-pink-50/50 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-pink-700">✨ AI gợi ý — xem rồi chọn áp dụng</p>
+                    <button
+                      onClick={() => setSuggestion(null)}
+                      className="text-[11px] text-slate-400 hover:text-slate-600"
+                    >
+                      Ẩn gợi ý
+                    </button>
+                  </div>
+
+                  {suggestion.genres.length > 0 && (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-xs text-slate-600">
+                        <span className="font-medium text-slate-700">Thể loại: </span>
+                        {suggestion.genres.join(", ")}
+                      </div>
+                      <button
+                        onClick={applyGenres}
+                        className="shrink-0 text-[11px] px-2 py-1 rounded-lg bg-white border border-pink-200 text-pink-600 hover:bg-pink-100"
+                      >
+                        Dùng
+                      </button>
+                    </div>
+                  )}
+
+                  {suggestion.setting_era && (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-xs text-slate-600">
+                        <span className="font-medium text-slate-700">Bối cảnh: </span>
+                        {suggestion.setting_era}
+                      </div>
+                      <button
+                        onClick={applyEra}
+                        className="shrink-0 text-[11px] px-2 py-1 rounded-lg bg-white border border-pink-200 text-pink-600 hover:bg-pink-100"
+                      >
+                        Dùng
+                      </button>
+                    </div>
+                  )}
+
+                  {suggestion.character_notes.length > 0 && (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-xs text-slate-600 space-y-0.5">
+                        <span className="font-medium text-slate-700">Ghi chú nhân vật:</span>
+                        {suggestion.character_notes.map((n, i) => (
+                          <p key={i}>
+                            <span className="font-medium">{n.character}</span>: {n.note}
+                          </p>
+                        ))}
+                      </div>
+                      <button
+                        onClick={applyCharNotes}
+                        className="shrink-0 text-[11px] px-2 py-1 rounded-lg bg-white border border-pink-200 text-pink-600 hover:bg-pink-100"
+                      >
+                        Thêm vào
+                      </button>
+                    </div>
+                  )}
+
+                  {suggestion.prompt_instructions && (
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="text-xs text-slate-600">
+                        <span className="font-medium text-slate-700">Văn phong / nguyên tắc dịch: </span>
+                        {suggestion.prompt_instructions}
+                      </div>
+                      <button
+                        onClick={applyStyle}
+                        className="shrink-0 text-[11px] px-2 py-1 rounded-lg bg-white border border-pink-200 text-pink-600 hover:bg-pink-100"
+                        title={
+                          form.prompt_instructions.trim()
+                            ? "Sẽ THAY THẾ nội dung Văn phong hiện tại"
+                            : "Điền vào ô Văn phong"
+                        }
+                      >
+                        Dùng
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
 
               <div className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/40 p-3">
