@@ -9,9 +9,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
-import { Plus, Trash2, Save } from "lucide-react";
+import { Plus, Trash2, Save, Sparkles, Loader2 } from "lucide-react";
+import { useToast } from "@/components/ui/use-toast";
 
-const GENRE_OPTIONS = [
+export const GENRE_OPTIONS = [
   "Tiên hiệp", "Huyền huyễn", "Đô thị", "Cổ trang", "Ngôn tình", "Bách hợp",
   "Trọng sinh", "Xuyên không", "Dị giới", "Khoa huyễn", "Linh dị", "Trinh thám",
 ];
@@ -50,11 +51,14 @@ export default function TranslationSettingsDialog({
   onSavePreset,
   onDeletePreset,
   onUpdateStyleToggles,
+  onSuggestPreset,
 }) {
+  const { toast } = useToast();
   const [selectedId, setSelectedId] = useState(activePresetId || "");
   const [form, setForm] = useState(EMPTY_FORM);
   const [toggles, setToggles] = useState(styleToggles || {});
   const [saving, setSaving] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
@@ -97,6 +101,30 @@ export default function TranslationSettingsDialog({
     setForm((prev) => ({ ...prev, character_notes: [...prev.character_notes, { character: "", note: "" }] }));
   const removeCharNote = (i) =>
     setForm((prev) => ({ ...prev, character_notes: prev.character_notes.filter((_, idx) => idx !== i) }));
+
+  // Fills in whichever fields are still empty from an AI read of the current
+  // chapter — never overwrites something the user already wrote, so it's
+  // safe to click even after starting to fill the form by hand.
+  const handleSuggest = async () => {
+    if (!onSuggestPreset) return;
+    setSuggesting(true);
+    try {
+      const suggestion = await onSuggestPreset();
+      if (!suggestion) return;
+      setForm((prev) => ({
+        ...prev,
+        genres: prev.genres.length ? prev.genres : suggestion.genres,
+        setting_era: prev.setting_era.trim() ? prev.setting_era : suggestion.setting_era,
+        character_notes: prev.character_notes.length ? prev.character_notes : suggestion.character_notes,
+        prompt_instructions: prev.prompt_instructions.trim()
+          ? prev.prompt_instructions
+          : suggestion.prompt_instructions,
+      }));
+      toast({ title: "Đã điền gợi ý từ AI ✨", description: "Xem lại rồi bấm Lưu nhé, có thể sửa lại tùy ý." });
+    } finally {
+      setSuggesting(false);
+    }
+  };
 
   const updateRule = (i, field, value) => {
     setForm((prev) => ({
@@ -176,6 +204,22 @@ export default function TranslationSettingsDialog({
                   <Plus className="w-3.5 h-3.5 mr-1" /> Preset mới
                 </Button>
               </div>
+
+              {onSuggestPreset && (
+                <button
+                  onClick={handleSuggest}
+                  disabled={suggesting}
+                  className="w-full flex items-center justify-center gap-1.5 mb-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-violet-50 to-pink-50 hover:from-violet-100 hover:to-pink-100 text-violet-700 text-xs font-medium border border-violet-100 transition-colors disabled:opacity-50"
+                  title="AI đọc chương hiện tại để gợi ý Thể loại / Bối cảnh / Ghi chú nhân vật / Văn phong — chỉ điền vào ô đang trống, không đè lên gì bạn đã viết"
+                >
+                  {suggesting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  {suggesting ? "Đang phân tích chương..." : "Gợi ý preset bằng AI (từ chương đang mở)"}
+                </button>
+              )}
 
               <div className="space-y-2 rounded-xl border border-violet-100 bg-violet-50/40 p-3">
                 <div>

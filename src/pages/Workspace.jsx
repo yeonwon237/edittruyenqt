@@ -7,7 +7,7 @@ import EditorToolbar from "@/components/workspace/EditorToolbar";
 import GlossarySidebar from "@/components/glossary/GlossarySidebar";
 import GlossaryTermForm from "@/components/glossary/GlossaryTermForm";
 import DetectNamesDialog from "@/components/glossary/DetectNamesDialog";
-import TranslationSettingsDialog from "@/components/workspace/TranslationSettingsDialog";
+import TranslationSettingsDialog, { GENRE_OPTIONS } from "@/components/workspace/TranslationSettingsDialog";
 import { CATEGORIES } from "@/lib/highlight";
 import BatchReplaceDialog from "@/components/workspace/BatchReplaceDialog";
 import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog";
@@ -955,6 +955,60 @@ ${textForDetection}`;
     }
   };
 
+  // AI reads the current chapter and proposes preset fields (genre/era/
+  // character notes/style). Returns the suggestion object for the dialog to
+  // merge into its own draft form — never writes to the project/preset
+  // directly, so nothing is saved until the user reviews and hits Lưu.
+  const handleSuggestPreset = async () => {
+    if (!currentChapter) {
+      toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
+      return null;
+    }
+    const sourceText = (currentChapter.raw_original || currentChapter.qt_raw || "").slice(0, 6000);
+    if (!sourceText.trim()) {
+      toast({ title: "Chương chưa có văn bản để phân tích!", variant: "destructive" });
+      return null;
+    }
+    const prompt = `Bạn là biên tập viên truyện dịch giàu kinh nghiệm. Đọc đoạn văn bản sau (có thể là bản dịch thô QT/Convert, chưa mượt) và đề xuất cấu hình "preset văn phong" phù hợp nhất để AI dùng khi biên tập bộ truyện này.
+
+Trả về DUY NHẤT một object JSON hợp lệ (không markdown, không giải thích thêm), đúng dạng:
+{"genres": ["<chỉ chọn từ danh sách sau, đúng chính tả>"], "setting_era": "<mô tả ngắn bối cảnh/thời đại, ví dụ: Cổ đại Trung Hoa giả tưởng>", "character_notes": [{"character": "<tên nhân vật>", "note": "<mô tả quy tắc xưng hô/hành xử đặc biệt đổi theo tình huống — CHỈ liệt kê khi có căn cứ rõ trong văn bản, ví dụ nhân vật giả trai/giả gái, có thân phận kép, đổi cách xưng hô theo hoàn cảnh>"}], "prompt_instructions": "<2-4 câu mô tả văn phong/nguyên tắc dịch phù hợp thể loại và bối cảnh này>"}
+
+Danh sách thể loại được chọn cho "genres": ${GENRE_OPTIONS.join(", ")}
+
+Nếu không đủ căn cứ để đề xuất mục nào (đặc biệt character_notes — đừng bịa nếu văn bản không thể hiện rõ), để mảng rỗng [] hoặc chuỗi rỗng "" cho mục đó.
+
+ĐOẠN VĂN BẢN:
+${sourceText}`;
+
+    try {
+      let raw;
+      if (hasCustomAI()) {
+        raw = await callLLM(prompt);
+      } else {
+        const result = await base44.integrations.Core.InvokeLLM({ prompt });
+        raw = typeof result === "string" ? result : result?.output || result?.response || "";
+      }
+      let text = (raw || "").trim();
+      text = text.replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+      const parsed = JSON.parse(text);
+      return {
+        genres: Array.isArray(parsed.genres) ? parsed.genres.filter((g) => GENRE_OPTIONS.includes(g)) : [],
+        setting_era: typeof parsed.setting_era === "string" ? parsed.setting_era.trim() : "",
+        character_notes: Array.isArray(parsed.character_notes)
+          ? parsed.character_notes
+              .filter((n) => n?.character?.trim() && n?.note?.trim())
+              .map((n) => ({ character: n.character.trim(), note: n.note.trim() }))
+          : [],
+        prompt_instructions:
+          typeof parsed.prompt_instructions === "string" ? parsed.prompt_instructions.trim() : "",
+      };
+    } catch (e) {
+      toast({ title: "Lỗi gợi ý preset", description: e.message, variant: "destructive" });
+      return null;
+    }
+  };
+
   // Clear a column's text (with confirm) — shared by all 3 columns.
   const handleClearColumn = () => {
     if (!clearTarget || !currentChapter) return;
@@ -1696,6 +1750,7 @@ ${textForDetection}`;
         onSavePreset={handleSavePreset}
         onDeletePreset={handleDeletePreset}
         onUpdateStyleToggles={handleUpdateStyleToggles}
+        onSuggestPreset={handleSuggestPreset}
       />
       <ImageTranslateDialog
         open={showImageTranslate}
