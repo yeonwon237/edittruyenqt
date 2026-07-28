@@ -19,6 +19,7 @@ import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBa
 import ImageTranslateDialog from "@/components/workspace/ImageTranslateDialog";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
 import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
+import { diffTextChanges } from "@/lib/textDiff";
 import { countForeignChars } from "@/lib/highlight";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
@@ -79,6 +80,7 @@ export default function Workspace() {
   const [draftMode] = useState(isDraftMode());
   const [aiEditing, setAiEditing] = useState(false);
   const [checkingPronouns, setCheckingPronouns] = useState(false);
+  const [pronounCheckDiff, setPronounCheckDiff] = useState(null);
   const [selfTranslating, setSelfTranslating] = useState(false);
   const [showSidebar, setShowSidebar] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
@@ -821,6 +823,7 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
     const chapterId = currentChapter.id;
     const prevEdited = sourceText;
     setCheckingPronouns(true);
+    setPronounCheckDiff(null);
     try {
       const callFn = async (prompt) => {
         if (hasCustomAI()) return await callLLM(prompt);
@@ -840,11 +843,19 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
         }
         fixedText = results.join("\n\n");
       }
+      // Diff against the ORIGINAL text (not chunk-by-chunk) so line numbers
+      // and context are relative to the whole chapter regardless of how many
+      // chunks it took — this is exactly what answers "sửa ở đâu, mấy chỗ".
+      const diff = diffTextChanges(prevEdited, fixedText);
       setCurrentChapter((prev) =>
         prev && prev.id === chapterId ? { ...prev, edited: fixedText } : prev
       );
       setAiUndo({ chapterId, previous: prevEdited });
-      toast({ title: "Đã kiểm tra & sửa xưng hô ✅", description: "Không đúng ý thì bấm Hoàn tác." });
+      setPronounCheckDiff(diff);
+      toast({
+        title: diff.length ? `Đã sửa ${diff.length} chỗ xưng hô ✅` : "Không tìm thấy chỗ nào cần sửa",
+        description: diff.length ? "Xem chi tiết bên dưới. Không đúng ý thì bấm Hoàn tác." : undefined,
+      });
     } catch (e) {
       toast({ title: "Lỗi kiểm tra xưng hô", description: e.message, variant: "destructive" });
     }
@@ -1785,6 +1796,7 @@ ${sourceText}`;
         onUpdateProject={handleUpdateProject}
         onCheckPronouns={handleCheckPronouns}
         checkingPronouns={checkingPronouns}
+        pronounCheckDiff={pronounCheckDiff}
       />
       <ChapterManagerDialog
         open={showChapterManager}
