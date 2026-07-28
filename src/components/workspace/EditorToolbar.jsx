@@ -82,7 +82,15 @@ export default function EditorToolbar({
     // off the "Thêm"/"Cột" dropdown panels that need to extend below the
     // row. Wrapping to a second row on narrow screens has no such clipping
     // side effect.
-    <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 bg-white/60 backdrop-blur border-b border-violet-100">
+    //
+    // relative z-50: `backdrop-blur` (backdrop-filter) makes this row its
+    // own stacking context, which traps the dropdowns' z-40 *inside* it —
+    // without a z-index of its own, this whole (position: static) row then
+    // paints in plain DOM order at the page level, so GlossarySidebar
+    // (rendered right after it in Workspace.jsx) painted on top and hid the
+    // open dropdown underneath it (confirmed via elementFromPoint). Giving
+    // the row itself a z-index promotes the whole row above that sibling.
+    <div className="relative z-50 flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 bg-white/60 backdrop-blur border-b border-violet-100">
       {/* Column selector */}
       <div ref={colsRef} className="relative shrink-0">
         <button
