@@ -43,9 +43,15 @@ export function applyReplacements(text, rules, { wholeWord = false } = {}) {
 // in period-piece / wuxia dialogue where "huynh/muội/tiểu nhân" register is
 // expected instead. Removes it right before end-of-sentence punctuation or
 // a closing quote, and at the end of a line.
+//
+// Must only match "ạ" as its own standalone particle, not the same letter
+// glued onto the end of an unrelated word (hạ, lạ, vạ, quạ...) — a version
+// without the word-boundary lookbehind below turned "Ngụy niên hạ," into
+// "Ngụy niên h," in a real AI-edited chapter (confirmed by the user).
 export function stripPoliteA(text) {
   if (!text) return text;
+  const notGluedToWord = `(?<![${WORD_CHAR}])`;
   return text
-    .replace(/[ \t]*ạ(?=[.!?,;:…"'”])/g, "")
-    .replace(/[ \t]*ạ$/gm, "");
+    .replace(new RegExp(`[ \\t]*${notGluedToWord}ạ(?=[.!?,;:…"'”])`, "g"), "")
+    .replace(new RegExp(`[ \\t]*${notGluedToWord}ạ$`, "gm"), "");
 }
