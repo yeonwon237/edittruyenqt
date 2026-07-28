@@ -57,6 +57,81 @@ function loadDictionary() {
   return dictPromise;
 }
 
+// --- "Modifier 的 noun" clause reorder (Nhóm 4: đảo cú pháp ngược) ---
+// Chinese puts the modifier before 的 and the noun after it (定语的中心语);
+// Vietnamese puts the noun first ("Giang Nam mưa bụi như rượu", not "mưa bụi
+// như rượu đích Giang Nam"). A full syntactic reorder needs real parsing,
+// which this dictionary-substitution engine doesn't do, so this only handles
+// the narrow, low-risk case where an ENTIRE clause (the text between two
+// punctuation marks, or start/end of text) is exactly "[modifier]的[noun]"
+// with nothing else in it — nothing else in the clause can get dragged along
+// by mistake. Anything less certain (multiple 的 in one clause, no clean
+// clause boundary, or text after 的 that looks like it continues into a verb
+// rather than staying a noun) is left in the original Chinese order.
+const CLAUSE_BOUNDARY_CHARS = new Set([
+  ...Object.keys(PUNCT_MAP),
+  "\n", ",", ".", "!", "?", ";", ":",
+]);
+
+// If the span right after 的 contains one of these characters, it's very
+// likely "noun + verb/predicate..." rather than a pure noun phrase — either
+// a common verb (e.g. 桌上的书走了 = "the book on the table left", where
+// treating the whole "书走了" as the noun would be wrong) or a function word
+// that typically starts a new predicate right after its subject (是/有/让/
+// 使/被/把/将...), e.g. 波谲云诡的局势让人不安 = "the ever-shifting situation
+// makes people uneasy" — "局势让人不安" is subject+predicate, not a noun
+// phrase, even though it has no comma before 让. Bail in either case rather
+// than risk a garbled sentence.
+const REORDER_VERB_GUARD = new Set([
+  // Common verbs (mirrors the "Verbs" section of HANVIET_CHARS).
+  "看", "听", "走", "跑", "坐", "站", "躺", "笑", "哭", "打", "杀", "死", "生",
+  "活", "来", "去", "进", "出", "开", "关", "拿", "放", "给", "取", "问", "答",
+  "想", "知", "道", "记", "忘", "喜", "欢", "爱", "恨", "怕", "惊", "修", "炼",
+  "到", "动", "说", "认", "识", "明", "觉", "希", "望", "决", "定", "始",
+  "继", "续", "停", "止", "结", "束",
+  // Copula / causative / passive / modal markers that typically open a new
+  // predicate right after the subject (mirrors HANVIET_WORDS' copula,
+  // negation, adverb and modal sections).
+  "是", "有", "没", "别", "让", "使", "令", "叫", "被", "把", "将",
+  "也", "都", "很", "太", "更", "最", "还", "又", "再", "就", "才", "只",
+  "在", "和", "跟", "与", "能", "会", "要", "应", "该", "需", "须", "可",
+]);
+
+const MAX_MODIFIER_LEN = 16;
+const MAX_NOUN_LEN = 6;
+
+function reorderOneClause(clause) {
+  const deIndex = clause.indexOf("的");
+  // No 的, or nothing before/after it to work with.
+  if (deIndex <= 0 || deIndex >= clause.length - 1) return clause;
+
+  const modifier = clause.slice(0, deIndex);
+  const noun = clause.slice(deIndex + 1);
+
+  // Another 的 on either side means an ambiguous/nested construction — skip.
+  if (modifier.includes("的") || noun.includes("的")) return clause;
+  if (modifier.length > MAX_MODIFIER_LEN || noun.length > MAX_NOUN_LEN) return clause;
+  for (const ch of noun) {
+    if (REORDER_VERB_GUARD.has(ch)) return clause;
+  }
+
+  return noun + modifier;
+}
+
+function reorderModifierClauses(sourceText) {
+  let out = "";
+  let clauseStart = 0;
+  const n = sourceText.length;
+  for (let i = 0; i < n; i += 1) {
+    if (CLAUSE_BOUNDARY_CHARS.has(sourceText[i])) {
+      out += reorderOneClause(sourceText.slice(clauseStart, i)) + sourceText[i];
+      clauseStart = i + 1;
+    }
+  }
+  out += reorderOneClause(sourceText.slice(clauseStart));
+  return out;
+}
+
 /**
  * Translate Chinese source text into a rough Vietnamese draft.
  * @param {string} sourceText
@@ -65,6 +140,8 @@ function loadDictionary() {
  */
 export async function translateHanViet(sourceText, glossaryTerms = []) {
   if (!sourceText) return { text: "", coverage: 1, unknownChars: [] };
+
+  sourceText = reorderModifierClauses(sourceText);
 
   const { chars: CHARS, words: WORDS, maxWordLen: builtinMaxLen } = await loadDictionary();
 
