@@ -574,7 +574,7 @@ QUY TẮC BẮT BUỘC:
 5. KHÔNG thêm giải thích, ghi chú, hay tiêu đề. Chỉ xuất văn bản đã biên tập.
 6. ĐẶC BIỆT: Tự động nhận diện NGƯỜI NÓI và NGƯỜI NGHE trong từng câu hội thoại (dựa tên nhân vật, bối cảnh đoạn thoại, sở hữu cách câu nói, ngôi kể). Chọn đúng MA TRẬN XƯNG HÔ phù hợp với cặp người nói ↔ người nghe của đoạn. Nếu câu thoại không quy định đặc biệt cho người nghe cụ thể, dùng quy tắc MẶC ĐỊNH của nhân vật nói. Tuyệt đối không viết sai cách xưng hô của nhân vật.
 7. Đây có thể là một đoạn trích trong chương dài hơn — chỉ biên tập đúng phần văn bản được đưa, không thêm mở đầu/kết luận ngoài ý.
-8. BẮT BUỘC: Giữ nguyên chính xác số lần xuống dòng / số đoạn văn như văn bản đầu vào — mỗi dòng gốc tương ứng với đúng một dòng trong bản dịch, không gộp nhiều dòng thành một, không tách một dòng thành nhiều dòng.
+8. BẮT BUỘC: Giữ nguyên chính xác số lần xuống dòng / số đoạn văn như văn bản đầu vào — mỗi dòng gốc tương ứng với đúng một dòng trong bản dịch, không gộp nhiều dòng thành một, không tách một dòng thành nhiều dòng. Nếu văn bản gốc có DÒNG TRỐNG (dòng rỗng) để ngăn cách giữa các đoạn, PHẢI giữ nguyên dòng trống đó ở đúng vị trí tương ứng trong bản dịch — không được xóa/gộp dòng trống lại, kể cả khi nó không chứa nội dung để dịch.
 ${extraRules.join("\n")}
 ${presetBlock}
 GLOSSARY (TUÂN THỦ 100%):

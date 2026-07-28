@@ -332,35 +332,43 @@ export function estimateCostUsd(provider, inputText, outputMultiplier = 1.3) {
   return { inputTokens, outputTokens, cost };
 }
 
-// Split long text into chunks along paragraph (then sentence, then hard-cut)
-// boundaries so no chunk exceeds maxChars.
+// Split long text into chunks along line (then sentence, then hard-cut)
+// boundaries so no chunk exceeds maxChars. Splits on single "\n" (not
+// "\n+") and tracks accumulation with a separate `started` flag rather than
+// relying on truthiness of `current` — both are needed to preserve blank
+// lines exactly: a run like "para1\n\npara2" must come back out the same
+// way, including when a chunk happens to start with a blank line.
 export function chunkText(text, maxChars = 3000) {
   if (!text) return [];
   if (text.length <= maxChars) return [text];
 
-  const paragraphs = text.split(/\n+/);
+  const lines = text.split("\n");
   const chunks = [];
   let current = "";
+  let started = false;
 
   const flushCurrent = () => {
-    if (current) {
+    if (started) {
       chunks.push(current);
       current = "";
+      started = false;
     }
   };
 
-  for (const para of paragraphs) {
-    const candidate = current ? `${current}\n${para}` : para;
+  for (const para of lines) {
+    const candidate = started ? `${current}\n${para}` : para;
     if (candidate.length <= maxChars) {
       current = candidate;
+      started = true;
       continue;
     }
     flushCurrent();
     if (para.length <= maxChars) {
       current = para;
+      started = true;
       continue;
     }
-    // Single paragraph longer than maxChars: split by sentence, then hard-cut.
+    // Single line longer than maxChars: split by sentence, then hard-cut.
     const sentences = para.split(/(?<=[.!?。!?])\s+/);
     let piece = "";
     for (const s of sentences) {
@@ -385,6 +393,7 @@ export function chunkText(text, maxChars = 3000) {
       }
     }
     current = piece;
+    started = true;
   }
   flushCurrent();
   return chunks;
