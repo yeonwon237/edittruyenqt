@@ -27,6 +27,7 @@ import {
 } from "@/lib/llm";
 import { RotateCcw } from "lucide-react";
 import { isDraftMode, setDraftMode } from "@/lib/draftMode";
+import { THEMES, getTheme, setTheme } from "@/lib/theme";
 import { Switch } from "@/components/ui/switch";
 
 const PROVIDERS_INFO = {
@@ -78,6 +79,7 @@ export default function Settings() {
   const { toast } = useToast();
   const [user, setUser] = useState(null);
   const [draftMode, setDraftModeState] = useState(isDraftMode());
+  const [theme, setThemeState] = useState(getTheme());
   const [provider, setProvider] = useState(getProvider());
   const [keyInputs, setKeyInputs] = useState({
     gemini: getApiKey("gemini"),
@@ -156,6 +158,11 @@ export default function Settings() {
     });
   };
 
+  const handleChangeTheme = (id) => {
+    setTheme(id);
+    setThemeState(id);
+  };
+
   const info = PROVIDERS_INFO[provider];
 
   return (
@@ -207,6 +214,32 @@ export default function Settings() {
               </p>
             </div>
             <Switch checked={draftMode} onCheckedChange={handleToggleDraftMode} />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-violet-100 shadow-sm p-5">
+          <h2 className="text-sm font-semibold text-slate-700 mb-1">🎨 Giao diện</h2>
+          <p className="text-xs text-slate-400 mb-3">
+            Đổi màu chủ đạo của web. Áp dụng ngay trên máy này, không ảnh hưởng người khác.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {THEMES.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => handleChangeTheme(t.id)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl border text-sm transition-colors ${
+                  theme === t.id
+                    ? "border-violet-400 bg-violet-50 text-violet-700 font-medium"
+                    : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                <span
+                  className="w-4 h-4 rounded-full border border-black/10 shrink-0"
+                  style={{ backgroundColor: t.swatch }}
+                />
+                {t.label}
+              </button>
+            ))}
           </div>
         </div>
 

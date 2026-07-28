@@ -24,7 +24,7 @@ import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
-import { Loader2, ArrowLeft, Plus, LogOut, List as ListIcon, Copy, Trash2 } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -86,6 +86,8 @@ export default function Workspace() {
   const [panel2Mode, setPanel2Mode] = useState("view");
   const [panel3Mode, setPanel3Mode] = useState("edit");
 
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const [showGlossaryForm, setShowGlossaryForm] = useState(false);
   const [editingTerm, setEditingTerm] = useState(null);
   const [prefillTerm, setPrefillTerm] = useState("");
@@ -444,6 +446,18 @@ export default function Workspace() {
         variant: "destructive",
       });
       throw e;
+    }
+  };
+
+  const handleSaveTitle = async () => {
+    const trimmed = titleDraft.trim();
+    setEditingTitle(false);
+    if (!trimmed || trimmed === project.title) return;
+    try {
+      await handleUpdateProject({ title: trimmed });
+      toast({ title: "Đã đổi tên bộ truyện" });
+    } catch {
+      // handleUpdateProject already surfaced a toast
     }
   };
 
@@ -1259,12 +1273,52 @@ ${textForDetection}`;
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
-          <div className="flex items-center gap-2">
-            <span className="text-2xl">{project.cover_emoji || "📚"}</span>
-            <div>
-              <h1 className="text-sm font-bold text-slate-800 leading-tight">
-                {project.title}
-              </h1>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-2xl shrink-0">{project.cover_emoji || "📚"}</span>
+            <div className="min-w-0">
+              {editingTitle ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveTitle();
+                      if (e.key === "Escape") setEditingTitle(false);
+                    }}
+                    onBlur={handleSaveTitle}
+                    className="text-sm font-bold text-slate-800 leading-tight px-1.5 py-0.5 rounded-lg border border-violet-300 bg-white focus:outline-none w-40 sm:w-56"
+                  />
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={handleSaveTitle}
+                    className="p-1 rounded-md hover:bg-violet-50 text-violet-600 shrink-0"
+                    title="Lưu"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setEditingTitle(false)}
+                    className="p-1 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 shrink-0"
+                    title="Hủy"
+                  >
+                    <XIcon className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <h1
+                  onClick={() => {
+                    setTitleDraft(project.title || "");
+                    setEditingTitle(true);
+                  }}
+                  className="text-sm font-bold text-slate-800 leading-tight truncate cursor-pointer hover:text-violet-600 transition-colors flex items-center gap-1 group"
+                  title="Bấm để đổi tên bộ truyện"
+                >
+                  <span className="truncate">{project.title}</span>
+                  <Pencil className="w-3 h-3 text-slate-300 group-hover:text-violet-400 shrink-0" />
+                </h1>
+              )}
               <p className="text-xs text-slate-400">
                 {glossaryTerms.length} thuật ngữ · {chapterList.length} chương
               </p>

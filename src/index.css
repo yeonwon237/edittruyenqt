@@ -4,6 +4,23 @@
 
 @layer base {
   :root {
+    /* Accent color theme — default (violet). Overridden per data-theme
+       below; picked from Settings, see src/lib/theme.js. Values are RGB
+       triplets (not hex) so Tailwind's `rgb(var(--violet-600) / <alpha-value>)`
+       config (tailwind.config.js) can still apply opacity modifiers like
+       bg-violet-600/60. */
+    --violet-50: 245 243 255;
+    --violet-100: 237 233 254;
+    --violet-200: 221 214 254;
+    --violet-300: 196 181 253;
+    --violet-400: 167 139 250;
+    --violet-500: 139 92 246;
+    --violet-600: 124 58 237;
+    --violet-700: 109 40 217;
+    --violet-800: 91 33 182;
+    --violet-900: 76 29 149;
+    --violet-950: 46 16 101;
+
     --background: 264 30% 99%;
     --foreground: 260 22% 16%;
     --card: 0 0% 100%;
@@ -41,6 +58,49 @@
     --sidebar-accent-foreground: 262 60% 35%;
     --sidebar-border: 264 18% 90%;
     --sidebar-ring: 262 72% 52%;
+  }
+
+  /* Alternate accent-color themes — same 11-shade structure as the default
+     violet palette above, just swapped for Tailwind's own pink/blue/emerald
+     palettes so contrast/hover relationships stay correct. */
+  [data-theme="pink"] {
+    --violet-50: 253 242 248;
+    --violet-100: 252 231 243;
+    --violet-200: 251 207 232;
+    --violet-300: 249 168 212;
+    --violet-400: 244 114 182;
+    --violet-500: 236 72 153;
+    --violet-600: 219 39 119;
+    --violet-700: 190 24 93;
+    --violet-800: 157 23 77;
+    --violet-900: 131 24 67;
+    --violet-950: 80 7 36;
+  }
+  [data-theme="blue"] {
+    --violet-50: 239 246 255;
+    --violet-100: 219 234 254;
+    --violet-200: 191 219 254;
+    --violet-300: 147 197 253;
+    --violet-400: 96 165 250;
+    --violet-500: 59 130 246;
+    --violet-600: 37 99 235;
+    --violet-700: 29 78 216;
+    --violet-800: 30 64 175;
+    --violet-900: 30 58 138;
+    --violet-950: 23 37 84;
+  }
+  [data-theme="emerald"] {
+    --violet-50: 236 253 245;
+    --violet-100: 209 250 229;
+    --violet-200: 167 243 208;
+    --violet-300: 110 231 183;
+    --violet-400: 52 211 153;
+    --violet-500: 16 185 129;
+    --violet-600: 5 150 105;
+    --violet-700: 4 120 87;
+    --violet-800: 6 95 70;
+    --violet-900: 6 78 59;
+    --violet-950: 2 44 34;
   }
 
   .dark {

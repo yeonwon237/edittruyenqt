@@ -10,6 +10,25 @@ module.exports = {
   			sm: 'calc(var(--radius) - 4px)'
   		},
   		colors: {
+  			// Every custom component in this app is colored with the raw
+  			// `violet-*` Tailwind utilities (bg-violet-600, text-violet-900...)
+  			// rather than the semantic tokens below. Redefining just this one
+  			// palette to read from CSS variables lets a theme picker (see
+  			// src/lib/theme.js) recolor the whole app by swapping a
+  			// `data-theme` attribute — no component files need to change.
+  			violet: {
+  				50: 'rgb(var(--violet-50) / <alpha-value>)',
+  				100: 'rgb(var(--violet-100) / <alpha-value>)',
+  				200: 'rgb(var(--violet-200) / <alpha-value>)',
+  				300: 'rgb(var(--violet-300) / <alpha-value>)',
+  				400: 'rgb(var(--violet-400) / <alpha-value>)',
+  				500: 'rgb(var(--violet-500) / <alpha-value>)',
+  				600: 'rgb(var(--violet-600) / <alpha-value>)',
+  				700: 'rgb(var(--violet-700) / <alpha-value>)',
+  				800: 'rgb(var(--violet-800) / <alpha-value>)',
+  				900: 'rgb(var(--violet-900) / <alpha-value>)',
+  				950: 'rgb(var(--violet-950) / <alpha-value>)',
+  			},
   			background: 'hsl(var(--background))',
   			foreground: 'hsl(var(--foreground))',
   			card: {
