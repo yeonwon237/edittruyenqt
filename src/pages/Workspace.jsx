@@ -604,8 +604,10 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
   };
 
   // Self-translate (built-in Hán-Việt dictionary engine — free, client-side,
-  // zero network/DB cost). Fills Cột 2 (QT thô) from Cột 1 (Văn bản gốc).
-  const handleSelfTranslate = () => {
+  // zero AI/DB cost). Fills Cột 2 (QT thô) from Cột 1 (Văn bản gốc). The
+  // dictionary data itself is fetched lazily on first use (dynamic import),
+  // so this is async — everything after that is local computation.
+  const handleSelfTranslate = async () => {
     if (!currentChapter) {
       toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
       return;
@@ -625,26 +627,22 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     }
     const chapterId = currentChapter.id;
     setSelfTranslating(true);
-    // Defer one frame so the loading spinner can paint before the
-    // (synchronous, client-side) dictionary pass runs.
-    setTimeout(() => {
-      try {
-        const { text, coverage, unknownChars } = translateHanViet(sourceText, glossaryTerms);
-        setCurrentChapter((prev) =>
-          prev && prev.id === chapterId ? { ...prev, qt_raw: text } : prev
-        );
-        const pct = Math.round(coverage * 100);
-        toast({
-          title: `📖 Đã tự dịch! Độ phủ từ điển: ${pct}%`,
-          description: unknownChars.length
-            ? `${unknownChars.length} ký tự chưa có trong từ điển, giữ nguyên gốc để bạn/AI xử lý tiếp.`
-            : "Toàn bộ ký tự đã được dịch.",
-        });
-      } catch (e) {
-        toast({ title: "Lỗi tự dịch", description: e.message, variant: "destructive" });
-      }
-      setSelfTranslating(false);
-    }, 30);
+    try {
+      const { text, coverage, unknownChars } = await translateHanViet(sourceText, glossaryTerms);
+      setCurrentChapter((prev) =>
+        prev && prev.id === chapterId ? { ...prev, qt_raw: text } : prev
+      );
+      const pct = Math.round(coverage * 100);
+      toast({
+        title: `📖 Đã tự dịch! Độ phủ từ điển: ${pct}%`,
+        description: unknownChars.length
+          ? `${unknownChars.length} ký tự chưa có trong từ điển, giữ nguyên gốc để bạn/AI xử lý tiếp.`
+          : "Toàn bộ ký tự đã được dịch.",
+      });
+    } catch (e) {
+      toast({ title: "Lỗi tự dịch", description: e.message, variant: "destructive" });
+    }
+    setSelfTranslating(false);
   };
 
   // Clear Edit (with confirm)
