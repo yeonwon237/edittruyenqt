@@ -29,6 +29,8 @@ import { RotateCcw } from "lucide-react";
 import { isDraftMode, setDraftMode } from "@/lib/draftMode";
 import { THEMES, getTheme, setTheme } from "@/lib/theme";
 import { Switch } from "@/components/ui/switch";
+import { GEMINI_MODELS } from "@/lib/geminiModels";
+import { getGeminiUsageToday } from "@/lib/geminiUsage";
 
 const PROVIDERS_INFO = {
   gemini: {
@@ -351,6 +353,45 @@ export default function Settings() {
                 model khác ở đây mà không cần chờ sửa code. Mặc định:{" "}
                 <code className="bg-white/70 px-1 rounded">{getDefaultModel(provider)}</code>
               </p>
+
+              {provider === "gemini" && (
+                <div className="mb-2.5">
+                  <p className="text-[11px] text-slate-400 mb-1">
+                    Chọn nhanh (theo hạn mức trang aistudio.google.com/rate-limit của bạn,
+                    chép 2026-07-28 — hạn mức thật đổi theo thời gian, kiểm tra lại trang đó nếu
+                    nghi ngờ). Bấm để điền vào ô Model bên dưới, vẫn cần bấm "Lưu model".
+                  </p>
+                  <div className="flex gap-1.5 overflow-x-auto cute-scrollbar pb-1">
+                    {GEMINI_MODELS.map((m) => {
+                      const used = getGeminiUsageToday(m.id);
+                      const active = modelInputs.gemini === m.id;
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() =>
+                            setModelInputs((prev) => ({ ...prev, gemini: m.id }))
+                          }
+                          className={`shrink-0 text-left px-2.5 py-1.5 rounded-xl border text-[11px] transition-colors ${
+                            active
+                              ? "border-violet-400 bg-violet-50 text-violet-700"
+                              : "border-violet-100 bg-white text-slate-600 hover:bg-violet-50/60"
+                          }`}
+                        >
+                          <div className="font-medium">{m.label}</div>
+                          <div className="text-slate-400">
+                            {m.perMinute}/phút · {m.perDay}/ngày
+                          </div>
+                          <div className={used > 0 ? "text-amber-600" : "text-slate-300"}>
+                            Hôm nay: {used}/{m.perDay}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-2">
                 <input
                   value={modelInputs[provider]}

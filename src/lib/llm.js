@@ -1,4 +1,5 @@
 // Multi-provider LLM dispatch: Gemini / OpenAI (GPT) / Anthropic (Claude).
+import { recordGeminiCall } from "@/lib/geminiUsage";
 
 const PROVIDER_KEY = "llm_provider";
 const KEY_STORE = {
@@ -143,6 +144,7 @@ async function callGeminiRaw(apiKey, prompt, image, model) {
   const data = await res.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text || !text.trim()) throw new Error("Gemini không trả kết quả");
+  recordGeminiCall(model);
   return text.trim();
 }
 
@@ -230,6 +232,7 @@ async function testGeminiRaw(apiKey, model) {
     } catch {}
     throw new Error(msg);
   }
+  recordGeminiCall(model);
   return true;
 }
 
