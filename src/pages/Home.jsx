@@ -10,6 +10,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import {
   Plus,
   LogOut,
@@ -20,9 +21,11 @@ import {
   Clock,
   Languages,
   ArrowRight,
+  Trash2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
+import { fetchAllPages } from "@/lib/paginate";
 
 const EMOJIS = ["📚", "🌸", "⚔️", "👑", "💎", "🔥", "🌙", "❄️", "🌿", "🐉", "🦋", "🌹", "🔮", "⛩️", "🌉", "🐺"];
 const LANGUAGES = ["Trung", "Anh", "Nhật", "Hàn", "Việt"];
@@ -57,6 +60,8 @@ export default function Home() {
   const [showCreate, setShowCreate] = useState(false);
   const [user, setUser] = useState(null);
   const [search, setSearch] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -71,7 +76,10 @@ export default function Home() {
 
   const loadProjects = async () => {
     try {
-      const data = await base44.entities.Project.list("-updated_date", 100);
+      const data = await fetchAllPages(
+        (limit, skip) => base44.entities.Project.list("-updated_date", limit, skip),
+        { pageSize: 200, maxItems: 5000 }
+      );
       setProjects(data);
     } catch (e) {
       toast({
@@ -81,6 +89,45 @@ export default function Home() {
       });
     }
     setLoading(false);
+  };
+
+  // Deleting a project cascades to its chapters and glossary terms too —
+  // otherwise they'd linger as orphaned rows nobody can see or clean up,
+  // which is exactly the kind of DB bloat worth avoiding on a free plan.
+  const handleDeleteProject = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      const deleteInBatches = async (ids, deleteFn) => {
+        for (let i = 0; i < ids.length; i += 50) {
+          // eslint-disable-next-line no-await-in-loop
+          await Promise.all(ids.slice(i, i + 50).map(deleteFn));
+        }
+      };
+      const chapterIds = (
+        await fetchAllPages(
+          (limit, skip) =>
+            base44.entities.Chapter.filter({ project_id: deleteTarget.id }, "chapter_order", limit, skip, ["id"]),
+          { pageSize: 500, maxItems: 5000 }
+        )
+      ).map((c) => c.id);
+      const termIds = (
+        await fetchAllPages(
+          (limit, skip) =>
+            base44.entities.GlossaryTerm.filter({ project_id: deleteTarget.id }, "-created_date", limit, skip, ["id"]),
+          { pageSize: 500, maxItems: 5000 }
+        )
+      ).map((t) => t.id);
+      await deleteInBatches(chapterIds, (id) => base44.entities.Chapter.delete(id));
+      await deleteInBatches(termIds, (id) => base44.entities.GlossaryTerm.delete(id));
+      await base44.entities.Project.delete(deleteTarget.id);
+      setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+      toast({ title: `Đã xóa "${deleteTarget.title}" và toàn bộ dữ liệu liên quan 🗑️` });
+    } catch (e) {
+      toast({ title: "Lỗi xóa dự án", description: e.message, variant: "destructive" });
+    }
+    setDeleting(false);
+    setDeleteTarget(null);
   };
 
   const handleCreate = async () => {
@@ -276,10 +323,15 @@ export default function Home() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {filtered.map((proj) => (
-              <button
+              <div
                 key={proj.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => navigate(`/workspace/${proj.id}`)}
-                className="group text-left rounded-2xl bg-white border border-violet-100 hover:border-violet-300 shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all overflow-hidden"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") navigate(`/workspace/${proj.id}`);
+                }}
+                className="group text-left rounded-2xl bg-white border border-violet-100 hover:border-violet-300 shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all overflow-hidden cursor-pointer"
               >
                 <div
                   className={`relative h-24 bg-gradient-to-br ${gradientFor(proj.cover_emoji || "📚")} flex items-center justify-center`}
@@ -292,6 +344,16 @@ export default function Home() {
                     <Languages className="w-2.5 h-2.5" />
                     {proj.source_language || "Trung"}
                   </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteTarget(proj);
+                    }}
+                    className="absolute top-2.5 left-2.5 p-1.5 rounded-full bg-white/85 text-slate-500 hover:bg-red-500 hover:text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Xóa bộ truyện này"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
                 </div>
                 <div className="p-4">
                   <h3 className="font-bold text-slate-800 mb-1 line-clamp-1 group-hover:text-violet-600 transition-colors">
@@ -315,11 +377,20 @@ export default function Home() {
                     </span>
                   </div>
                 </div>
-              </button>
+              </div>
             ))}
           </div>
         )}
       </section>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !deleting && !v && setDeleteTarget(null)}
+        title={`Xóa vĩnh viễn "${deleteTarget?.title || ""}"?`}
+        description="Toàn bộ chương và từ điển thuật ngữ của bộ truyện này sẽ bị xóa sạch cùng lúc. Không thể hoàn tác."
+        confirmLabel={deleting ? "Đang xóa..." : "Xóa vĩnh viễn"}
+        onConfirm={handleDeleteProject}
+      />
 
       {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

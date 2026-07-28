@@ -16,14 +16,13 @@ import ImportChaptersDialog from "@/components/workspace/ImportChaptersDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import { exportAsTxt, exportAsDoc, exportGlossaryJson } from "@/lib/exportUtils";
 import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd } from "@/lib/llm";
-import ClearEditDialog from "@/components/workspace/ClearEditDialog";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
 import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
 import { countForeignChars } from "@/lib/highlight";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { fetchAllPages } from "@/lib/paginate";
-import { Loader2, ArrowLeft, Plus, LogOut, List as ListIcon } from "lucide-react";
+import { Loader2, ArrowLeft, Plus, LogOut, List as ListIcon, Copy, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -89,7 +88,7 @@ export default function Workspace() {
   const [prefillTerm, setPrefillTerm] = useState("");
   const [showBatchReplace, setShowBatchReplace] = useState(false);
   const [showPronoun, setShowPronoun] = useState(false);
-  const [showClearEdit, setShowClearEdit] = useState(false);
+  const [clearTarget, setClearTarget] = useState(null); // { field, label } | null
   const [showContextualPronoun, setShowContextualPronoun] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
   const [showImportChapters, setShowImportChapters] = useState(false);
@@ -401,6 +400,22 @@ export default function Workspace() {
     } catch (e) {
       toast({
         title: "Lỗi xóa",
+        description: e.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleBulkDeleteTerms = async (termIds) => {
+    if (!termIds.length) return;
+    try {
+      await Promise.all(termIds.map((id) => base44.entities.GlossaryTerm.delete(id)));
+      const idSet = new Set(termIds);
+      setGlossaryTerms((prev) => prev.filter((t) => !idSet.has(t.id)));
+      toast({ title: `Đã xóa ${termIds.length} thuật ngữ` });
+    } catch (e) {
+      toast({
+        title: "Lỗi xóa hàng loạt",
         description: e.message,
         variant: "destructive",
       });
@@ -845,12 +860,48 @@ ${textForDetection}`;
     }
   };
 
-  // Clear Edit (with confirm)
-  const handleClearEdit = () => {
-    setCurrentChapter({ ...currentChapter, edited: "" });
-    setShowClearEdit(false);
-    toast({ title: "Đã xóa bản edit 🗑️" });
+  // Clear a column's text (with confirm) — shared by all 3 columns.
+  const handleClearColumn = () => {
+    if (!clearTarget || !currentChapter) return;
+    setCurrentChapter({ ...currentChapter, [clearTarget.field]: "" });
+    toast({ title: `Đã xóa ${clearTarget.label} 🗑️` });
+    setClearTarget(null);
   };
+
+  const handleCopyColumn = async (text, label) => {
+    if (!text) {
+      toast({ title: "Chưa có nội dung để sao chép", variant: "destructive" });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      toast({ title: `Đã sao chép ${label}! 📋` });
+    } catch (e) {
+      toast({ title: "Lỗi sao chép", description: e.message, variant: "destructive" });
+    }
+  };
+
+  // Copy + clear buttons shared by all 3 editor columns.
+  const renderColumnActions = (field, label, value) => (
+    <>
+      <button
+        onClick={() => handleCopyColumn(value, label)}
+        className="p-1.5 rounded-lg bg-white/70 hover:bg-violet-50 text-slate-400 hover:text-violet-600 transition-colors border border-violet-100"
+        title={`Sao chép toàn bộ ${label}`}
+      >
+        <Copy className="w-3.5 h-3.5" />
+      </button>
+      {value ? (
+        <button
+          onClick={() => setClearTarget({ field, label })}
+          className="p-1.5 rounded-lg bg-white/70 hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors border border-violet-100"
+          title={`Xóa toàn bộ ${label}`}
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+        </button>
+      ) : null}
+    </>
+  );
 
   // Import glossary terms (bulk create)
   const handleImportTerms = async (terms) => {
@@ -1216,6 +1267,7 @@ ${textForDetection}`;
                 setShowGlossaryForm(true);
               }}
               onDeleteTerm={handleDeleteTerm}
+              onBulkDeleteTerms={handleBulkDeleteTerms}
               onImportTerms={handleImportTerms}
               onOpenContextualPronoun={() => setShowContextualPronoun(true)}
               onDetectNames={handleDetectNames}
@@ -1270,6 +1322,7 @@ ${textForDetection}`;
                       onTermClick={handleTermClick}
                       onScroll={() => handlePanelScroll(0)}
                       placeholder="Dán văn bản gốc (Trung/Anh) vào đây..."
+                      extra={renderColumnActions("raw_original", "Văn bản gốc", currentChapter.raw_original)}
                     />
                   </div>
                 )}
@@ -1297,6 +1350,7 @@ ${textForDetection}`;
                       onTermClick={handleTermClick}
                       onScroll={() => handlePanelScroll(1)}
                       placeholder="Dán văn bản QT/Convert thô vào đây, hoặc bấm 'Tự dịch' ở trên..."
+                      extra={renderColumnActions("qt_raw", "QT thô", currentChapter.qt_raw)}
                     />
                   </div>
                 )}
@@ -1343,15 +1397,7 @@ ${textForDetection}`;
                               ↩️ Hoàn tác AI
                             </button>
                           )}
-                          {currentChapter.edited ? (
-                            <button
-                              onClick={() => setShowClearEdit(true)}
-                              className="text-xs px-2 py-1 rounded-lg bg-white/70 hover:bg-red-50 text-slate-500 hover:text-red-500 transition-colors border border-violet-100"
-                              title="Xóa toàn bộ bản edit"
-                            >
-                              🗑️ Xóa
-                            </button>
-                          ) : null}
+                          {renderColumnActions("edited", "Bản Edit", currentChapter.edited)}
                         </>
                       }
                     />
@@ -1397,10 +1443,13 @@ ${textForDetection}`;
         onApply={handleApplyPronounRule}
         selectedText={pronounSelection.text}
       />
-      <ClearEditDialog
-        open={showClearEdit}
-        onOpenChange={setShowClearEdit}
-        onConfirm={handleClearEdit}
+      <ConfirmDialog
+        open={!!clearTarget}
+        onOpenChange={(v) => !v && setClearTarget(null)}
+        title={`Xóa toàn bộ ${clearTarget?.label || ""}?`}
+        description="Toàn bộ nội dung cột này của chương hiện tại sẽ bị xóa sạch. Bạn không thể hoàn tác hành động này."
+        confirmLabel="Xóa tất cả"
+        onConfirm={handleClearColumn}
       />
       <ContextualPronounDialog
         open={showContextualPronoun}

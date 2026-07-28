@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Search, Plus, Pencil, Trash2, Upload, Download, Sparkles } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Upload, Download, Sparkles, ListChecks, X } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { CATEGORY_STYLES, CATEGORY_EMOJI, CATEGORIES } from "@/lib/highlight";
 import { parseGlossaryFile } from "@/lib/importGlossary";
@@ -12,6 +12,7 @@ export default function GlossarySidebar({
   onAddTerm,
   onEditTerm,
   onDeleteTerm,
+  onBulkDeleteTerms,
   onImportTerms,
   onOpenContextualPronoun,
   onDetectNames,
@@ -20,7 +21,24 @@ export default function GlossarySidebar({
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const fileInputRef = useRef(null);
+
+  const toggleSelectMode = () => {
+    setSelectMode((prev) => !prev);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const filtered = terms.filter((t) => {
     const matchSearch =
@@ -82,6 +100,17 @@ export default function GlossarySidebar({
           </h2>
           <div className="flex gap-1">
             <button
+              onClick={toggleSelectMode}
+              className={`p-1.5 rounded-lg transition-colors ${
+                selectMode
+                  ? "bg-violet-600 text-white hover:bg-violet-700"
+                  : "bg-violet-50 hover:bg-violet-100 text-violet-600"
+              }`}
+              title="Chọn nhiều để xóa hàng loạt"
+            >
+              <ListChecks className="w-3.5 h-3.5" />
+            </button>
+            <button
               onClick={() => fileInputRef.current?.click()}
               className="p-1.5 rounded-lg bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
               title="Nhập từ điển (JSON/CSV)"
@@ -104,6 +133,27 @@ export default function GlossarySidebar({
             </button>
           </div>
         </div>
+        {selectMode && (
+          <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-violet-50 border border-violet-100">
+            <span className="text-xs text-violet-700 font-medium flex-1">
+              Đã chọn {selectedIds.size}
+            </span>
+            <button
+              onClick={() => setConfirmBulkDelete(true)}
+              disabled={selectedIds.size === 0}
+              className="text-xs px-2 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Xóa đã chọn
+            </button>
+            <button
+              onClick={toggleSelectMode}
+              className="p-1 rounded-md hover:bg-violet-100 text-violet-500"
+              title="Thoát chế độ chọn"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"
@@ -178,9 +228,19 @@ export default function GlossarySidebar({
           filtered.map((term) => (
             <div
               key={term.id}
-              className="group p-3 rounded-xl bg-white/80 border border-violet-100 hover:border-violet-200 hover:shadow-sm transition-all"
+              className={`group p-3 rounded-xl bg-white/80 border hover:shadow-sm transition-all ${
+                selectedIds.has(term.id) ? "border-violet-400 bg-violet-50/60" : "border-violet-100 hover:border-violet-200"
+              }`}
             >
               <div className="flex items-start justify-between gap-2 mb-1">
+                {selectMode && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(term.id)}
+                    onChange={() => toggleSelected(term.id)}
+                    className="mt-1 accent-violet-600 shrink-0"
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold text-slate-800 truncate">
                     {term.source_term}
@@ -189,20 +249,22 @@ export default function GlossarySidebar({
                     {term.translation}
                   </p>
                 </div>
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => onEditTerm(term)}
-                    className="p-1 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600"
-                  >
-                    <Pencil className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => setDeleteTarget(term)}
-                    className="p-1 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </button>
-                </div>
+                {!selectMode && (
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => onEditTerm(term)}
+                      className="p-1 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => setDeleteTarget(term)}
+                      className="p-1 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
               </div>
               {term.category && (
                 <span
@@ -240,6 +302,20 @@ export default function GlossarySidebar({
         onConfirm={() => {
           onDeleteTerm(deleteTarget.id);
           setDeleteTarget(null);
+        }}
+      />
+
+      <ConfirmDialog
+        open={confirmBulkDelete}
+        onOpenChange={setConfirmBulkDelete}
+        title={`Xóa ${selectedIds.size} thuật ngữ đã chọn?`}
+        description="Các bản dịch tương ứng sẽ không còn được tô sáng hoặc áp dụng khi AI biên tập nữa."
+        confirmLabel="Xóa tất cả"
+        onConfirm={() => {
+          onBulkDeleteTerms([...selectedIds]);
+          setSelectedIds(new Set());
+          setSelectMode(false);
+          setConfirmBulkDelete(false);
         }}
       />
     </aside>
