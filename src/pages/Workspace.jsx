@@ -14,7 +14,7 @@ import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog"
 import ChapterManagerDialog from "@/components/workspace/ChapterManagerDialog";
 import ImportChaptersDialog from "@/components/workspace/ImportChaptersDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
-import { exportAsTxt, exportAsDoc, exportGlossaryJson } from "@/lib/exportUtils";
+import { exportAsTxt, exportAsDoc, exportGlossaryJson, exportChaptersCsv } from "@/lib/exportUtils";
 import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd } from "@/lib/llm";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
 import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
@@ -92,6 +92,7 @@ export default function Workspace() {
   const [showContextualPronoun, setShowContextualPronoun] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
   const [showImportChapters, setShowImportChapters] = useState(false);
+  const [exportingChapters, setExportingChapters] = useState(false);
   const [showDetectNames, setShowDetectNames] = useState(false);
   const [detectingNames, setDetectingNames] = useState(false);
   const [nameCandidates, setNameCandidates] = useState(null);
@@ -1071,6 +1072,27 @@ ${textForDetection}`;
     }
   };
 
+  // Full-content export of every chapter in the project (Chương/Title/Nội
+  // dung columns — round-trips with the "Tải file có cột" import mode).
+  // This is the one place worth paying full-content egress for: the user
+  // explicitly asked for a bulk export, so there's no way around reading
+  // every chapter body at least once.
+  const handleExportAllChapters = async () => {
+    if (chapterList.length === 0) return;
+    setExportingChapters(true);
+    try {
+      const full = await fetchAllPages(
+        (limit, skip) => base44.entities.Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
+        { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
+      );
+      exportChaptersCsv(full, project?.title || "Chuong");
+      toast({ title: `Đã xuất ${full.length} chương! 📤` });
+    } catch (e) {
+      toast({ title: "Lỗi xuất file", description: e.message, variant: "destructive" });
+    }
+    setExportingChapters(false);
+  };
+
   const handleLogout = async () => {
     await base44.auth.logout("/login");
   };
@@ -1470,6 +1492,8 @@ ${textForDetection}`;
         onDelete={handleDeleteChapter}
         onReorder={handleReorderChapter}
         onOpenImport={() => setShowImportChapters(true)}
+        onExportAll={handleExportAllChapters}
+        exporting={exportingChapters}
       />
       <ImportChaptersDialog
         open={showImportChapters}

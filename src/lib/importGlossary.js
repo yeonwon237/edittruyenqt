@@ -1,3 +1,5 @@
+import { splitLine, findColumnIndex } from "./csvUtils";
+
 export function parseGlossaryFile(content, filename) {
   const ext = filename.split(".").pop().toLowerCase();
   if (ext === "json") return parseJSON(content);
@@ -27,10 +29,10 @@ function parseCSV(content, isTSV) {
   const headers = splitLine(lines[0], delimiter).map((h) =>
     h.trim().toLowerCase()
   );
-  const sourceIdx = findIdx(headers, ["source_term", "source", "term", "word", "tu goc", "từ gốc", "goc"]);
-  const transIdx = findIdx(headers, ["translation", "meaning", "trans", "ban dich", "bản dịch", "dich", "dịch"]);
-  const catIdx = findIdx(headers, ["category", "cat", "type", "danh muc", "danh mục", "loai", "loại"]);
-  const notesIdx = findIdx(headers, ["notes", "note", "ghi chu", "ghi chú", "description", "mota", "mô tả"]);
+  const sourceIdx = findColIdxOrFirst(headers, ["source_term", "source", "term", "word", "tu goc", "từ gốc", "goc"]);
+  const transIdx = findColIdxOrFirst(headers, ["translation", "meaning", "trans", "ban dich", "bản dịch", "dich", "dịch"]);
+  const catIdx = findColIdxOrFirst(headers, ["category", "cat", "type", "danh muc", "danh mục", "loai", "loại"]);
+  const notesIdx = findColIdxOrFirst(headers, ["notes", "note", "ghi chu", "ghi chú", "description", "mota", "mô tả"]);
   const terms = [];
   for (let i = 1; i < lines.length; i++) {
     const cols = splitLine(lines[i], delimiter);
@@ -46,35 +48,11 @@ function parseCSV(content, isTSV) {
   return terms;
 }
 
-function splitLine(line, delimiter) {
-  const result = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (line[i + 1] === '"') {
-          current += '"';
-          i++;
-        } else inQuotes = false;
-      } else current += c;
-    } else if (c === '"') inQuotes = true;
-    else if (c === delimiter) {
-      result.push(current);
-      current = "";
-    } else current += c;
-  }
-  result.push(current);
-  return result;
-}
-
-function findIdx(headers, candidates) {
-  for (const c of candidates) {
-    const idx = headers.findIndex((h) => h === c || h.includes(c));
-    if (idx >= 0) return idx;
-  }
-  return 0;
+// Preserves this file's original behavior of defaulting to the first
+// column when no header name matches (rather than csvUtils' -1 "not found").
+function findColIdxOrFirst(headers, candidates) {
+  const idx = findColumnIndex(headers, candidates);
+  return idx >= 0 ? idx : 0;
 }
 
 function normalizeTerm(t) {

@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
-import { GripVertical, Pencil, Trash2, Upload, Check, X } from "lucide-react";
+import { GripVertical, Pencil, Trash2, Upload, Download, Check, X } from "lucide-react";
 
 export default function ChapterManagerDialog({
   open,
@@ -22,6 +22,8 @@ export default function ChapterManagerDialog({
   onDelete,
   onReorder,
   onOpenImport,
+  onExportAll,
+  exporting,
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -57,16 +59,27 @@ export default function ChapterManagerDialog({
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-violet-700 flex items-center justify-between gap-2">
+            <DialogTitle className="text-violet-700 flex items-center justify-between gap-2 flex-wrap">
               <span>📚 Quản lý chương ({chapters.length})</span>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onOpenImport}
-                className="border-violet-200 text-violet-600 rounded-xl"
-              >
-                <Upload className="w-3.5 h-3.5 mr-1" /> Nhập hàng loạt
-              </Button>
+              <div className="flex gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onExportAll}
+                  disabled={exporting || chapters.length === 0}
+                  className="border-violet-200 text-violet-600 rounded-xl"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" /> {exporting ? "Đang xuất..." : "Xuất file"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onOpenImport}
+                  className="border-violet-200 text-violet-600 rounded-xl"
+                >
+                  <Upload className="w-3.5 h-3.5 mr-1" /> Nhập hàng loạt
+                </Button>
+              </div>
             </DialogTitle>
             <DialogDescription>
               Kéo thả để sắp xếp lại thứ tự chương. Bấm vào tên để đổi tên.

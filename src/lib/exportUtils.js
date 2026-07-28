@@ -1,3 +1,5 @@
+import { escapeCsvField } from "./csvUtils";
+
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -23,6 +25,23 @@ export function exportAsDoc(text, filename) {
   const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40"><head><meta charset="utf-8"><style>body{font-family:'Times New Roman',serif;font-size:14pt;line-height:1.8;}</style></head><body>${escaped}</body></html>`;
   const blob = new Blob(["\ufeff", html], { type: "application/msword" });
   downloadBlob(blob, `${filename}.doc`);
+}
+
+// Round-trips with importChapters.js's parseChaptersFile: same 3 columns
+// (order/title/content), so a project can be exported, edited elsewhere,
+// and re-imported.
+export function exportChaptersCsv(chapters, filename) {
+  const rows = [["Chương", "Title", "Nội dung"]];
+  chapters.forEach((c, i) => {
+    rows.push([
+      c.chapter_order ?? i,
+      c.title || "",
+      c.edited || c.qt_raw || c.raw_original || "",
+    ]);
+  });
+  const csv = rows.map((r) => r.map((v) => escapeCsvField(v)).join(",")).join("\n");
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  downloadBlob(blob, `${filename}.csv`);
 }
 
 export function exportGlossaryJson(terms, project, filename) {
