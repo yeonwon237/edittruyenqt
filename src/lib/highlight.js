@@ -41,6 +41,57 @@ export function highlightTerms(text, terms, onTermClick) {
   });
 }
 
+const CJK_RUN_REGEX = /[一-鿿㐀-䶿]+/g;
+
+/**
+ * Post-process the array/string returned by highlightTerms(), wrapping any
+ * leftover Chinese character runs in a red warning span — a "còn sót tiếng
+ * Trung" flag for the final edited text. Elements already produced by
+ * highlightTerms (glossary highlight spans) are left untouched; only plain
+ * string segments are scanned.
+ */
+export function highlightForeignChars(nodes) {
+  const arr = Array.isArray(nodes) ? nodes : [nodes];
+  const result = [];
+  arr.forEach((node, idx) => {
+    if (typeof node !== "string") {
+      result.push(node);
+      return;
+    }
+    const matches = node.match(CJK_RUN_REGEX);
+    if (!matches) {
+      result.push(node);
+      return;
+    }
+    const parts = node.split(CJK_RUN_REGEX);
+    parts.forEach((part, i) => {
+      if (part) result.push(part);
+      if (matches[i]) {
+        result.push(
+          React.createElement(
+            "span",
+            {
+              key: `foreign-${idx}-${i}`,
+              className: "foreign-char-warning",
+              title: "Còn sót ký tự Hán/Trung chưa dịch",
+            },
+            matches[i]
+          )
+        );
+      }
+    });
+  });
+  return result;
+}
+
+// Total count of leftover CJK characters — used for a quick header badge
+// so the warning is visible even without switching the panel to view mode.
+export function countForeignChars(text) {
+  if (!text) return 0;
+  const matches = text.match(CJK_RUN_REGEX);
+  return matches ? matches.reduce((sum, m) => sum + m.length, 0) : 0;
+}
+
 export const CATEGORY_STYLES = {
   "Tên người": "bg-rose-100 text-rose-700 border-rose-200",
   "Địa danh": "bg-sky-100 text-sky-700 border-sky-200",

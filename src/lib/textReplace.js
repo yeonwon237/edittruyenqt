@@ -38,3 +38,14 @@ export function applyReplacements(text, rules, { wholeWord = false } = {}) {
   });
   return { text: result, count };
 }
+
+// Strips the modern-Vietnamese polite sentence-final particle "ạ" — jarring
+// in period-piece / wuxia dialogue where "huynh/muội/tiểu nhân" register is
+// expected instead. Removes it right before end-of-sentence punctuation or
+// a closing quote, and at the end of a line.
+export function stripPoliteA(text) {
+  if (!text) return text;
+  return text
+    .replace(/[ \t]*ạ(?=[.!?,;:…"'”])/g, "")
+    .replace(/[ \t]*ạ$/gm, "");
+}

@@ -92,6 +92,9 @@
   .glossary-highlight {
     @apply bg-violet-100 text-violet-900 rounded px-0.5 mx-0.5 cursor-pointer underline decoration-dotted decoration-violet-500 underline-offset-2 transition-all hover:bg-violet-200;
   }
+  .foreign-char-warning {
+    @apply bg-red-100 text-red-700 rounded px-0.5 underline decoration-wavy decoration-red-500 underline-offset-2;
+  }
   .cute-scrollbar::-webkit-scrollbar {
     width: 7px;
     height: 7px;

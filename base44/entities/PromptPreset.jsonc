@@ -1,0 +1,38 @@
+{
+  "name": "PromptPreset",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "title": "Tên preset"
+    },
+    "description": {
+      "type": "string",
+      "title": "Mô tả ngắn"
+    },
+    "prompt_instructions": {
+      "type": "string",
+      "title": "Văn phong / nguyên tắc dịch (chèn thẳng vào prompt AI)"
+    },
+    "forbidden_words": {
+      "type": "array",
+      "title": "Từ cấm & thay thế cố định",
+      "items": {
+        "type": "object",
+        "properties": {
+          "find": {
+            "type": "string"
+          },
+          "replace": {
+            "type": "string"
+          }
+        }
+      },
+      "default": []
+    }
+  },
+  "required": [
+    "name",
+    "prompt_instructions"
+  ]
+}

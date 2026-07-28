@@ -11,6 +11,7 @@ import {
   Columns3,
   Check,
   Languages,
+  Palette,
 } from "lucide-react";
 
 const COLUMN_OPTIONS = [
@@ -51,6 +52,8 @@ export default function EditorToolbar({
   onSelfTranslate,
   selfTranslating,
   selfTranslateSupported,
+  onOpenTranslationSettings,
+  activePresetName,
 }) {
   const [showCols, setShowCols] = useState(false);
   const colsRef = useRef(null);
@@ -136,6 +139,16 @@ export default function EditorToolbar({
       </button>
 
       <div className="flex-1" />
+
+      {/* Preset & style settings */}
+      <button
+        onClick={onOpenTranslationSettings}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-pink-50 hover:bg-pink-100 text-pink-600 text-xs font-medium transition-colors shrink-0 max-w-[140px]"
+        title="Preset văn phong & công tắc dịch thuật cho bộ truyện này"
+      >
+        <Palette className="w-3.5 h-3.5 shrink-0" />
+        <span className="hidden sm:inline truncate">{activePresetName || "Preset"}</span>
+      </button>
 
       {/* Self-translate (built-in dictionary engine, free, 0 network cost) */}
       <button

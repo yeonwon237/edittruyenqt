@@ -1,5 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef } from "react";
-import { highlightTerms } from "@/lib/highlight";
+import { highlightTerms, highlightForeignChars } from "@/lib/highlight";
 
 const EditorPanel = forwardRef(function EditorPanel(
   {
@@ -14,6 +14,7 @@ const EditorPanel = forwardRef(function EditorPanel(
     onScroll,
     placeholder = "",
     extra,
+    flagForeignChars = false,
   },
   ref
 ) {
@@ -56,7 +57,11 @@ const EditorPanel = forwardRef(function EditorPanel(
           >
             <div className="whitespace-pre-wrap text-sm leading-7 text-slate-700 min-h-full">
               {value ? (
-                highlightTerms(value, terms, onTermClick)
+                flagForeignChars ? (
+                  highlightForeignChars(highlightTerms(value, terms, onTermClick))
+                ) : (
+                  highlightTerms(value, terms, onTermClick)
+                )
               ) : (
                 <span className="text-slate-300 italic">{placeholder}</span>
               )}

@@ -119,6 +119,32 @@
         "edited"
       ],
       "title": "C\u1ed9t hi\u1ec3n th\u1ecb trong Workspace"
+    },
+    "active_preset_id": {
+      "type": "string",
+      "title": "Preset d\u1ecbch thu\u1eadt \u0111ang d\u00f9ng"
+    },
+    "style_toggles": {
+      "type": "object",
+      "title": "C\u00f4ng t\u1eafc v\u0103n phong",
+      "properties": {
+        "protect_plot": {
+          "type": "boolean",
+          "default": false,
+          "title": "B\u1ea3o v\u1ec7 c\u1ed1t truy\u1ec7n (c\u1ea5m AI b\u1ecba/th\u00eam b\u1edbt)"
+        },
+        "declunkify_qt": {
+          "type": "boolean",
+          "default": false,
+          "title": "L\u1ecdc t\u1eeb QT s\u01b0\u1ee3ng (\u0111\u1ea3o ng\u1eef, tho\u00e1t \u00fd)"
+        },
+        "strip_polite_a": {
+          "type": "boolean",
+          "default": false,
+          "title": "X\u00f3a ch\u1eef \"\u1ea1\" cu\u1ed1i c\u00e2u tho\u1ea1i"
+        }
+      },
+      "default": {}
     }
   },
   "required": [

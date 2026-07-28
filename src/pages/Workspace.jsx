@@ -7,6 +7,7 @@ import EditorToolbar from "@/components/workspace/EditorToolbar";
 import GlossarySidebar from "@/components/glossary/GlossarySidebar";
 import GlossaryTermForm from "@/components/glossary/GlossaryTermForm";
 import DetectNamesDialog from "@/components/glossary/DetectNamesDialog";
+import TranslationSettingsDialog from "@/components/workspace/TranslationSettingsDialog";
 import { CATEGORIES } from "@/lib/highlight";
 import BatchReplaceDialog from "@/components/workspace/BatchReplaceDialog";
 import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog";
@@ -18,8 +19,9 @@ import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd } from "@
 import ClearEditDialog from "@/components/workspace/ClearEditDialog";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
 import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
+import { countForeignChars } from "@/lib/highlight";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
-import { applyReplacements } from "@/lib/textReplace";
+import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { fetchAllPages } from "@/lib/paginate";
 import { Loader2, ArrowLeft, Plus, LogOut, List as ListIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -80,6 +82,7 @@ export default function Workspace() {
   );
   const [panel1Mode, setPanel1Mode] = useState("view");
   const [panel2Mode, setPanel2Mode] = useState("view");
+  const [panel3Mode, setPanel3Mode] = useState("edit");
 
   const [showGlossaryForm, setShowGlossaryForm] = useState(false);
   const [editingTerm, setEditingTerm] = useState(null);
@@ -93,6 +96,9 @@ export default function Workspace() {
   const [showDetectNames, setShowDetectNames] = useState(false);
   const [detectingNames, setDetectingNames] = useState(false);
   const [nameCandidates, setNameCandidates] = useState(null);
+  const [showTranslationSettings, setShowTranslationSettings] = useState(false);
+  const [presets, setPresets] = useState([]);
+  const [activePreset, setActivePreset] = useState(null);
   const [geminiEditing, setGeminiEditing] = useState(false);
   const [pronounSelection, setPronounSelection] = useState({
     text: "",
@@ -185,6 +191,16 @@ export default function Workspace() {
           title: "Từ điển rất lớn",
           description: `Chỉ tải ${GLOSSARY_FETCH_CAP} thuật ngữ đầu tiên trong phiên này.`,
         });
+      }
+
+      // Prompt presets: a small personal library shared across all projects.
+      const presetList = await base44.entities.PromptPreset.list("-created_date", 200);
+      setPresets(presetList);
+      if (proj.active_preset_id) {
+        const active = presetList.find((p) => p.id === proj.active_preset_id);
+        setActivePreset(active || null);
+      } else {
+        setActivePreset(null);
       }
     } catch (e) {
       toast({
@@ -406,6 +422,54 @@ export default function Workspace() {
     }
   };
 
+  // Which preset this project uses (id only persisted on Project; presets
+  // themselves are a shared library across all projects).
+  const handleSelectPreset = async (presetId) => {
+    try {
+      await handleUpdateProject({ active_preset_id: presetId || "" });
+      setActivePreset(presetId ? presets.find((p) => p.id === presetId) || null : null);
+    } catch {
+      // handleUpdateProject already surfaced a toast
+    }
+  };
+
+  const handleSavePreset = async (data, presetId) => {
+    try {
+      let saved;
+      if (presetId) {
+        saved = await base44.entities.PromptPreset.update(presetId, data);
+        setPresets((prev) => prev.map((p) => (p.id === presetId ? saved : p)));
+      } else {
+        saved = await base44.entities.PromptPreset.create(data);
+        setPresets((prev) => [saved, ...prev]);
+      }
+      if (project?.active_preset_id === saved.id) setActivePreset(saved);
+      toast({ title: "Đã lưu preset! 🎭" });
+      return saved;
+    } catch (e) {
+      toast({ title: "Lỗi lưu preset", description: e.message, variant: "destructive" });
+      return null;
+    }
+  };
+
+  const handleDeletePreset = async (presetId) => {
+    try {
+      await base44.entities.PromptPreset.delete(presetId);
+      setPresets((prev) => prev.filter((p) => p.id !== presetId));
+      if (project?.active_preset_id === presetId) {
+        await handleUpdateProject({ active_preset_id: "" });
+        setActivePreset(null);
+      }
+      toast({ title: "Đã xóa preset" });
+    } catch (e) {
+      toast({ title: "Lỗi xóa preset", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleUpdateStyleToggles = (toggles) => {
+    handleUpdateProject({ style_toggles: toggles }).catch(() => {});
+  };
+
   // Batch replace (word-boundary aware, optional)
   const handleApplyBatchRules = (rules, target, wholeWord) => {
     if (!currentChapter) {
@@ -458,6 +522,23 @@ export default function Workspace() {
       project?.contextual_pronoun_rules || []
     );
 
+    const toggles = project?.style_toggles || {};
+    const extraRules = [];
+    if (toggles.protect_plot) {
+      extraRules.push(
+        "9. BẢO VỆ CỐT TRUYỆN: TUYỆT ĐỐI không tự ý thêm, bớt, bịa đặt chi tiết/tình tiết không có trong văn bản gốc."
+      );
+    }
+    if (toggles.declunkify_qt) {
+      extraRules.push(
+        "10. Chủ động đảo ngữ, diễn đạt thoát ý hoàn toàn các cụm dịch sát nghĩa đen kiểu Convert — không dịch máy móc từng chữ."
+      );
+    }
+
+    const presetBlock = activePreset?.prompt_instructions
+      ? `\nVĂN PHONG / THỂ LOẠI RIÊNG CHO BỘ TRUYỆN NÀY (${activePreset.name}):\n${activePreset.prompt_instructions}\n`
+      : "";
+
     return `Bạn là trợ lý biên tập truyện dịch chuyên nghiệp, chuyên edit truyện Convert/QT. Hãy biên tập văn bản QT thô sau đây thành văn phong tiếng Việt mượt mà, tự nhiên, thoát ý, giữ đúng cảm xúc và ý nghĩa gốc.
 
 QUY TẮC BẮT BUỘC:
@@ -468,7 +549,9 @@ QUY TẮC BẮT BUỘC:
 5. KHÔNG thêm giải thích, ghi chú, hay tiêu đề. Chỉ xuất văn bản đã biên tập.
 6. ĐẶC BIỆT: Tự động nhận diện NGƯỜI NÓI và NGƯỜI NGHE trong từng câu hội thoại (dựa tên nhân vật, bối cảnh đoạn thoại, sở hữu cách câu nói, ngôi kể). Chọn đúng MA TRẬN XƯNG HÔ phù hợp với cặp người nói ↔ người nghe của đoạn. Nếu câu thoại không quy định đặc biệt cho người nghe cụ thể, dùng quy tắc MẶC ĐỊNH của nhân vật nói. Tuyệt đối không viết sai cách xưng hô của nhân vật.
 7. Đây có thể là một đoạn trích trong chương dài hơn — chỉ biên tập đúng phần văn bản được đưa, không thêm mở đầu/kết luận ngoài ý.
-
+8. BẮT BUỘC: Giữ nguyên chính xác số lần xuống dòng / số đoạn văn như văn bản đầu vào — mỗi dòng gốc tương ứng với đúng một dòng trong bản dịch, không gộp nhiều dòng thành một, không tách một dòng thành nhiều dòng.
+${extraRules.join("\n")}
+${presetBlock}
 GLOSSARY (TUÂN THỦ 100%):
 ${glossaryText || "(trống)"}
 
@@ -482,6 +565,34 @@ VĂN BẢN CẦN BIÊN TẬP:
 ${sourceText}
 
 Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt hoàn chỉnh:`;
+  };
+
+  // Post-processing applied after every AI edit result, in code (not
+  // dependent on the AI actually following the prompt): preset forbidden
+  // words and the "strip trailing ạ" toggle.
+  const applyHardRules = (text) => {
+    let result = text;
+    const forbidden = (activePreset?.forbidden_words || []).filter((r) => r.find);
+    if (forbidden.length) {
+      result = applyReplacements(result, forbidden, { wholeWord: true }).text;
+    }
+    if (project?.style_toggles?.strip_polite_a) {
+      result = stripPoliteA(result);
+    }
+    return result;
+  };
+
+  // Rough line-count check — a heads-up, not a hard guarantee (LLMs don't
+  // perfectly preserve line counts even when explicitly instructed).
+  const checkLineAlignment = (sourceText, resultText) => {
+    const srcLines = sourceText.split("\n").length;
+    const outLines = resultText.split("\n").length;
+    if (srcLines !== outLines) {
+      toast({
+        title: "⚠️ Số dòng bản Edit không khớp QT thô",
+        description: `QT thô có ${srcLines} dòng, bản Edit có ${outLines} dòng — kiểm tra lại cấu trúc đoạn.`,
+      });
+    }
   };
 
   // Runs one call per chunk (sequentially, to stay within provider rate
@@ -527,10 +638,12 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
         (i, total) =>
           total > 1 && toast({ title: `🤖 Đang xử lý đoạn ${i}/${total}...` })
       );
+      const finalText = applyHardRules(editedText);
       setCurrentChapter((prev) =>
-        prev && prev.id === chapterId ? { ...prev, edited: editedText } : prev
+        prev && prev.id === chapterId ? { ...prev, edited: finalText } : prev
       );
       setAiUndo({ chapterId, previous: prevEdited });
+      checkLineAlignment(sourceText, finalText);
       toast({
         title: "🤖 Đã tự động edit chương!",
         description: "Kiểm tra và chỉnh sửa thêm nhé",
@@ -573,10 +686,12 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
         (i, total) =>
           total > 1 && toast({ title: `Đang xử lý đoạn ${i}/${total}...` })
       );
+      const finalText = applyHardRules(editedText);
       setCurrentChapter((prev) =>
-        prev && prev.id === chapterId ? { ...prev, edited: editedText } : prev
+        prev && prev.id === chapterId ? { ...prev, edited: finalText } : prev
       );
       setAiUndo({ chapterId, previous: prevEdited });
+      checkLineAlignment(sourceText, finalText);
       const providerLabel =
         ({ gemini: "Gemini", openai: "GPT", claude: "Claude" }[provider] || "AI");
       toast({
@@ -947,6 +1062,8 @@ ${textForDetection}`;
     ? mobileActiveCol
     : visibleColumns[0] || "edited";
 
+  const foreignCharCount = countForeignChars(currentChapter?.edited);
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50">
@@ -1073,6 +1190,8 @@ ${textForDetection}`;
         onSelfTranslate={handleSelfTranslate}
         selfTranslating={selfTranslating}
         selfTranslateSupported={supportsSelfTranslate(project?.source_language)}
+        onOpenTranslationSettings={() => setShowTranslationSettings(true)}
+        activePresetName={activePreset?.name}
       />
 
       {/* Main content */}
@@ -1197,11 +1316,24 @@ ${textForDetection}`;
                       onChange={(v) =>
                         setCurrentChapter({ ...currentChapter, edited: v })
                       }
-                      mode="edit"
+                      mode={panel3Mode}
+                      onToggleMode={() =>
+                        setPanel3Mode(panel3Mode === "view" ? "edit" : "view")
+                      }
+                      flagForeignChars
                       onScroll={() => handlePanelScroll(2)}
                       placeholder="Bản edit hoàn chỉnh sẽ hiện ở đây..."
                       extra={
                         <>
+                          {foreignCharCount > 0 && (
+                            <button
+                              onClick={() => setPanel3Mode("view")}
+                              className="text-xs px-2 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors border border-red-100"
+                              title="Chuyển sang chế độ Xem để thấy vị trí ký tự còn sót"
+                            >
+                              ⚠️ {foreignCharCount} ký tự Hán sót
+                            </button>
+                          )}
                           {aiUndo && aiUndo.chapterId === currentChapter.id && (
                             <button
                               onClick={handleUndoAiEdit}
@@ -1301,6 +1433,17 @@ ${textForDetection}`;
         detecting={detectingNames}
         candidates={nameCandidates}
         onConfirm={handleAddDetectedNames}
+      />
+      <TranslationSettingsDialog
+        open={showTranslationSettings}
+        onOpenChange={setShowTranslationSettings}
+        presets={presets}
+        activePresetId={project?.active_preset_id}
+        styleToggles={project?.style_toggles}
+        onSelectPreset={handleSelectPreset}
+        onSavePreset={handleSavePreset}
+        onDeletePreset={handleDeletePreset}
+        onUpdateStyleToggles={handleUpdateStyleToggles}
       />
       <ConfirmDialog
         open={aiConfirmOpen}
