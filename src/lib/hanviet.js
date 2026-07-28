@@ -97,7 +97,15 @@ const REORDER_VERB_GUARD = new Set([
   "在", "和", "跟", "与", "能", "会", "要", "应", "该", "需", "须", "可",
 ]);
 
-const MAX_MODIFIER_LEN = 16;
+// Kept short and symmetric with MAX_NOUN_LEN on purpose: a real "modifier的
+// noun" clause tends to have a short modifier (an adjective, a short
+// descriptive phrase, a name/pronoun). A long modifier candidate is a signal
+// that what's actually before 的 is "[verb phrase][true short modifier]",
+// e.g. "还伸手回抱住丁其羽的腰" ("[still reached out and hugged] [Ding Qiyu]的
+// [waist]") — the real modifier is just "丁其羽", not the whole "还伸手回抱住
+// 丁其羽". A wide cap here previously reordered whole verb phrases like that
+// by mistake (confirmed against a real chapter), so keep this tight.
+const MAX_MODIFIER_LEN = 6;
 const MAX_NOUN_LEN = 6;
 
 function reorderOneClause(clause) {
