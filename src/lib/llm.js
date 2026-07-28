@@ -54,15 +54,19 @@ export function hasCustomAI() {
   return !!getApiKey(getProvider()).trim();
 }
 
-export async function callLLM(prompt) {
+// `image`, when provided, is { base64, mimeType } — a data-URL-free base64
+// payload plus its MIME type (e.g. "image/png"). Only Gemini/OpenAI/Claude
+// (this custom-key path) support image input; the Base44 managed AI path
+// (InvokeLLM) is text-only.
+export async function callLLM(prompt, image) {
   const provider = getProvider();
   const key = getApiKey(provider).trim();
   if (!key) {
     throw new Error("Chưa cấu hình API Key. Vào Cài đặt (⚙️) để nhập key.");
   }
-  if (provider === "gemini") return callGeminiRaw(key, prompt);
-  if (provider === "openai") return callOpenAI(key, prompt);
-  if (provider === "claude") return callClaude(key, prompt);
+  if (provider === "gemini") return callGeminiRaw(key, prompt, image);
+  if (provider === "openai") return callOpenAI(key, prompt, image);
+  if (provider === "claude") return callClaude(key, prompt, image);
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
@@ -74,12 +78,14 @@ export async function testLLMKey(provider, key) {
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
-async function callGeminiRaw(apiKey, prompt) {
+async function callGeminiRaw(apiKey, prompt, image) {
+  const parts = [{ text: prompt }];
+  if (image) parts.push({ inline_data: { mime_type: image.mimeType, data: image.base64 } });
   const res = await fetch(`${ENDPOINTS.gemini}?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: [{ parts }],
       generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
     }),
   });
@@ -97,13 +103,19 @@ async function callGeminiRaw(apiKey, prompt) {
   return text.trim();
 }
 
-async function callOpenAI(apiKey, prompt) {
+async function callOpenAI(apiKey, prompt, image) {
+  const content = image
+    ? [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.base64}` } },
+      ]
+    : prompt;
   const res = await fetch(ENDPOINTS.openai, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
       model: MODELS.openai,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content }],
       temperature: 0.7,
       max_tokens: 8192,
     }),
@@ -122,7 +134,13 @@ async function callOpenAI(apiKey, prompt) {
   return text.trim();
 }
 
-async function callClaude(apiKey, prompt) {
+async function callClaude(apiKey, prompt, image) {
+  const content = image
+    ? [
+        { type: "image", source: { type: "base64", media_type: image.mimeType, data: image.base64 } },
+        { type: "text", text: prompt },
+      ]
+    : prompt;
   const res = await fetch(ENDPOINTS.claude, {
     method: "POST",
     headers: {
@@ -135,7 +153,7 @@ async function callClaude(apiKey, prompt) {
     body: JSON.stringify({
       model: MODELS.claude,
       max_tokens: 8192,
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content }],
     }),
   });
   if (!res.ok) {
@@ -192,6 +210,20 @@ async function testOpenAI(apiKey) {
     throw new Error(msg);
   }
   return true;
+}
+
+// Reads an image File into { base64, mimeType } for callLLM's `image` param.
+export function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const base64 = result.split(",")[1] || "";
+      resolve({ base64, mimeType: file.type || "image/png" });
+    };
+    reader.onerror = () => reject(reader.error || new Error("Không đọc được file ảnh"));
+    reader.readAsDataURL(file);
+  });
 }
 
 // ---- Chunking & rough token/cost estimation ----

@@ -15,7 +15,8 @@ import ChapterManagerDialog from "@/components/workspace/ChapterManagerDialog";
 import ImportChaptersDialog from "@/components/workspace/ImportChaptersDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import { exportAsTxt, exportAsDoc, exportGlossaryJson, exportChaptersCsv } from "@/lib/exportUtils";
-import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd } from "@/lib/llm";
+import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBase64 } from "@/lib/llm";
+import ImageTranslateDialog from "@/components/workspace/ImageTranslateDialog";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
 import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
 import { countForeignChars } from "@/lib/highlight";
@@ -99,6 +100,9 @@ export default function Workspace() {
   const [showTranslationSettings, setShowTranslationSettings] = useState(false);
   const [presets, setPresets] = useState([]);
   const [activePreset, setActivePreset] = useState(null);
+  const [showImageTranslate, setShowImageTranslate] = useState(false);
+  const [imageTranslating, setImageTranslating] = useState(false);
+  const [imageResult, setImageResult] = useState(null); // { raw, translated } | null
   const [geminiEditing, setGeminiEditing] = useState(false);
   const [pronounSelection, setPronounSelection] = useState({
     text: "",
@@ -781,6 +785,60 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     setSelfTranslating(false);
   };
 
+  const parseImageResult = (raw) => {
+    const gocMatch = raw.match(/===GOC===([\s\S]*?)(?:===DICH===|$)/i);
+    const dichMatch = raw.match(/===DICH===([\s\S]*)$/i);
+    const parsedRaw = (gocMatch?.[1] || "").trim();
+    const translated = (dichMatch?.[1] || "").trim();
+    // Fallback if the model didn't follow the marker format.
+    if (!parsedRaw && !translated) return { raw: "", translated: raw.trim() };
+    return { raw: parsedRaw, translated };
+  };
+
+  // Dịch từ ảnh: OCR + translate in one custom-AI call.
+  const handleSelectImageFile = async (file) => {
+    if (!file) return;
+    setImageResult(null);
+    setImageTranslating(true);
+    try {
+      const image = await fileToBase64(file);
+      const prompt = `Bạn là trợ lý OCR và dịch thuật. Đọc TOÀN BỘ chữ trong ảnh (có thể là tiếng Trung/Anh/Nhật/Hàn hoặc ngôn ngữ khác) và thực hiện:
+1. Chép lại chính xác nguyên văn chữ trong ảnh, giữ đúng ngôn ngữ gốc, giữ đúng cấu trúc xuống dòng.
+2. Dịch toàn bộ đoạn đó sang tiếng Việt, văn phong tự nhiên, thoát ý.
+
+Trả về ĐÚNG định dạng sau, không thêm giải thích nào khác:
+===GOC===
+<nguyên văn chép từ ảnh>
+===DICH===
+<bản dịch tiếng Việt>`;
+      const raw = await callLLM(prompt, image);
+      setImageResult(parseImageResult(raw));
+    } catch (e) {
+      toast({ title: "Lỗi dịch ảnh", description: e.message, variant: "destructive" });
+    }
+    setImageTranslating(false);
+  };
+
+  const handleEditImageRaw = (newRaw) => {
+    setImageResult((prev) => (prev ? { ...prev, raw: newRaw } : prev));
+  };
+
+  const handleApplyImageResult = () => {
+    if (!currentChapter || !imageResult) return;
+    setCurrentChapter({
+      ...currentChapter,
+      raw_original: imageResult.raw
+        ? [currentChapter.raw_original, imageResult.raw].filter(Boolean).join("\n")
+        : currentChapter.raw_original,
+      qt_raw: imageResult.translated
+        ? [currentChapter.qt_raw, imageResult.translated].filter(Boolean).join("\n")
+        : currentChapter.qt_raw,
+    });
+    setShowImageTranslate(false);
+    setImageResult(null);
+    toast({ title: "Đã áp dụng kết quả dịch ảnh vào chương! 🖼️" });
+  };
+
   const parseNameCandidates = (raw) => {
     let text = (raw || "").trim();
     text = text.replace(/^```(json)?/i, "").replace(/```$/, "").trim();
@@ -1265,6 +1323,7 @@ ${textForDetection}`;
         selfTranslateSupported={supportsSelfTranslate(project?.source_language)}
         onOpenTranslationSettings={() => setShowTranslationSettings(true)}
         activePresetName={activePreset?.name}
+        onOpenImageTranslate={() => setShowImageTranslate(true)}
       />
 
       {/* Main content */}
@@ -1517,6 +1576,17 @@ ${textForDetection}`;
         onSavePreset={handleSavePreset}
         onDeletePreset={handleDeletePreset}
         onUpdateStyleToggles={handleUpdateStyleToggles}
+      />
+      <ImageTranslateDialog
+        open={showImageTranslate}
+        onOpenChange={setShowImageTranslate}
+        hasCustomAI={hasCustomAI()}
+        onOpenSettings={() => navigate("/settings")}
+        translating={imageTranslating}
+        result={imageResult}
+        onSelectFile={handleSelectImageFile}
+        onEditRaw={handleEditImageRaw}
+        onApply={handleApplyImageResult}
       />
       <ConfirmDialog
         open={aiConfirmOpen}

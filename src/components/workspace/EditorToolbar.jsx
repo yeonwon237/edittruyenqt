@@ -12,6 +12,7 @@ import {
   Check,
   Languages,
   Palette,
+  ImagePlus,
 } from "lucide-react";
 
 const COLUMN_OPTIONS = [
@@ -54,6 +55,7 @@ export default function EditorToolbar({
   selfTranslateSupported,
   onOpenTranslationSettings,
   activePresetName,
+  onOpenImageTranslate,
 }) {
   const [showCols, setShowCols] = useState(false);
   const colsRef = useRef(null);
@@ -148,6 +150,16 @@ export default function EditorToolbar({
       >
         <Palette className="w-3.5 h-3.5 shrink-0" />
         <span className="hidden sm:inline truncate">{activePresetName || "Preset"}</span>
+      </button>
+
+      {/* Image translate (OCR + dịch, cần custom AI key) */}
+      <button
+        onClick={onOpenImageTranslate}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-600 text-xs font-medium transition-colors shrink-0"
+        title="Dịch từ ảnh (OCR + dịch bằng AI)"
+      >
+        <ImagePlus className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Ảnh</span>
       </button>
 
       {/* Self-translate (built-in dictionary engine, free, 0 network cost) */}
