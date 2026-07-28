@@ -78,6 +78,7 @@ export default function Workspace() {
   const [saving, setSaving] = useState(false);
   const [draftMode] = useState(isDraftMode());
   const [aiEditing, setAiEditing] = useState(false);
+  const [checkingPronouns, setCheckingPronouns] = useState(false);
   const [selfTranslating, setSelfTranslating] = useState(false);
   const [showSidebar, setShowSidebar] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
@@ -777,6 +778,77 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     setCurrentChapter((prev) => ({ ...prev, edited: aiUndo.previous }));
     setAiUndo(null);
     toast({ title: "Đã hoàn tác bản edit AI ↩️" });
+  };
+
+  // A blind find/replace ("Đổi đại từ xưng hô") can't express "chỉ khi X nói
+  // với Y" — that needs context. Rather than trying to teach the general
+  // edit prompt (buildEditPrompt) to never miss this among everything else
+  // it's already juggling, this runs a second, narrow AI pass whose ONLY
+  // job is comparing dialogue against the Ma Trận Xưng Hô and fixing
+  // mismatches — a model tends to follow one focused instruction far more
+  // reliably than the same instruction buried as #6 of 8+ in a long prompt.
+  const buildPronounCheckPrompt = (text, matrixText) => `Bạn là biên tập viên kiểm tra tính nhất quán xưng hô trong truyện dịch. Nhiệm vụ DUY NHẤT của bạn: đọc đoạn văn tiếng Việt sau, đối chiếu với BẢNG QUY TẮC XƯNG HÔ bên dưới, và SỬA LẠI những chỗ đại từ xưng hô trong LỜI THOẠI TRỰC TIẾP (trong ngoặc kép) bị dùng sai so với quy tắc — dựa trên việc xác định đúng người đang nói và đang nói VỚI AI trong câu đó.
+
+QUY TẮC BẮT BUỘC:
+1. CHỈ sửa đại từ xưng hô (ta/ngươi/nàng/hắn/huynh/muội...) trong lời thoại trực tiếp, khi xác định RÕ RÀNG người nói và người nghe của câu đó khớp với một dòng trong bảng quy tắc.
+2. Nếu không chắc chắn ai đang nói với ai trong một câu, GIỮ NGUYÊN — đừng đoán bừa, đừng tự bịa quy tắc không có trong bảng.
+3. KHÔNG sửa bất kỳ điều gì khác (từ ngữ, câu chữ, tường thuật, xưng hô ở phần không phải lời thoại trực tiếp).
+4. KHÔNG thêm/bớt dòng, không thêm giải thích/ghi chú/tiêu đề — chỉ xuất lại đúng văn bản đã sửa.
+
+BẢNG QUY TẮC XƯNG HÔ:
+${matrixText}
+
+VĂN BẢN CẦN KIỂM TRA:
+${text}
+
+Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
+
+  const handleCheckPronouns = async () => {
+    if (!currentChapter) {
+      toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
+      return;
+    }
+    const matrixText = buildPronounMatrixPrompt(project?.contextual_pronoun_rules || []);
+    if (!matrixText) {
+      toast({ title: "Chưa có quy tắc nào trong Ma Trận Xưng Hô!", variant: "destructive" });
+      return;
+    }
+    const sourceText = currentChapter.edited || "";
+    if (!sourceText.trim()) {
+      toast({ title: "Bản Edit đang trống, chưa có gì để kiểm tra!", variant: "destructive" });
+      return;
+    }
+    const chapterId = currentChapter.id;
+    const prevEdited = sourceText;
+    setCheckingPronouns(true);
+    try {
+      const callFn = async (prompt) => {
+        if (hasCustomAI()) return await callLLM(prompt);
+        const result = await base44.integrations.Core.InvokeLLM({ prompt });
+        return typeof result === "string" ? result : result?.output || result?.response || "";
+      };
+      const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
+      let fixedText;
+      if (chunks.length <= 1) {
+        fixedText = await callFn(buildPronounCheckPrompt(sourceText, matrixText));
+      } else {
+        const results = [];
+        for (let i = 0; i < chunks.length; i++) {
+          toast({ title: `Đang kiểm tra đoạn ${i + 1}/${chunks.length}...` });
+          // eslint-disable-next-line no-await-in-loop
+          results.push(await callFn(buildPronounCheckPrompt(chunks[i], matrixText)));
+        }
+        fixedText = results.join("\n\n");
+      }
+      setCurrentChapter((prev) =>
+        prev && prev.id === chapterId ? { ...prev, edited: fixedText } : prev
+      );
+      setAiUndo({ chapterId, previous: prevEdited });
+      toast({ title: "Đã kiểm tra & sửa xưng hô ✅", description: "Không đúng ý thì bấm Hoàn tác." });
+    } catch (e) {
+      toast({ title: "Lỗi kiểm tra xưng hô", description: e.message, variant: "destructive" });
+    }
+    setCheckingPronouns(false);
   };
 
   // Self-translate (built-in Hán-Việt dictionary engine — free, client-side,
@@ -1711,6 +1783,8 @@ ${sourceText}`;
         onOpenChange={setShowContextualPronoun}
         project={project}
         onUpdateProject={handleUpdateProject}
+        onCheckPronouns={handleCheckPronouns}
+        checkingPronouns={checkingPronouns}
       />
       <ChapterManagerDialog
         open={showChapterManager}

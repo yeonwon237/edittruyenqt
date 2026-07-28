@@ -7,7 +7,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Trash2, Pencil, Plus, RotateCcw } from "lucide-react";
+import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { ruleSummary } from "@/lib/pronounMatrix";
 
@@ -24,6 +24,8 @@ export default function ContextualPronounDialog({
   onOpenChange,
   project,
   onUpdateProject,
+  onCheckPronouns,
+  checkingPronouns,
 }) {
   const { toast } = useToast();
   const [rules, setRules] = useState([]);
@@ -139,6 +141,22 @@ export default function ContextualPronounDialog({
             Người nghe để trống / chọn "Mặc định" nghĩa là quy tắc chung cho mọi người.
           </DialogDescription>
         </DialogHeader>
+
+        {onCheckPronouns && (
+          <button
+            onClick={onCheckPronouns}
+            disabled={checkingPronouns}
+            className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-50 to-pink-50 hover:from-violet-100 hover:to-pink-100 text-violet-700 text-xs font-medium border border-violet-100 transition-colors disabled:opacity-50"
+            title="Chạy 1 lượt AI riêng, CHỈ soát lại đại từ xưng hô trong Bản Edit theo đúng bảng quy tắc bên dưới — không đụng gì khác. Dùng khi bản edit đã có xưng hô sai lẻ tẻ mà nút Đổi đại từ (tìm/thay chữ) không phân biệt được ngữ cảnh."
+          >
+            {checkingPronouns ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
+            {checkingPronouns ? "Đang kiểm tra Bản Edit..." : "Kiểm tra & sửa xưng hô sai trong Bản Edit (AI)"}
+          </button>
+        )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-3 rounded-xl border border-violet-100 bg-violet-50/40 p-3">
