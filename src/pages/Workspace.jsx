@@ -574,9 +574,26 @@ export default function Workspace() {
       );
     }
 
-    const presetBlock = activePreset?.prompt_instructions
-      ? `\nVĂN PHONG / THỂ LOẠI RIÊNG CHO BỘ TRUYỆN NÀY (${activePreset.name}):\n${activePreset.prompt_instructions}\n`
-      : "";
+    const genreEraLines = [];
+    if (activePreset?.genres?.length) genreEraLines.push(`Thể loại: ${activePreset.genres.join(", ")}`);
+    if (activePreset?.setting_era?.trim()) genreEraLines.push(`Bối cảnh/thời đại: ${activePreset.setting_era.trim()}`);
+    const genreEraText = genreEraLines.join("\n");
+
+    const characterNotesText = (activePreset?.character_notes || [])
+      .filter((n) => n.character?.trim() && n.note?.trim())
+      .map((n) => `- ${n.character.trim()}: ${n.note.trim()}`)
+      .join("\n");
+
+    const presetBlock =
+      activePreset?.prompt_instructions || genreEraText || characterNotesText
+        ? `\nVĂN PHONG / THỂ LOẠI RIÊNG CHO BỘ TRUYỆN NÀY (${activePreset?.name || ""}):
+${genreEraText ? `${genreEraText}\n` : ""}${activePreset?.prompt_instructions || ""}
+${
+  characterNotesText
+    ? `\nGHI CHÚ NHÂN VẬT ĐẶC BIỆT (quy tắc xưng hô/hành xử đổi theo tình huống — BẮT BUỘC áp dụng đúng khi văn cảnh phù hợp, không được bỏ qua):\n${characterNotesText}\n`
+    : ""
+}`
+        : "";
 
     return `Bạn là trợ lý biên tập truyện dịch chuyên nghiệp, chuyên edit truyện Convert/QT. Hãy biên tập văn bản QT thô sau đây thành văn phong tiếng Việt mượt mà, tự nhiên, thoát ý, giữ đúng cảm xúc và ý nghĩa gốc.
 

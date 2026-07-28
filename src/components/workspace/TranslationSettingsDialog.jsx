@@ -11,7 +11,34 @@ import { Button } from "@/components/ui/button";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import { Plus, Trash2, Save } from "lucide-react";
 
-const EMPTY_FORM = { name: "", description: "", prompt_instructions: "", forbidden_words: [] };
+const GENRE_OPTIONS = [
+  "Tiên hiệp", "Huyền huyễn", "Đô thị", "Cổ trang", "Ngôn tình", "Bách hợp",
+  "Trọng sinh", "Xuyên không", "Dị giới", "Khoa huyễn", "Linh dị", "Trinh thám",
+];
+
+const EMPTY_FORM = {
+  name: "",
+  description: "",
+  genres: [],
+  setting_era: "",
+  character_notes: [],
+  prompt_instructions: "",
+  forbidden_words: [],
+};
+
+function formFromPreset(preset) {
+  return preset
+    ? {
+        name: preset.name || "",
+        description: preset.description || "",
+        genres: preset.genres || [],
+        setting_era: preset.setting_era || "",
+        character_notes: preset.character_notes || [],
+        prompt_instructions: preset.prompt_instructions || "",
+        forbidden_words: preset.forbidden_words || [],
+      }
+    : EMPTY_FORM;
+}
 
 export default function TranslationSettingsDialog({
   open,
@@ -36,16 +63,7 @@ export default function TranslationSettingsDialog({
     const initialId = activePresetId || "";
     setSelectedId(initialId);
     const preset = (presets || []).find((p) => p.id === initialId);
-    setForm(
-      preset
-        ? {
-            name: preset.name || "",
-            description: preset.description || "",
-            prompt_instructions: preset.prompt_instructions || "",
-            forbidden_words: preset.forbidden_words || [],
-          }
-        : EMPTY_FORM
-    );
+    setForm(formFromPreset(preset));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -53,16 +71,7 @@ export default function TranslationSettingsDialog({
     setSelectedId(id);
     onSelectPreset(id || null);
     const preset = (presets || []).find((p) => p.id === id);
-    setForm(
-      preset
-        ? {
-            name: preset.name || "",
-            description: preset.description || "",
-            prompt_instructions: preset.prompt_instructions || "",
-            forbidden_words: preset.forbidden_words || [],
-          }
-        : EMPTY_FORM
-    );
+    setForm(formFromPreset(preset));
   };
 
   const handleNewPreset = () => {
@@ -70,6 +79,24 @@ export default function TranslationSettingsDialog({
     onSelectPreset(null);
     setForm(EMPTY_FORM);
   };
+
+  const toggleGenre = (g) => {
+    setForm((prev) => ({
+      ...prev,
+      genres: prev.genres.includes(g) ? prev.genres.filter((x) => x !== g) : [...prev.genres, g],
+    }));
+  };
+
+  const updateCharNote = (i, field, value) => {
+    setForm((prev) => ({
+      ...prev,
+      character_notes: prev.character_notes.map((n, idx) => (idx === i ? { ...n, [field]: value } : n)),
+    }));
+  };
+  const addCharNote = () =>
+    setForm((prev) => ({ ...prev, character_notes: [...prev.character_notes, { character: "", note: "" }] }));
+  const removeCharNote = (i) =>
+    setForm((prev) => ({ ...prev, character_notes: prev.character_notes.filter((_, idx) => idx !== i) }));
 
   const updateRule = (i, field, value) => {
     setForm((prev) => ({
@@ -90,6 +117,9 @@ export default function TranslationSettingsDialog({
         {
           name: form.name.trim(),
           description: form.description.trim(),
+          genres: form.genres,
+          setting_era: form.setting_era.trim(),
+          character_notes: form.character_notes.filter((n) => n.character.trim() && n.note.trim()),
           prompt_instructions: form.prompt_instructions.trim(),
           forbidden_words: form.forbidden_words.filter((r) => r.find),
         },
@@ -165,6 +195,70 @@ export default function TranslationSettingsDialog({
                     placeholder="VD: Văn phong cổ trang, xưng hô huynh-muội"
                     className="mt-1 w-full px-2.5 py-1.5 text-sm rounded-lg border border-violet-100 bg-white focus:outline-none focus:border-violet-300"
                   />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-violet-700 mb-1 block">Thể loại</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {GENRE_OPTIONS.map((g) => (
+                      <button
+                        key={g}
+                        type="button"
+                        onClick={() => toggleGenre(g)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                          form.genres.includes(g)
+                            ? "bg-violet-600 text-white border-violet-600"
+                            : "bg-white text-slate-600 border-violet-100 hover:bg-violet-50"
+                        }`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-violet-700">Bối cảnh / thời đại</label>
+                  <input
+                    value={form.setting_era}
+                    onChange={(e) => setForm({ ...form, setting_era: e.target.value })}
+                    placeholder="VD: Cổ đại Trung Hoa giả tưởng, triều đại hư cấu"
+                    className="mt-1 w-full px-2.5 py-1.5 text-sm rounded-lg border border-violet-100 bg-white focus:outline-none focus:border-violet-300"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-violet-700 mb-1 block">
+                    Ghi chú nhân vật đặc biệt (quy tắc xưng hô/hành xử đổi theo tình huống — AI bắt buộc tuân theo)
+                  </label>
+                  <div className="space-y-1.5">
+                    {form.character_notes.map((n, i) => (
+                      <div key={i} className="flex items-start gap-1.5">
+                        <input
+                          value={n.character}
+                          onChange={(e) => updateCharNote(i, "character", e.target.value)}
+                          placeholder="Tên nhân vật"
+                          className="w-28 shrink-0 px-2 py-1 text-xs rounded-lg border border-violet-100 bg-white focus:outline-none focus:border-violet-300"
+                        />
+                        <textarea
+                          value={n.note}
+                          onChange={(e) => updateCharNote(i, "note", e.target.value)}
+                          placeholder='VD: Giả trai khi ở trước người ngoài → xưng "ta/tại hạ". Khi chỉ có một mình với Ninh Ngôn Quân → xưng "ta" giọng nữ tính hơn, có thể lộ vài cử chỉ nữ nhi.'
+                          rows={2}
+                          className="flex-1 min-w-0 px-2 py-1 text-xs rounded-lg border border-violet-100 bg-white focus:outline-none focus:border-violet-300 resize-none"
+                        />
+                        <button
+                          onClick={() => removeCharNote(i)}
+                          className="p-1 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 shrink-0"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={addCharNote}
+                      className="flex items-center gap-1 text-xs text-violet-600 hover:text-violet-700"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Thêm ghi chú nhân vật
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <label className="text-xs font-medium text-violet-700">

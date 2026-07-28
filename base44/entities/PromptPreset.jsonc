@@ -10,6 +10,36 @@
       "type": "string",
       "title": "Mô tả ngắn"
     },
+    "genres": {
+      "type": "array",
+      "title": "Thể loại",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "setting_era": {
+      "type": "string",
+      "title": "Bối cảnh / thời đại"
+    },
+    "character_notes": {
+      "type": "array",
+      "title": "Ghi chú nhân vật đặc biệt (quy tắc xưng hô/hành xử đổi theo tình huống)",
+      "items": {
+        "type": "object",
+        "properties": {
+          "character": {
+            "type": "string",
+            "title": "Tên nhân vật"
+          },
+          "note": {
+            "type": "string",
+            "title": "Quy tắc / điều kiện"
+          }
+        }
+      },
+      "default": []
+    },
     "prompt_instructions": {
       "type": "string",
       "title": "Văn phong / nguyên tắc dịch (chèn thẳng vào prompt AI)"
