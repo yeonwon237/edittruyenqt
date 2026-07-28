@@ -8,13 +8,13 @@ const KEY_STORE = {
 };
 
 const ENDPOINTS = {
-  gemini: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+  gemini: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent",
   openai: "https://api.openai.com/v1/chat/completions",
   claude: "https://api.anthropic.com/v1/messages",
 };
 
 const MODELS = {
-  gemini: "gemini-2.5-flash",
+  gemini: "gemini-3.6-flash",
   openai: "gpt-4o-mini",
   claude: "claude-sonnet-4-6",
 };

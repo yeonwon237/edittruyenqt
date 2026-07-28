@@ -29,7 +29,7 @@ const PROVIDERS_INFO = {
     label: "Google Gemini",
     shortLabel: "Gemini",
     emoji: "✨",
-    desc: "Nhanh, nhiều quota miễn phí — Gemini 2.5 Flash",
+    desc: "Nhanh, nhiều quota miễn phí — Gemini 3.6 Flash",
     placeholder: "AIza...",
     helpUrl: "https://aistudio.google.com/apikey",
     helpStep1: "Truy cập Google AI Studio → chọn \"Get API Key\"",
