@@ -108,6 +108,20 @@ const REORDER_VERB_GUARD = new Set([
 const MAX_MODIFIER_LEN = 6;
 const MAX_NOUN_LEN = 6;
 
+// --- Sentence capitalization ---
+// The dictionary/reading tables are all lowercase (that's the normal way to
+// write a Vietnamese entry), so raw output never capitalizes anything except
+// glossary terms that already come pre-capitalized (character names...).
+// This pass capitalizes the first letter after start-of-text, a newline, a
+// run of sentence-ending punctuation (.!?…), or a colon introducing a quote
+// — covers normal sentences and "X nói:"Lời thoại..."" dialogue openings.
+const VN_LOWER = "a-zàáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ";
+const SENTENCE_START_RE = new RegExp(`(^|\\n|[.!?…]+|:)([\\s"'“”‘’»]*)([${VN_LOWER}])`, "gu");
+
+function capitalizeSentences(text) {
+  return text.replace(SENTENCE_START_RE, (_m, sep, spacing, letter) => sep + spacing + letter.toUpperCase());
+}
+
 function reorderOneClause(clause) {
   const deIndex = clause.indexOf("的");
   // No 的, or nothing before/after it to work with.
@@ -258,7 +272,7 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
     .sort((a, b) => b[1] - a[1])
     .map(([ch, count]) => ({ ch, count }));
 
-  return { text: out.join(""), coverage, unknownChars };
+  return { text: capitalizeSentences(out.join("")), coverage, unknownChars };
 }
 
 // Only Chinese source is well suited to dictionary-based draft translation —
