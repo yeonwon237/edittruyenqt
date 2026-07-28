@@ -76,7 +76,13 @@ export default function EditorToolbar({
   const provider = PROVIDER_INFO[customAIProvider] || PROVIDER_INFO.gemini;
 
   return (
-    <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white/60 backdrop-blur border-b border-violet-100 overflow-x-auto cute-scrollbar">
+    // flex-wrap (not overflow-x-auto): a scrolling axis on this row forces
+    // the CSS engine to also clip the cross axis (overflow-x != visible
+    // makes overflow-y compute to "auto" too, per spec), which was cutting
+    // off the "Thêm"/"Cột" dropdown panels that need to extend below the
+    // row. Wrapping to a second row on narrow screens has no such clipping
+    // side effect.
+    <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 bg-white/60 backdrop-blur border-b border-violet-100">
       {/* Column selector */}
       <div ref={colsRef} className="relative shrink-0">
         <button
