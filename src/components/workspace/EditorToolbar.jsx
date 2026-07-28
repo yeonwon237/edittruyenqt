@@ -10,6 +10,7 @@ import {
   Settings as SettingsIcon,
   Columns3,
   Check,
+  Languages,
 } from "lucide-react";
 
 const COLUMN_OPTIONS = [
@@ -47,6 +48,9 @@ export default function EditorToolbar({
   customAIProvider,
   onOpenSettings,
   onToggleSidebar,
+  onSelfTranslate,
+  selfTranslating,
+  selfTranslateSupported,
 }) {
   const [showCols, setShowCols] = useState(false);
   const colsRef = useRef(null);
@@ -132,6 +136,25 @@ export default function EditorToolbar({
       </button>
 
       <div className="flex-1" />
+
+      {/* Self-translate (built-in dictionary engine, free, 0 network cost) */}
+      <button
+        onClick={onSelfTranslate}
+        disabled={!selfTranslateSupported || selfTranslating}
+        title={
+          selfTranslateSupported
+            ? "Tự dịch văn bản gốc → QT thô bằng từ điển Hán-Việt (miễn phí, chạy tại chỗ)"
+            : "Tự dịch tự thân hiện chỉ hỗ trợ nguồn tiếng Trung"
+        }
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+      >
+        {selfTranslating ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          <Languages className="w-3.5 h-3.5" />
+        )}
+        <span className="hidden sm:inline">Tự dịch</span>
+      </button>
 
       {/* Auto Edit (built-in InvokeLLM) */}
       <button

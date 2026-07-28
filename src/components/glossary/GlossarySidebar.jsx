@@ -4,6 +4,7 @@ import { useToast } from "@/components/ui/use-toast";
 import { CATEGORY_STYLES, CATEGORY_EMOJI, CATEGORIES } from "@/lib/highlight";
 import { parseGlossaryFile } from "@/lib/importGlossary";
 import { exportGlossaryJson } from "@/lib/exportUtils";
+import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 
 export default function GlossarySidebar({
   terms,
@@ -17,6 +18,7 @@ export default function GlossarySidebar({
   const { toast } = useToast();
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState("all");
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const fileInputRef = useRef(null);
 
   const filtered = terms.filter((t) => {
@@ -187,7 +189,7 @@ export default function GlossarySidebar({
                     <Pencil className="w-3 h-3" />
                   </button>
                   <button
-                    onClick={() => onDeleteTerm(term.id)}
+                    onClick={() => setDeleteTarget(term)}
                     className="p-1 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -220,6 +222,18 @@ export default function GlossarySidebar({
           ))
         )}
       </div>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        title={`Xóa thuật ngữ "${deleteTarget?.source_term || ""}"?`}
+        description="Bản dịch tương ứng sẽ không còn được tô sáng hoặc áp dụng khi AI biên tập nữa."
+        confirmLabel="Xóa thuật ngữ"
+        onConfirm={() => {
+          onDeleteTerm(deleteTarget.id);
+          setDeleteTarget(null);
+        }}
+      />
     </aside>
   );
 }

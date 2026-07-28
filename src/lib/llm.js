@@ -129,6 +129,8 @@ async function callClaude(apiKey, prompt) {
       "Content-Type": "application/json",
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
+      // Required for Anthropic to allow direct browser (CORS) requests.
+      "anthropic-dangerous-direct-browser-access": "true",
     },
     body: JSON.stringify({
       model: MODELS.claude,
@@ -192,6 +194,101 @@ async function testOpenAI(apiKey) {
   return true;
 }
 
+// ---- Chunking & rough token/cost estimation ----
+// Chapters can be very long; a single AI call can blow past the provider's
+// output token cap (8192 here) and get silently truncated. Chunk long text
+// along paragraph/sentence boundaries so translate/edit calls stay safe.
+
+const CJK_REGEX = /[一-鿿㐀-䶿]/g;
+
+// Rough heuristic only (not a real tokenizer): CJK text tokenizes far denser
+// than Latin/Vietnamese text.
+export function estimateTokens(text) {
+  if (!text) return 0;
+  const cjkMatches = text.match(CJK_REGEX);
+  const cjkCount = cjkMatches ? cjkMatches.length : 0;
+  const otherCount = text.length - cjkCount;
+  return Math.ceil(cjkCount / 1.7 + otherCount / 4);
+}
+
+// Indicative public pricing per 1M tokens (USD) for the models this app calls.
+// These drift over time — treat as a ballpark, not a bill. Always check the
+// provider's own pricing page for the real number.
+const ROUGH_PRICE_PER_1M_TOKENS = {
+  gemini: { input: 0.1, output: 0.4 },
+  openai: { input: 0.15, output: 0.6 },
+  claude: { input: 3.0, output: 15.0 },
+};
+
+export function estimateCostUsd(provider, inputText, outputMultiplier = 1.3) {
+  const price = ROUGH_PRICE_PER_1M_TOKENS[provider];
+  if (!price) return null;
+  const inputTokens = estimateTokens(inputText);
+  const outputTokens = Math.ceil(inputTokens * outputMultiplier);
+  const cost =
+    (inputTokens / 1_000_000) * price.input +
+    (outputTokens / 1_000_000) * price.output;
+  return { inputTokens, outputTokens, cost };
+}
+
+// Split long text into chunks along paragraph (then sentence, then hard-cut)
+// boundaries so no chunk exceeds maxChars.
+export function chunkText(text, maxChars = 3000) {
+  if (!text) return [];
+  if (text.length <= maxChars) return [text];
+
+  const paragraphs = text.split(/\n+/);
+  const chunks = [];
+  let current = "";
+
+  const flushCurrent = () => {
+    if (current) {
+      chunks.push(current);
+      current = "";
+    }
+  };
+
+  for (const para of paragraphs) {
+    const candidate = current ? `${current}\n${para}` : para;
+    if (candidate.length <= maxChars) {
+      current = candidate;
+      continue;
+    }
+    flushCurrent();
+    if (para.length <= maxChars) {
+      current = para;
+      continue;
+    }
+    // Single paragraph longer than maxChars: split by sentence, then hard-cut.
+    const sentences = para.split(/(?<=[.!?。!?])\s+/);
+    let piece = "";
+    for (const s of sentences) {
+      const candidatePiece = piece ? `${piece} ${s}` : s;
+      if (candidatePiece.length <= maxChars) {
+        piece = candidatePiece;
+        continue;
+      }
+      if (piece) {
+        chunks.push(piece);
+        piece = "";
+      }
+      if (s.length <= maxChars) {
+        piece = s;
+      } else {
+        let rest = s;
+        while (rest.length > maxChars) {
+          chunks.push(rest.slice(0, maxChars));
+          rest = rest.slice(maxChars);
+        }
+        piece = rest;
+      }
+    }
+    current = piece;
+  }
+  flushCurrent();
+  return chunks;
+}
+
 async function testClaude(apiKey) {
   const res = await fetch(ENDPOINTS.claude, {
     method: "POST",
@@ -199,6 +296,7 @@ async function testClaude(apiKey) {
       "Content-Type": "application/json",
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
     },
     body: JSON.stringify({
       model: MODELS.claude,

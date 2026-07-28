@@ -18,11 +18,13 @@ export default function BatchReplaceDialog({
 }) {
   const [rules, setRules] = useState([]);
   const [target, setTarget] = useState("edited");
+  const [wholeWord, setWholeWord] = useState(false);
 
   useEffect(() => {
     if (open) {
       setRules(project?.batch_rules || [{ find: "", replace: "" }]);
       setTarget("edited");
+      setWholeWord(false);
     }
   }, [open, project]);
 
@@ -42,7 +44,7 @@ export default function BatchReplaceDialog({
 
   const handleApply = async () => {
     await onUpdateProject({ batch_rules: rules });
-    onApply(rules, target);
+    onApply(rules, target, wholeWord);
     onOpenChange(false);
   };
 
@@ -98,7 +100,7 @@ export default function BatchReplaceDialog({
             <Plus className="w-3.5 h-3.5" /> Thêm quy tắc
           </button>
 
-          <div className="pt-2 border-t border-violet-100">
+          <div className="pt-2 border-t border-violet-100 space-y-2">
             <label className="text-xs font-medium text-slate-500 mb-1 block">
               Áp dụng vào cột
             </label>
@@ -111,6 +113,15 @@ export default function BatchReplaceDialog({
               <option value="qt_raw">Cột 2: QT thô</option>
               <option value="raw_original">Cột 1: Văn bản gốc</option>
             </select>
+            <label className="flex items-center gap-2 text-xs text-slate-600 select-none cursor-pointer">
+              <input
+                type="checkbox"
+                checked={wholeWord}
+                onChange={(e) => setWholeWord(e.target.checked)}
+                className="accent-amber-500"
+              />
+              Chỉ khớp nguyên từ (tránh thay nhầm bên trong từ khác)
+            </label>
           </div>
         </div>
 

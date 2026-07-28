@@ -1,0 +1,284 @@
+// Seed dictionaries for the built-in ("tự thân") Chinese → Vietnamese draft
+// translator. Bundled as a static JS module so it ships once with the app
+// build (no DB storage, no per-use network/egress cost).
+//
+// HANVIET_WORDS: pronouns, grammar particles, connectors and "false friend"
+// compounds — cases where the correct Vietnamese word is a *meaning*
+// translation, not the Sino-Vietnamese *sound* reading of the characters.
+// Checked first, longest match wins. A value of "" means "drop this token"
+// (e.g. 的/了 grammatical particles that have no standalone Vietnamese word).
+//
+// HANVIET_CHARS: single-character Hán-Việt sound readings, used as the
+// fallback for any character not covered by HANVIET_WORDS or the project
+// glossary. This is how classic "QT" (Quick Translate) conversion works —
+// most Sino-Vietnamese vocabulary is literally the Hán-Việt reading of each
+// Chinese character read in sequence.
+//
+// This is a starter/seed set focused on high-frequency function words and
+// common xianxia/wuxia web-novel vocabulary — it is NOT exhaustive. Coverage
+// grows over time by extending these tables and, per project, via the
+// existing Glossary (which always takes priority over both tables below).
+
+export const HANVIET_WORDS = {
+  // Pronouns & determiners
+  "我": "ta",
+  "我们": "chúng ta",
+  "你": "ngươi",
+  "你们": "các ngươi",
+  "您": "ngài",
+  "他": "hắn",
+  "他们": "bọn hắn",
+  "她": "nàng",
+  "她们": "bọn nàng",
+  "它": "nó",
+  "它们": "chúng nó",
+  "谁": "ai",
+  "自己": "chính mình",
+  "大家": "mọi người",
+  "别人": "người khác",
+  "这": "này",
+  "这个": "cái này",
+  "这些": "những cái này",
+  "这里": "nơi này",
+  "这样": "như vậy",
+  "那": "kia",
+  "那个": "cái kia",
+  "那些": "những cái kia",
+  "那里": "nơi kia",
+  "那样": "như thế",
+  "什么": "cái gì",
+  "什么样": "kiểu gì",
+  "怎么": "thế nào",
+  "怎么样": "như thế nào",
+  "怎样": "như thế nào",
+  "为什么": "vì sao",
+  "哪": "đâu",
+  "哪里": "nơi đâu",
+  "哪个": "cái nào",
+  "多少": "bao nhiêu",
+  "几": "mấy",
+
+  // Copula / existence / negation
+  "是": "là",
+  "不是": "không phải",
+  "有": "có",
+  "没有": "không có",
+  "没": "không",
+  "不": "không",
+  "别": "đừng",
+  "不要": "đừng",
+  "不能": "không thể",
+  "不会": "sẽ không",
+  "不用": "không cần",
+
+  // Adverbs / connectors
+  "也": "cũng",
+  "都": "đều",
+  "很": "rất",
+  "非常": "vô cùng",
+  "十分": "vô cùng",
+  "太": "quá",
+  "更": "càng",
+  "最": "nhất",
+  "还": "vẫn",
+  "还是": "vẫn là",
+  "又": "lại",
+  "再": "lại",
+  "就": "liền",
+  "才": "mới",
+  "只": "chỉ",
+  "只是": "chỉ là",
+  "只有": "chỉ có",
+  "一直": "luôn luôn",
+  "一定": "nhất định",
+  "一起": "cùng nhau",
+  "一样": "giống nhau",
+  "突然": "đột nhiên",
+  "忽然": "đột nhiên",
+  "立刻": "lập tức",
+  "马上": "lập tức",
+  "终于": "cuối cùng",
+  "渐渐": "dần dần",
+  "慢慢": "từ từ",
+  "已经": "đã",
+  "正在": "đang",
+  "在": "đang",
+  "和": "và",
+  "跟": "cùng với",
+  "与": "cùng",
+  "或者": "hoặc là",
+  "但是": "nhưng",
+  "可是": "nhưng mà",
+  "不过": "nhưng",
+  "如果": "nếu như",
+  "要是": "nếu như",
+  "虽然": "tuy rằng",
+  "因为": "bởi vì",
+  "所以": "cho nên",
+  "然后": "sau đó",
+  "然而": "tuy nhiên",
+  "而且": "hơn nữa",
+  "于是": "thế là",
+  "可以": "có thể",
+  "能": "có thể",
+  "会": "sẽ",
+  "要": "muốn",
+  "想": "nghĩ",
+  "需要": "cần",
+  "必须": "nhất định phải",
+  "应该": "nên",
+
+  // Common verbs (function-like, high frequency)
+  "说": "nói",
+  "说道": "nói",
+  "问": "hỏi",
+  "问道": "hỏi",
+  "回答": "trả lời",
+  "知道": "biết",
+  "认识": "quen biết",
+  "明白": "hiểu rõ",
+  "以为": "tưởng rằng",
+  "觉得": "cảm thấy",
+  "希望": "hy vọng",
+  "决定": "quyết định",
+  "开始": "bắt đầu",
+  "继续": "tiếp tục",
+  "停止": "dừng lại",
+  "结束": "kết thúc",
+
+  // Time words
+  "现在": "hiện tại",
+  "以前": "trước đây",
+  "以后": "sau này",
+  "刚才": "vừa rồi",
+  "刚刚": "vừa mới",
+  "今天": "hôm nay",
+  "昨天": "hôm qua",
+  "明天": "ngày mai",
+  "晚上": "buổi tối",
+  "早上": "buổi sáng",
+  "中午": "buổi trưa",
+
+  // "False friend" compounds — character-by-character reading would mislead
+  "东西": "đồ vật",
+  "小心": "cẩn thận",
+  "可怜": "đáng thương",
+  "可惜": "đáng tiếc",
+  "其实": "kỳ thực",
+  "其中": "trong đó",
+  "没关系": "không sao",
+  "对不起": "xin lỗi",
+  "谢谢": "cảm ơn",
+  "不客气": "không có gì",
+  "天才": "thiên tài",
+  "漂亮": "xinh đẹp",
+  "厉害": "lợi hại",
+  "麻烦": "phiền phức",
+  "意思": "ý tứ",
+  "样子": "dáng vẻ",
+  "时候": "lúc",
+  "地方": "nơi",
+
+  // Common sentence-final / colloquial particles
+  "吧": "đi",
+  "个": "",
+
+  // Grammatical particles with no standalone Vietnamese word — drop them
+  "的": "",
+  "了": "",
+  "着": "",
+  "吗": "",
+  "呢": "",
+  "啦": "",
+};
+
+export const HANVIET_CHARS = {
+  // Numbers. "一" defaults to "một" (its overwhelmingly common use as a
+  // cardinal/indefinite-article "a/one" before a noun in narrative prose)
+  // rather than "nhất" (its formal/ordinal reading, e.g. "đệ nhất") — add a
+  // glossary override per-project if a text needs the ordinal reading instead.
+  "一": "một", "二": "nhị", "三": "tam", "四": "tứ", "五": "ngũ",
+  "六": "lục", "七": "thất", "八": "bát", "九": "cửu", "十": "thập",
+  "百": "bách", "千": "thiên", "万": "vạn", "亿": "ức", "零": "linh", "两": "lưỡng",
+
+  // Family
+  "父": "phụ", "母": "mẫu", "兄": "huynh", "弟": "đệ", "姐": "tỷ",
+  "妹": "muội", "子": "tử", "女": "nữ", "儿": "nhi", "孙": "tôn",
+  "夫": "phu", "妻": "thê", "爷": "gia", "奶": "nãi", "叔": "thúc",
+  "伯": "bá", "姑": "cô", "姨": "di", "舅": "cữu",
+
+  // Body
+  "头": "đầu", "手": "thủ", "脚": "cước", "眼": "nhãn", "耳": "nhĩ",
+  "鼻": "tị", "口": "khẩu", "心": "tâm", "血": "huyết", "骨": "cốt",
+  "肉": "nhục", "皮": "bì", "发": "phát",
+
+  // Nature
+  "天": "thiên", "地": "địa", "日": "nhật", "月": "nguyệt", "星": "tinh",
+  "风": "phong", "雨": "vũ", "雪": "tuyết", "云": "vân", "山": "sơn",
+  "水": "thủy", "火": "hỏa", "土": "thổ", "木": "mộc", "石": "thạch",
+  "花": "hoa", "草": "thảo", "树": "thụ", "叶": "diệp", "林": "lâm",
+
+  // Time
+  "年": "niên", "时": "thời", "分": "phân", "秒": "miểu", "早": "tảo",
+  "晚": "vãn", "今": "kim", "明": "minh", "昨": "tạc", "古": "cổ",
+
+  // Verbs
+  "看": "khán", "听": "thính", "走": "tẩu", "跑": "bào", "坐": "tọa",
+  "站": "trạm", "躺": "thảng", "笑": "tiếu", "哭": "khốc", "打": "đả",
+  "杀": "sát", "死": "tử", "生": "sinh", "活": "hoạt", "来": "lai",
+  "去": "khứ", "进": "tiến", "出": "xuất", "上": "thượng", "下": "hạ",
+  "开": "khai", "关": "quan", "拿": "nã", "放": "phóng", "给": "cấp",
+  "取": "thủ", "问": "vấn", "答": "đáp", "想": "tưởng", "知": "tri",
+  "道": "đạo", "白": "bạch", "记": "ký", "忘": "vong", "喜": "hỷ",
+  "欢": "hoan", "爱": "ái", "恨": "hận", "怕": "phạ", "惊": "kinh",
+  "讶": "nhạ", "修": "tu", "炼": "luyện", "到": "đáo", "动": "động",
+
+  // Adjectives
+  "大": "đại", "小": "tiểu", "多": "đa", "少": "thiểu", "高": "cao",
+  "低": "đê", "长": "trường", "短": "đoản", "快": "khoái", "慢": "mạn",
+  "好": "hảo", "坏": "hoại", "美": "mỹ", "丑": "xú", "强": "cường",
+  "弱": "nhược", "新": "tân", "旧": "cựu", "老": "lão", "轻": "khinh",
+  "冷": "lãnh", "热": "nhiệt", "远": "viễn", "近": "cận", "深": "thâm",
+  "浅": "thiển", "暗": "ám", "重": "trọng",
+
+  // Xianxia / wuxia genre vocabulary
+  "武": "võ", "功": "công", "内": "nội", "力": "lực", "真": "chân",
+  "气": "khí", "灵": "linh", "仙": "tiên", "妖": "yêu", "魔": "ma",
+  "鬼": "quỷ", "神": "thần", "佛": "phật", "法": "pháp", "术": "thuật",
+  "剑": "kiếm", "刀": "đao", "枪": "thương", "棍": "côn", "拳": "quyền",
+  "掌": "chưởng", "指": "chỉ", "爪": "trảo", "境": "cảnh", "界": "giới",
+  "者": "giả", "徒": "đồ", "师": "sư", "门": "môn", "派": "phái",
+  "帮": "bang", "族": "tộc", "家": "gia", "宫": "cung", "主": "chủ",
+  "城": "thành", "王": "vương", "朝": "triều", "皇": "hoàng", "帝": "đế",
+  "后": "hậu", "将": "tướng", "军": "quân", "士": "sĩ", "兵": "binh",
+  "战": "chiến", "勇": "dũng", "英": "anh", "雄": "hùng", "敌": "địch",
+  "朋": "bằng", "友": "hữu", "江": "giang", "湖": "hồ", "恩": "ân",
+  "怨": "oán", "情": "tình", "仇": "cừu", "复": "phục", "报": "báo",
+  "宝": "bảo", "物": "vật", "丹": "đan", "药": "dược", "妙": "diệu",
+  "洞": "động", "府": "phủ", "秘": "bí", "禁": "cấm", "遗": "di",
+  "迹": "tích", "传": "truyền", "器": "khí", "圣": "thánh", "尊": "tôn",
+  "说": "thuyết",
+};
+
+// Chinese punctuation → Latin/Vietnamese punctuation.
+export const PUNCT_MAP = {
+  "，": ", ",
+  "。": ". ",
+  "！": "! ",
+  "？": "? ",
+  "；": "; ",
+  "：": ": ",
+  "、": ", ",
+  "“": "\"",
+  "”": "\"",
+  "‘": "'",
+  "’": "'",
+  "（": "(",
+  "）": ")",
+  "《": "«",
+  "》": "»",
+  "—": "-",
+  "…": "...",
+  "「": "\"",
+  "」": "\"",
+};

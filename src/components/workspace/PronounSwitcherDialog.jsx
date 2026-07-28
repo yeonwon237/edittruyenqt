@@ -19,11 +19,13 @@ export default function PronounSwitcherDialog({
 }) {
   const [rules, setRules] = useState([]);
   const [target, setTarget] = useState("edited");
+  const [wholeWord, setWholeWord] = useState(true);
 
   useEffect(() => {
     if (open) {
       setRules(project?.pronoun_rules || []);
       setTarget("edited");
+      setWholeWord(true);
     }
   }, [open, project]);
 
@@ -60,7 +62,7 @@ export default function PronounSwitcherDialog({
 
   const handleApplyRule = async (rule) => {
     await onUpdateProject({ pronoun_rules: rules });
-    onApply(rule, target);
+    onApply(rule, target, wholeWord);
     onOpenChange(false);
   };
 
@@ -86,6 +88,16 @@ export default function PronounSwitcherDialog({
               </span>
             )}
           </div>
+
+          <label className="flex items-center gap-2 text-xs text-slate-600 select-none cursor-pointer px-0.5">
+            <input
+              type="checkbox"
+              checked={wholeWord}
+              onChange={(e) => setWholeWord(e.target.checked)}
+              className="accent-violet-600"
+            />
+            Chỉ khớp nguyên từ (khuyến nghị bật, tránh đổi nhầm bên trong từ khác)
+          </label>
 
           {rules.length === 0 && (
             <div className="text-center text-sm text-slate-300 py-4">
