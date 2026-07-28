@@ -178,10 +178,18 @@ export const HANVIET_WORDS = {
   "样子": "dáng vẻ",
   "时候": "lúc",
   "地方": "nơi",
+  "点头": "gật đầu",
+  "摇头": "lắc đầu",
+  "喝酒": "uống rượu",
+  "瞧见": "nhìn thấy",
+  "看见": "nhìn thấy",
+  "外面": "bên ngoài",
+  "里面": "bên trong",
 
   // Common sentence-final / colloquial particles
   "吧": "đi",
   "个": "",
+  "把": "",
 
   // Grammatical particles with no standalone Vietnamese word — drop them
   "的": "",
@@ -258,6 +266,32 @@ export const HANVIET_CHARS = {
   "洞": "động", "府": "phủ", "秘": "bí", "禁": "cấm", "遗": "di",
   "迹": "tích", "传": "truyền", "器": "khí", "圣": "thánh", "尊": "tôn",
   "说": "thuyết",
+
+  // Grammar / structure words and common narrative vocabulary that turned
+  // up missing when testing against a real chapter excerpt.
+  "第": "đệ", "章": "chương", "中": "trung", "全": "toàn", "完": "hoàn",
+  "之": "chi", "其": "kỳ", "处": "xử", "起": "khởi", "外": "ngoại",
+  "面": "diện", "见": "kiến", "音": "âm", "量": "lượng", "赐": "tứ",
+  "良": "lương", "缘": "duyên", "幸": "hạnh", "福": "phúc", "护": "hộ",
+  "暖": "noãn", "衣": "y", "领": "lĩnh", "体": "thể", "容": "dung",
+  "易": "dị", "凉": "lương", "酒": "tửu", "毯": "thảm", "背": "bối",
+  "椅": "ỷ", "仰": "ngưỡng", "提": "đề", "畅": "sướng", "靠": "kháo",
+  "点": "điểm",
+  // A few characters read more usefully by meaning than by formal Hán-Việt
+  // sound here (the formal reading exists but is obscure/rarely used and
+  // would confuse more than help in a draft translation).
+  "瞧": "nhìn", "拉": "kéo", "喝": "uống", "倒": "lại", "盖": "đắp",
+  "阿": "A",
+
+  // Common Chinese surnames — Hán-Việt character-by-character reading is
+  // the traditional convention for rendering Chinese names in Vietnamese,
+  // so these help even without a per-project Glossary entry. For a name
+  // that recurs often, still add it to the Glossary for a locked, exact
+  // rendering across the whole project.
+  "丁": "đinh", "羽": "vũ", "莲": "liên", "陈": "trần", "李": "lý",
+  "张": "trương", "刘": "lưu", "杨": "dương", "赵": "triệu", "周": "chu",
+  "吴": "ngô", "徐": "từ", "马": "mã", "朱": "chu", "胡": "hồ",
+  "郑": "trịnh", "谢": "tạ", "何": "hà", "苏": "tô", "韩": "hàn",
 };
 
 // Chinese punctuation → Latin/Vietnamese punctuation.
