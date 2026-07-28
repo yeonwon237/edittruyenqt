@@ -192,8 +192,9 @@ export default function GlossarySidebar({
         </button>
       </div>
 
-      {/* Category tabs */}
-      <div className="flex gap-1 px-3 py-2 overflow-x-auto cute-scrollbar border-b border-violet-100">
+      {/* Category tabs — wrap instead of scroll-hide so all of them stay
+          visible without a hidden horizontal scroll a user has to discover. */}
+      <div className="flex flex-wrap gap-1 px-3 py-2 border-b border-violet-100">
         <button
           onClick={() => setActiveCategory("all")}
           className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${activeCategory === "all" ? "bg-violet-600 text-white" : "bg-violet-50 text-slate-500 hover:bg-violet-100"}`}
