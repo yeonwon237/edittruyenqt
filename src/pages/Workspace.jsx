@@ -967,6 +967,25 @@ ${textForDetection}`;
     </>
   );
 
+  // Always-visible restore tab shown in place of a hidden column — the
+  // "Cột" dropdown in the toolbar also toggles this, but a tab right where
+  // the panel used to be is impossible to miss.
+  const renderRestoreTab = (col, emoji, label) => (
+    <button
+      onClick={() => handleToggleColumn(col)}
+      className="hidden md:flex flex-col items-center justify-center gap-2 w-9 shrink-0 rounded-2xl bg-white/70 border border-violet-100 text-slate-400 hover:bg-violet-50 hover:text-violet-600 transition-colors py-4"
+      title={`Hiện lại cột ${label}`}
+    >
+      <span className="text-base">{emoji}</span>
+      <span
+        className="text-[10px] font-medium tracking-wide"
+        style={{ writingMode: "vertical-rl" }}
+      >
+        {label}
+      </span>
+    </button>
+  );
+
   // Import glossary terms (bulk create)
   const handleImportTerms = async (terms) => {
     try {
@@ -1403,6 +1422,7 @@ ${textForDetection}`;
                 </div>
               )}
               <div className="flex flex-1 gap-2 min-h-0 min-w-0">
+                {!visibleColumns.includes("raw") && renderRestoreTab("raw", "📖", "Gốc")}
                 {visibleColumns.includes("raw") && (
                   <div
                     className={
@@ -1432,6 +1452,7 @@ ${textForDetection}`;
                     />
                   </div>
                 )}
+                {!visibleColumns.includes("qt") && renderRestoreTab("qt", "✏️", "QT")}
                 {visibleColumns.includes("qt") && (
                   <div
                     className={
@@ -1461,6 +1482,7 @@ ${textForDetection}`;
                     />
                   </div>
                 )}
+                {!visibleColumns.includes("edited") && renderRestoreTab("edited", "✨", "Edit")}
                 {visibleColumns.includes("edited") && (
                   <div
                     className={
