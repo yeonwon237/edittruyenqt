@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Search, Plus, Pencil, Trash2, Upload, Download } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Upload, Download, Sparkles } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { CATEGORY_STYLES, CATEGORY_EMOJI, CATEGORIES } from "@/lib/highlight";
 import { parseGlossaryFile } from "@/lib/importGlossary";
@@ -14,6 +14,7 @@ export default function GlossarySidebar({
   onDeleteTerm,
   onImportTerms,
   onOpenContextualPronoun,
+  onDetectNames,
 }) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -131,6 +132,13 @@ export default function GlossarySidebar({
               : 0}{" "}
             quy tắc
           </span>
+        </button>
+        <button
+          onClick={onDetectNames}
+          className="mt-1.5 w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 transition-colors"
+          title="Dùng AI tìm tên riêng trong chương hiện tại, không cần biết tiếng Trung"
+        >
+          <Sparkles className="w-3.5 h-3.5" /> Phát hiện tên riêng (AI)
         </button>
       </div>
 

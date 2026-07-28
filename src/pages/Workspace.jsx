@@ -6,6 +6,8 @@ import EditorPanel from "@/components/workspace/EditorPanel";
 import EditorToolbar from "@/components/workspace/EditorToolbar";
 import GlossarySidebar from "@/components/glossary/GlossarySidebar";
 import GlossaryTermForm from "@/components/glossary/GlossaryTermForm";
+import DetectNamesDialog from "@/components/glossary/DetectNamesDialog";
+import { CATEGORIES } from "@/lib/highlight";
 import BatchReplaceDialog from "@/components/workspace/BatchReplaceDialog";
 import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog";
 import ChapterManagerDialog from "@/components/workspace/ChapterManagerDialog";
@@ -88,6 +90,9 @@ export default function Workspace() {
   const [showContextualPronoun, setShowContextualPronoun] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
   const [showImportChapters, setShowImportChapters] = useState(false);
+  const [showDetectNames, setShowDetectNames] = useState(false);
+  const [detectingNames, setDetectingNames] = useState(false);
+  const [nameCandidates, setNameCandidates] = useState(null);
   const [geminiEditing, setGeminiEditing] = useState(false);
   const [pronounSelection, setPronounSelection] = useState({
     text: "",
@@ -645,6 +650,86 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     setSelfTranslating(false);
   };
 
+  const parseNameCandidates = (raw) => {
+    let text = (raw || "").trim();
+    text = text.replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+    const arr = JSON.parse(text);
+    if (!Array.isArray(arr)) throw new Error("AI không trả về danh sách hợp lệ");
+    return arr
+      .map((it) => ({
+        source_term: (it.source_term || "").toString().trim(),
+        translation: (it.translation || "").toString().trim(),
+        category: CATEGORIES.includes(it.category) ? it.category : "Khác",
+      }))
+      .filter((it) => it.source_term && it.translation);
+  };
+
+  // Detect proper names (people/places/...) via AI so a translator who
+  // doesn't read Chinese can still build a correctly-capitalized Glossary.
+  const handleDetectNames = async () => {
+    if (!currentChapter) {
+      toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
+      return;
+    }
+    const sourceText = currentChapter.raw_original || currentChapter.qt_raw || "";
+    if (!sourceText.trim()) {
+      toast({ title: "Chương chưa có văn bản để phân tích!", variant: "destructive" });
+      return;
+    }
+    setShowDetectNames(true);
+    setDetectingNames(true);
+    setNameCandidates(null);
+    try {
+      // First ~6000 chars is plenty to catch recurring names without an
+      // extra round of chunking just for this lookup.
+      const textForDetection = sourceText.slice(0, 6000);
+      const prompt = `Bạn là trợ lý phân tích văn bản truyện dịch tiếng Trung. Đọc đoạn văn tiếng Trung dưới đây và liệt kê TẤT CẢ tên riêng xuất hiện (tên nhân vật, địa danh, tông môn/môn phái, chức vị đặc biệt, chiêu thức/công pháp có tên riêng...).
+
+Trả về DUY NHẤT một mảng JSON hợp lệ (không markdown, không giải thích thêm), mỗi phần tử có dạng:
+{"source_term": "<chữ Hán gốc, giữ nguyên như trong văn bản>", "translation": "<phiên âm Hán Việt, viết hoa chữ cái đầu mỗi âm tiết đúng chuẩn tên riêng tiếng Việt>", "category": "<một trong: Tên người, Địa danh, Chiêu thức, Vật phẩm, Cấp bậc, Khác>"}
+
+Nếu không tìm thấy tên riêng nào, trả về mảng rỗng [].
+
+ĐOẠN VĂN:
+${textForDetection}`;
+
+      let raw;
+      if (hasCustomAI()) {
+        raw = await callLLM(prompt);
+      } else {
+        const result = await base44.integrations.Core.InvokeLLM({ prompt });
+        raw = typeof result === "string" ? result : result?.output || result?.response || "";
+      }
+      const parsed = parseNameCandidates(raw);
+      const existing = new Set(glossaryTerms.map((t) => t.source_term));
+      setNameCandidates(parsed.filter((c) => !existing.has(c.source_term)));
+    } catch (e) {
+      toast({ title: "Lỗi phát hiện tên riêng", description: e.message, variant: "destructive" });
+      setShowDetectNames(false);
+    }
+    setDetectingNames(false);
+  };
+
+  const handleAddDetectedNames = async (selected) => {
+    if (!selected.length) return;
+    try {
+      const withProjectId = selected.map((t) => ({
+        source_term: t.source_term,
+        translation: t.translation,
+        category: t.category,
+        notes: "",
+        custom_fields: {},
+        project_id: projectId,
+      }));
+      const created = await base44.entities.GlossaryTerm.bulkCreate(withProjectId);
+      setGlossaryTerms((prev) => [...created, ...prev]);
+      setShowDetectNames(false);
+      toast({ title: `Đã thêm ${created.length} tên vào Glossary! 🌸` });
+    } catch (e) {
+      toast({ title: "Lỗi thêm Glossary", description: e.message, variant: "destructive" });
+    }
+  };
+
   // Clear Edit (with confirm)
   const handleClearEdit = () => {
     setCurrentChapter({ ...currentChapter, edited: "" });
@@ -1014,6 +1099,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
               onDeleteTerm={handleDeleteTerm}
               onImportTerms={handleImportTerms}
               onOpenContextualPronoun={() => setShowContextualPronoun(true)}
+              onDetectNames={handleDetectNames}
             />
           </>
         )}
@@ -1208,6 +1294,13 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
         open={showImportChapters}
         onOpenChange={setShowImportChapters}
         onImport={handleImportChapters}
+      />
+      <DetectNamesDialog
+        open={showDetectNames}
+        onOpenChange={setShowDetectNames}
+        detecting={detectingNames}
+        candidates={nameCandidates}
+        onConfirm={handleAddDetectedNames}
       />
       <ConfirmDialog
         open={aiConfirmOpen}
