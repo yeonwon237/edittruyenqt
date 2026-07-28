@@ -197,6 +197,19 @@ export const HANVIET_WORDS = {
   "学霸": "học bá",
   "桃花运": "vận đào hoa",
   "桃花不少": "vận đào hoa không ít",
+  // 自家+夫人 already translate correctly on their own ("nhà mình"/"phu nhân")
+  // but in Chinese word order, giving the wrong "nhà mình phu nhân" — no 的
+  // between them for the modifier-noun reorder pass to catch, so it needs a
+  // direct override.
+  "自家夫人": "phu nhân nhà mình",
+  // 去 alone falls back to the formal/classical Hán-Việt reading "khứ" if not
+  // overridden — "đi" is what it means in ordinary narrative prose (mirrors
+  // the existing "一" -> "một" override rationale above).
+  "去": "đi",
+  // Without this, greedy longest-match prefers the 3-char "那一晚" (a real,
+  // if less useful, crowd entry) over "那一" + "晚上", stranding a lone 上
+  // that then reads as "thượng" instead of being part of "buổi tối".
+  "那一晚上": "đêm hôm đó",
 
   // Thành ngữ / cụm cố định 4+ ký tự thường gặp trong tiên hiệp, ngôn tình,
   // đô thị... — bộ từ điển gốc chỉ có khóa dài 2-3 ký tự nên các cụm này
