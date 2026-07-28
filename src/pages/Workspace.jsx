@@ -23,6 +23,7 @@ import { countForeignChars } from "@/lib/highlight";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { fetchAllPages } from "@/lib/paginate";
+import { isDraftMode } from "@/lib/draftMode";
 import { Loader2, ArrowLeft, Plus, LogOut, List as ListIcon, Copy, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -75,6 +76,7 @@ export default function Workspace() {
   const [visibleColumns, setVisibleColumns] = useState(["raw", "qt", "edited"]);
   const [mobileActiveCol, setMobileActiveCol] = useState("edited");
   const [saving, setSaving] = useState(false);
+  const [draftMode] = useState(isDraftMode());
   const [aiEditing, setAiEditing] = useState(false);
   const [selfTranslating, setSelfTranslating] = useState(false);
   const [showSidebar, setShowSidebar] = useState(
@@ -218,9 +220,12 @@ export default function Workspace() {
 
   // Save a chapter only if its content actually differs from what was last
   // persisted — skips the network/DB write entirely for a no-op autosave
-  // tick (e.g. switching away without editing).
-  const flushSave = async (chapter) => {
+  // tick (e.g. switching away without editing). In draft mode this is a
+  // no-op unless `force` is set (the explicit "Lưu" button) — the whole
+  // point of draft mode is "don't write anything unless I ask you to".
+  const flushSave = async (chapter, force = false) => {
     if (!chapter?.id) return;
+    if (draftMode && !force) return;
     const snap = snapshotOf(chapter);
     if (lastSavedRef.current.get(chapter.id) === snap) return;
     try {
@@ -238,7 +243,7 @@ export default function Workspace() {
 
   // Auto-save chapter (debounced, deduped against last-saved snapshot)
   useEffect(() => {
-    if (!currentChapter?.id) return;
+    if (!currentChapter?.id || draftMode) return;
     const timer = setTimeout(async () => {
       const snap = snapshotOf(currentChapter);
       if (lastSavedRef.current.get(currentChapter.id) === snap) return;
@@ -1151,6 +1156,14 @@ ${textForDetection}`;
     setExportingChapters(false);
   };
 
+  const handleManualSave = async () => {
+    if (!currentChapter) return;
+    setSaving(true);
+    await flushSave(currentChapter, true);
+    setSaving(false);
+    toast({ title: "Đã lưu chương này ✅" });
+  };
+
   const handleLogout = async () => {
     await base44.auth.logout("/login");
   };
@@ -1268,9 +1281,20 @@ ${textForDetection}`;
             <Plus className="w-4 h-4" />
           </button>
 
-          <span className="text-xs text-slate-400 hidden md:block">
-            {saving ? "💾 Đang lưu..." : "✅ Đã lưu"}
-          </span>
+          {draftMode ? (
+            <button
+              onClick={handleManualSave}
+              disabled={saving}
+              className="text-xs px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-600 font-medium transition-colors hidden md:flex items-center gap-1"
+              title="Chế độ nháp: không tự lưu, bấm để lưu chương này ngay"
+            >
+              {saving ? "💾 Đang lưu..." : "📝 Nháp · Lưu"}
+            </button>
+          ) : (
+            <span className="text-xs text-slate-400 hidden md:block">
+              {saving ? "💾 Đang lưu..." : "✅ Đã lưu"}
+            </span>
+          )}
 
           <div className="flex items-center gap-1 hidden md:flex">
             <button
@@ -1404,6 +1428,7 @@ ${textForDetection}`;
                       onScroll={() => handlePanelScroll(0)}
                       placeholder="Dán văn bản gốc (Trung/Anh) vào đây..."
                       extra={renderColumnActions("raw_original", "Văn bản gốc", currentChapter.raw_original)}
+                      onHide={() => handleToggleColumn("raw")}
                     />
                   </div>
                 )}
@@ -1432,6 +1457,7 @@ ${textForDetection}`;
                       onScroll={() => handlePanelScroll(1)}
                       placeholder="Dán văn bản QT/Convert thô vào đây, hoặc bấm 'Tự dịch' ở trên..."
                       extra={renderColumnActions("qt_raw", "QT thô", currentChapter.qt_raw)}
+                      onHide={() => handleToggleColumn("qt")}
                     />
                   </div>
                 )}
@@ -1458,6 +1484,7 @@ ${textForDetection}`;
                       flagForeignChars
                       onScroll={() => handlePanelScroll(2)}
                       placeholder="Bản edit hoàn chỉnh sẽ hiện ở đây..."
+                      onHide={() => handleToggleColumn("edited")}
                       extra={
                         <>
                           {foreignCharCount > 0 && (

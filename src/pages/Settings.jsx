@@ -21,6 +21,8 @@ import {
   clearApiKey,
   testLLMKey,
 } from "@/lib/llm";
+import { isDraftMode, setDraftMode } from "@/lib/draftMode";
+import { Switch } from "@/components/ui/switch";
 
 const PROVIDERS_INFO = {
   gemini: {
@@ -70,6 +72,7 @@ const PROVIDERS_INFO = {
 export default function Settings() {
   const { toast } = useToast();
   const [user, setUser] = useState(null);
+  const [draftMode, setDraftModeState] = useState(isDraftMode());
   const [provider, setProvider] = useState(getProvider());
   const [keyInputs, setKeyInputs] = useState({
     gemini: getApiKey("gemini"),
@@ -119,6 +122,17 @@ export default function Settings() {
     await base44.auth.logout("/login");
   };
 
+  const handleToggleDraftMode = (checked) => {
+    setDraftMode(checked);
+    setDraftModeState(checked);
+    toast({
+      title: checked ? "Đã bật chế độ nháp 📝" : "Đã tắt chế độ nháp",
+      description: checked
+        ? "Sẽ không tự động lưu nữa — chỉ lưu khi bạn bấm nút Lưu trong Workspace."
+        : "Quay lại tự động lưu như bình thường.",
+    });
+  };
+
   const info = PROVIDERS_INFO[provider];
 
   return (
@@ -157,6 +171,21 @@ export default function Settings() {
             </p>
           </div>
         )}
+
+        <div className="bg-white rounded-2xl border border-violet-100 shadow-sm p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-700 mb-1">
+                📝 Chế độ nháp
+              </h2>
+              <p className="text-xs text-slate-400">
+                Tắt tự động lưu — dùng khi bạn chỉ chế biến văn bản rồi copy ra ngoài, không
+                cần lưu lại trên web. Vẫn có thể bấm nút Lưu thủ công trong Workspace khi muốn.
+              </p>
+            </div>
+            <Switch checked={draftMode} onCheckedChange={handleToggleDraftMode} />
+          </div>
+        </div>
 
         {/* AI Provider selection */}
         <div className="bg-white rounded-2xl border border-violet-100 shadow-sm p-6">

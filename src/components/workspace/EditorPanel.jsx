@@ -1,4 +1,5 @@
 import { forwardRef, useImperativeHandle, useRef } from "react";
+import { X } from "lucide-react";
 import { highlightTerms, highlightForeignChars } from "@/lib/highlight";
 
 const EditorPanel = forwardRef(function EditorPanel(
@@ -15,6 +16,7 @@ const EditorPanel = forwardRef(function EditorPanel(
     placeholder = "",
     extra,
     flagForeignChars = false,
+    onHide,
   },
   ref
 ) {
@@ -44,6 +46,15 @@ const EditorPanel = forwardRef(function EditorPanel(
               className="text-xs px-2 py-1 rounded-lg bg-white/70 hover:bg-white text-slate-500 hover:text-violet-600 transition-colors border border-violet-100"
             >
               {mode === "view" ? "✏️ Sửa" : "👁️ Xem"}
+            </button>
+          )}
+          {onHide && (
+            <button
+              onClick={onHide}
+              className="p-1 rounded-lg bg-white/70 hover:bg-white text-slate-400 hover:text-red-500 transition-colors border border-violet-100"
+              title={`Ẩn cột ${title} (bấm nút Cột trên toolbar để hiện lại)`}
+            >
+              <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
