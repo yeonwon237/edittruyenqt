@@ -20,7 +20,12 @@ import {
   saveApiKey,
   clearApiKey,
   testLLMKey,
+  getModel,
+  saveModel,
+  resetModel,
+  getDefaultModel,
 } from "@/lib/llm";
+import { RotateCcw } from "lucide-react";
 import { isDraftMode, setDraftMode } from "@/lib/draftMode";
 import { Switch } from "@/components/ui/switch";
 
@@ -79,6 +84,11 @@ export default function Settings() {
     openai: getApiKey("openai"),
     claude: getApiKey("claude"),
   });
+  const [modelInputs, setModelInputs] = useState({
+    gemini: getModel("gemini"),
+    openai: getModel("openai"),
+    claude: getModel("claude"),
+  });
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
@@ -106,7 +116,8 @@ export default function Settings() {
     setTesting(true);
     try {
       saveApiKey(p, keyInputs[p].trim());
-      await testLLMKey(p, keyInputs[p].trim());
+      saveModel(p, modelInputs[p]);
+      await testLLMKey(p, keyInputs[p].trim(), modelInputs[p].trim() || getDefaultModel(p));
       toast({ title: `✅ Kết nối ${PROVIDERS_INFO[p].shortLabel} thành công!` });
     } catch (e) {
       toast({
@@ -116,6 +127,18 @@ export default function Settings() {
       });
     }
     setTesting(false);
+  };
+
+  const handleSaveModel = (p) => {
+    saveModel(p, modelInputs[p]);
+    setModelInputs((prev) => ({ ...prev, [p]: getModel(p) }));
+    toast({ title: `Đã lưu model (${PROVIDERS_INFO[p].shortLabel}) 🎯` });
+  };
+
+  const handleResetModel = (p) => {
+    resetModel(p);
+    setModelInputs((prev) => ({ ...prev, [p]: getDefaultModel(p) }));
+    toast({ title: `Đã đặt lại model mặc định (${PROVIDERS_INFO[p].shortLabel})` });
   };
 
   const handleLogout = async () => {
@@ -285,6 +308,43 @@ export default function Settings() {
                 </Button>
               )}
             </div>
+
+            <div className="mt-4 pt-4 border-t border-violet-100">
+              <p className="text-xs font-semibold text-slate-700 mb-1.5">
+                Model ({info.shortLabel})
+              </p>
+              <p className="text-xs text-slate-400 mb-2">
+                Nhà cung cấp hay đổi/khai tử model — nếu báo lỗi kết nối hoặc hết hạn mức, đổi
+                model khác ở đây mà không cần chờ sửa code. Mặc định:{" "}
+                <code className="bg-white/70 px-1 rounded">{getDefaultModel(provider)}</code>
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <input
+                  value={modelInputs[provider]}
+                  onChange={(e) =>
+                    setModelInputs((prev) => ({ ...prev, [provider]: e.target.value }))
+                  }
+                  placeholder={getDefaultModel(provider)}
+                  className="flex-1 min-w-[180px] px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white focus:outline-none focus:border-violet-400 transition-colors font-mono"
+                  spellCheck={false}
+                />
+                <Button
+                  onClick={() => handleSaveModel(provider)}
+                  variant="outline"
+                  className="border-violet-200 text-violet-600 rounded-xl"
+                >
+                  <Save className="w-4 h-4 mr-1.5" /> Lưu model
+                </Button>
+                <Button
+                  onClick={() => handleResetModel(provider)}
+                  variant="ghost"
+                  className="text-slate-500 hover:bg-slate-100 rounded-xl"
+                >
+                  <RotateCcw className="w-4 h-4 mr-1.5" /> Mặc định
+                </Button>
+              </div>
+            </div>
+
             <div className="mt-4 p-3 rounded-lg bg-white/60 border border-violet-100 text-xs text-slate-500 space-y-1.5">
               <p className="font-medium text-slate-700">💡 Hướng dẫn</p>
               <ol className="list-decimal list-inside space-y-1 leading-relaxed">
@@ -309,6 +369,20 @@ export default function Settings() {
                 Key lưu riêng trên trình duyệt (localStorage), không chia sẻ. Bạn có
                 thể nhập key cho cả 3 nhà cung cấp và chuyển đổi tuỳ ý.
               </p>
+              {provider === "gemini" && (
+                <p className="text-slate-400">
+                  Hết hạn mức hoặc lỗi model?{" "}
+                  <a
+                    href="https://aistudio.google.com/rate-limit"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`inline-flex items-center gap-0.5 ${info.accentText} hover:underline`}
+                  >
+                    Xem hạn mức thật theo tài khoản <ExternalLink className="w-3 h-3" />
+                  </a>{" "}
+                  — chọn model nào còn hạn mức rồi dán ID (cột "Modèle") vào ô Model ở trên.
+                </p>
+              )}
             </div>
           </div>
         </div>

@@ -7,17 +7,32 @@ const KEY_STORE = {
   claude: "claude_api_key",
 };
 
-const ENDPOINTS = {
-  gemini: "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
-  openai: "https://api.openai.com/v1/chat/completions",
-  claude: "https://api.anthropic.com/v1/messages",
+// Model IDs churn fast (providers rename/retire them every few months —
+// see git history for the number of times this exact file needed a fix).
+// So the model is a per-provider, user-editable setting stored alongside
+// the API key, not a hardcoded constant — if a model gets retired or the
+// user's account runs out of quota for it, they can switch from Settings
+// without needing a code change.
+const MODEL_KEY_STORE = {
+  gemini: "gemini_model",
+  openai: "openai_model",
+  claude: "claude_model",
 };
 
-const MODELS = {
+const DEFAULT_MODELS = {
   gemini: "gemini-3.5-flash-lite",
   openai: "gpt-4o-mini",
   claude: "claude-sonnet-4-6",
 };
+
+const BASE_ENDPOINTS = {
+  openai: "https://api.openai.com/v1/chat/completions",
+  claude: "https://api.anthropic.com/v1/messages",
+};
+
+function geminiEndpoint(model) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+}
 
 export const PROVIDERS = ["gemini", "openai", "claude"];
 
@@ -54,6 +69,32 @@ export function hasCustomAI() {
   return !!getApiKey(getProvider()).trim();
 }
 
+export function getDefaultModel(provider) {
+  return DEFAULT_MODELS[provider] || "";
+}
+
+export function getModel(provider) {
+  const p = provider || getProvider();
+  try {
+    return (localStorage.getItem(MODEL_KEY_STORE[p]) || "").trim() || DEFAULT_MODELS[p];
+  } catch {
+    return DEFAULT_MODELS[p];
+  }
+}
+
+export function saveModel(provider, model) {
+  const trimmed = (model || "").trim();
+  if (!trimmed) {
+    localStorage.removeItem(MODEL_KEY_STORE[provider]);
+    return;
+  }
+  localStorage.setItem(MODEL_KEY_STORE[provider], trimmed);
+}
+
+export function resetModel(provider) {
+  localStorage.removeItem(MODEL_KEY_STORE[provider]);
+}
+
 // `image`, when provided, is { base64, mimeType } — a data-URL-free base64
 // payload plus its MIME type (e.g. "image/png"). Only Gemini/OpenAI/Claude
 // (this custom-key path) support image input; the Base44 managed AI path
@@ -64,24 +105,26 @@ export async function callLLM(prompt, image) {
   if (!key) {
     throw new Error("Chưa cấu hình API Key. Vào Cài đặt (⚙️) để nhập key.");
   }
-  if (provider === "gemini") return callGeminiRaw(key, prompt, image);
-  if (provider === "openai") return callOpenAI(key, prompt, image);
-  if (provider === "claude") return callClaude(key, prompt, image);
+  const model = getModel(provider);
+  if (provider === "gemini") return callGeminiRaw(key, prompt, image, model);
+  if (provider === "openai") return callOpenAI(key, prompt, image, model);
+  if (provider === "claude") return callClaude(key, prompt, image, model);
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
-export async function testLLMKey(provider, key) {
+export async function testLLMKey(provider, key, model) {
   if (!key.trim()) throw new Error("Vui lòng nhập API key");
-  if (provider === "gemini") return testGeminiRaw(key);
-  if (provider === "openai") return testOpenAI(key);
-  if (provider === "claude") return testClaude(key);
+  const m = model || getModel(provider);
+  if (provider === "gemini") return testGeminiRaw(key, m);
+  if (provider === "openai") return testOpenAI(key, m);
+  if (provider === "claude") return testClaude(key, m);
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
-async function callGeminiRaw(apiKey, prompt, image) {
+async function callGeminiRaw(apiKey, prompt, image, model) {
   const parts = [{ text: prompt }];
   if (image) parts.push({ inline_data: { mime_type: image.mimeType, data: image.base64 } });
-  const res = await fetch(`${ENDPOINTS.gemini}?key=${encodeURIComponent(apiKey)}`, {
+  const res = await fetch(`${geminiEndpoint(model)}?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -103,18 +146,18 @@ async function callGeminiRaw(apiKey, prompt, image) {
   return text.trim();
 }
 
-async function callOpenAI(apiKey, prompt, image) {
+async function callOpenAI(apiKey, prompt, image, model) {
   const content = image
     ? [
         { type: "text", text: prompt },
         { type: "image_url", image_url: { url: `data:${image.mimeType};base64,${image.base64}` } },
       ]
     : prompt;
-  const res = await fetch(ENDPOINTS.openai, {
+  const res = await fetch(BASE_ENDPOINTS.openai, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: MODELS.openai,
+      model,
       messages: [{ role: "user", content }],
       temperature: 0.7,
       max_tokens: 8192,
@@ -134,14 +177,14 @@ async function callOpenAI(apiKey, prompt, image) {
   return text.trim();
 }
 
-async function callClaude(apiKey, prompt, image) {
+async function callClaude(apiKey, prompt, image, model) {
   const content = image
     ? [
         { type: "image", source: { type: "base64", media_type: image.mimeType, data: image.base64 } },
         { type: "text", text: prompt },
       ]
     : prompt;
-  const res = await fetch(ENDPOINTS.claude, {
+  const res = await fetch(BASE_ENDPOINTS.claude, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -151,7 +194,7 @@ async function callClaude(apiKey, prompt, image) {
       "anthropic-dangerous-direct-browser-access": "true",
     },
     body: JSON.stringify({
-      model: MODELS.claude,
+      model,
       max_tokens: 8192,
       messages: [{ role: "user", content }],
     }),
@@ -170,8 +213,8 @@ async function callClaude(apiKey, prompt, image) {
   return text.trim();
 }
 
-async function testGeminiRaw(apiKey) {
-  const res = await fetch(`${ENDPOINTS.gemini}?key=${encodeURIComponent(apiKey)}`, {
+async function testGeminiRaw(apiKey, model) {
+  const res = await fetch(`${geminiEndpoint(model)}?key=${encodeURIComponent(apiKey)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -190,15 +233,41 @@ async function testGeminiRaw(apiKey) {
   return true;
 }
 
-async function testOpenAI(apiKey) {
-  const res = await fetch(ENDPOINTS.openai, {
+async function testOpenAI(apiKey, model) {
+  const res = await fetch(BASE_ENDPOINTS.openai, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
     body: JSON.stringify({
-      model: MODELS.openai,
+      model,
       messages: [{ role: "user", content: "Reply with exactly: OK" }],
       max_tokens: 10,
       temperature: 0,
+    }),
+  });
+  if (!res.ok) {
+    let msg = `Lỗi ${res.status}`;
+    try {
+      const e = await res.json();
+      msg = e?.error?.message || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+  return true;
+}
+
+async function testClaude(apiKey, model) {
+  const res = await fetch(BASE_ENDPOINTS.claude, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+      "anthropic-dangerous-direct-browser-access": "true",
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 10,
+      messages: [{ role: "user", content: "Reply with exactly: OK" }],
     }),
   });
   if (!res.ok) {
@@ -319,30 +388,4 @@ export function chunkText(text, maxChars = 3000) {
   }
   flushCurrent();
   return chunks;
-}
-
-async function testClaude(apiKey) {
-  const res = await fetch(ENDPOINTS.claude, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: MODELS.claude,
-      max_tokens: 10,
-      messages: [{ role: "user", content: "Reply with exactly: OK" }],
-    }),
-  });
-  if (!res.ok) {
-    let msg = `Lỗi ${res.status}`;
-    try {
-      const e = await res.json();
-      msg = e?.error?.message || msg;
-    } catch {}
-    throw new Error(msg);
-  }
-  return true;
 }
