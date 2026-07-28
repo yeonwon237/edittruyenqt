@@ -185,11 +185,18 @@ export const HANVIET_WORDS = {
   "看见": "nhìn thấy",
   "外面": "bên ngoài",
   "里面": "bên trong",
+  "无奈": "đành phải",
+  "温暖": "ấm áp",
+  "凑近": "lại gần",
+  "一些": "một ít",
+  "有些": "có chút",
+  "耍无赖": "giở trò lưu manh",
 
   // Common sentence-final / colloquial particles
   "吧": "đi",
   "个": "",
   "把": "",
+  "些": "",
 
   // Grammatical particles with no standalone Vietnamese word — drop them
   "的": "",
@@ -281,7 +288,15 @@ export const HANVIET_CHARS = {
   // sound here (the formal reading exists but is obscure/rarely used and
   // would confuse more than help in a draft translation).
   "瞧": "nhìn", "拉": "kéo", "喝": "uống", "倒": "lại", "盖": "đắp",
-  "阿": "A",
+  "阿": "A", "乖": "ngoan", "疼": "đau", "搂": "ôm",
+
+  // More gaps found from a second real-chapter test pass — very common
+  // characters (人, 回, 感, 极...) that should have been here from the start.
+  "顺": "thuận", "话": "thoại", "无": "vô", "赖": "lại", "算": "toán",
+  "身": "thân", "软": "nhuyễn", "奈": "nại", "却": "khước", "往": "vãng",
+  "某": "mỗ", "人": "nhân", "怀": "hoài", "伸": "thân", "回": "hồi",
+  "抱": "bão", "住": "trụ", "腰": "yêu", "温": "ôn", "依": "y",
+  "极": "cực", "侧": "trắc", "感": "cảm", "叹": "thán", "里": "lý",
 
   // Common Chinese surnames — Hán-Việt character-by-character reading is
   // the traditional convention for rendering Chinese names in Vietnamese,
