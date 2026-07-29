@@ -680,7 +680,11 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     }
     const chapterId = currentChapter.id;
     const prevEdited = currentChapter.edited || "";
-    const sourceText = currentChapter.qt_raw || currentChapter.raw_original || "";
+    // Rule Edit runs first as a free, zero-AI pre-pass — it fixes known
+    // mechanical QT-thô patterns outright, so the AI only has to handle the
+    // parts that genuinely need understanding, not re-derive fixes it would
+    // have gotten right anyway.
+    const sourceText = applyRuleEdit(currentChapter.qt_raw || currentChapter.raw_original || "");
     if (!sourceText.trim()) {
       toast({ title: "Không có văn bản để edit!", variant: "destructive" });
       return;
@@ -722,7 +726,8 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     }
     const chapterId = currentChapter.id;
     const prevEdited = currentChapter.edited || "";
-    const sourceText = currentChapter.qt_raw || currentChapter.raw_original || "";
+    // Same free rule pre-pass as Auto Edit — see comment there.
+    const sourceText = applyRuleEdit(currentChapter.qt_raw || currentChapter.raw_original || "");
     if (!sourceText.trim()) {
       toast({ title: "Không có văn bản để edit!", variant: "destructive" });
       return;
