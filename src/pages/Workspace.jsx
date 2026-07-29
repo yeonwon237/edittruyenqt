@@ -22,6 +22,7 @@ import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
 import { diffTextChanges } from "@/lib/textDiff";
 import { countForeignChars } from "@/lib/highlight";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
+import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
@@ -904,6 +905,31 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
     setSelfTranslating(false);
   };
 
+  // Rule-based edit (src/lib/ruleEdit.js — zero AI, zero network, patterns
+  // derived from the user's own real QT-thô/Bản-Edit chapter pairs). Fills
+  // Cột 3 (Bản Edit) from Cột 2 (QT thô), same as Auto Edit/Custom AI but
+  // synchronous since there's no API call.
+  const handleRuleEdit = () => {
+    if (!currentChapter) {
+      toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
+      return;
+    }
+    const chapterId = currentChapter.id;
+    const prevEdited = currentChapter.edited || "";
+    const sourceText = currentChapter.qt_raw || currentChapter.raw_original || "";
+    if (!sourceText.trim()) {
+      toast({ title: "Không có QT thô để edit!", variant: "destructive" });
+      return;
+    }
+    const finalText = applyHardRules(applyRuleEdit(sourceText));
+    setCurrentChapter((prev) =>
+      prev && prev.id === chapterId ? { ...prev, edited: finalText } : prev
+    );
+    setAiUndo({ chapterId, previous: prevEdited });
+    checkLineAlignment(sourceText, finalText);
+    toast({ title: "✨ Đã edit bằng rule (không AI)!", description: "Kiểm tra và chỉnh sửa thêm nhé" });
+  };
+
   const parseImageResult = (raw) => {
     const gocMatch = raw.match(/===GOC===([\s\S]*?)(?:===DICH===|$)/i);
     const dichMatch = raw.match(/===DICH===([\s\S]*)$/i);
@@ -1572,6 +1598,7 @@ ${sourceText}`;
         onSelfTranslate={handleSelfTranslate}
         selfTranslating={selfTranslating}
         selfTranslateSupported={supportsSelfTranslate(project?.source_language)}
+        onRuleEdit={handleRuleEdit}
         onOpenTranslationSettings={() => setShowTranslationSettings(true)}
         activePresetName={activePreset?.name}
         onOpenImageTranslate={() => setShowImageTranslate(true)}

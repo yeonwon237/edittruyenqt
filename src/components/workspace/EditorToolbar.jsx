@@ -57,6 +57,7 @@ export default function EditorToolbar({
   onOpenTranslationSettings,
   activePresetName,
   onOpenImageTranslate,
+  onRuleEdit,
 }) {
   const [showCols, setShowCols] = useState(false);
   const [showMore, setShowMore] = useState(false);
@@ -220,6 +221,17 @@ export default function EditorToolbar({
           <Languages className="w-3.5 h-3.5" />
         )}
         <span className="hidden sm:inline">Tự dịch</span>
+      </button>
+
+      {/* Rule Edit (src/lib/ruleEdit.js — zero AI, zero network, patterns
+          learned from the user's own real chapter pairs) */}
+      <button
+        onClick={onRuleEdit}
+        title="Edit QT thô → Bản Edit bằng rule (miễn phí, chạy tại chỗ, không dùng AI)"
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-700 text-xs font-semibold transition-all shrink-0"
+      >
+        <Sparkles className="w-3.5 h-3.5" />
+        <span className="hidden sm:inline">Rule Edit</span>
       </button>
 
       {/* Auto Edit (built-in InvokeLLM) */}
