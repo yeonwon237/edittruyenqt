@@ -21,6 +21,9 @@ import {
   pauseBrowser,
   resumeBrowser,
   stopBrowser,
+  TTS_AI_PROVIDERS,
+  getTtsProvider,
+  saveTtsProvider,
   hasGcpTtsKey,
   getGcpTtsKey,
   saveGcpTtsKey,
@@ -28,7 +31,69 @@ import {
   saveGcpTtsVoice,
   generateGcpSpeech,
   GCP_TTS_VOICES,
+  hasOpenAiKey,
+  getOpenAiTtsVoice,
+  saveOpenAiTtsVoice,
+  generateOpenAiSpeech,
+  OPENAI_TTS_VOICES,
+  hasElevenLabsKey,
+  getElevenLabsKey,
+  saveElevenLabsKey,
+  getElevenLabsVoiceId,
+  saveElevenLabsVoiceId,
+  generateElevenLabsSpeech,
+  hasAzureKey,
+  getAzureKey,
+  saveAzureKey,
+  getAzureRegion,
+  saveAzureRegion,
+  getAzureVoice,
+  saveAzureVoice,
+  generateAzureSpeech,
+  AZURE_TTS_VOICES,
 } from "@/lib/tts";
+
+// Per-provider setup notes shown above the key input — each is a different
+// product with its own account/CORS/quirks (see src/lib/tts.js).
+const PROVIDER_HINTS = {
+  gcp: {
+    keyLabel: "Google Cloud API Key",
+    setup: (
+      <ol className="list-decimal list-inside mt-2 space-y-1">
+        <li>Vào <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">console.cloud.google.com</a>, tạo (hoặc chọn) 1 dự án.</li>
+        <li>Vào "APIs & Services" → tìm bật "Cloud Text-to-Speech API".</li>
+        <li>Google có thể yêu cầu liên kết thẻ tín dụng (billing) để bật API này — vẫn miễn phí trong hạn mức (Wavenet: 1 triệu ký tự/tháng).</li>
+        <li>Vào "Credentials" → "Create Credentials" → "API key". Copy dán vào ô bên dưới.</li>
+      </ol>
+    ),
+  },
+  openai: {
+    keyLabel: null, // reuses the key already saved for AI Edit — no input needed
+    setup: (
+      <p className="mt-2">Dùng chung API Key OpenAI bạn đã nhập ở phần Auto Edit (Cài đặt → AI). Nếu chưa có, vào Cài đặt để thêm.</p>
+    ),
+  },
+  elevenlabs: {
+    keyLabel: "ElevenLabs API Key",
+    setup: (
+      <ol className="list-decimal list-inside mt-2 space-y-1">
+        <li>Đăng ký tại <a href="https://elevenlabs.io/" target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">elevenlabs.io</a>.</li>
+        <li>Vào phần Profile (góc trên phải) → "API Keys" → tạo key mới, copy dán vào ô bên dưới.</li>
+        <li>Gói miễn phí giới hạn khá ít ký tự/tháng — dùng cho truyện dài sẽ cần nâng cấp gói trả phí.</li>
+      </ol>
+    ),
+  },
+  azure: {
+    keyLabel: "Azure API Key",
+    setup: (
+      <ol className="list-decimal list-inside mt-2 space-y-1">
+        <li>Vào <a href="https://portal.azure.com/" target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">portal.azure.com</a>, tạo tài nguyên "Speech service".</li>
+        <li>Sau khi tạo xong, vào tài nguyên đó → "Keys and Endpoint" → copy 1 trong 2 Key, và ghi nhớ "Region" (VD: southeastasia).</li>
+        <li>Cần nhập cả Key và Region bên dưới.</li>
+      </ol>
+    ),
+  },
+};
 
 export default function TextToSpeech() {
   const navigate = useNavigate();
@@ -41,15 +106,35 @@ export default function TextToSpeech() {
   const [rate, setRate] = useState(1);
   const [browserStatus, setBrowserStatus] = useState("idle"); // idle | playing | paused
 
-  // Google Cloud TTS state (downloadable audiobook-quality)
+  const computeProviderReady = (p) => ({
+    gcp: hasGcpTtsKey(),
+    openai: hasOpenAiKey(),
+    elevenlabs: hasElevenLabsKey(),
+    azure: hasAzureKey() && !!getAzureRegion().trim(),
+  }[p]);
+
+  // AI TTS provider selection
+  const [provider, setProvider] = useState(getTtsProvider());
+  const [providerReady, setProviderReady] = useState(() => computeProviderReady(getTtsProvider()));
+
+  // Per-provider key inputs (draft, before "Lưu")
   const [gcpKeyInput, setGcpKeyInput] = useState(getGcpTtsKey());
-  const [gcpKeySaved, setGcpKeySaved] = useState(hasGcpTtsKey());
-  const [showGcpKey, setShowGcpKey] = useState(false);
+  const [elevenKeyInput, setElevenKeyInput] = useState(getElevenLabsKey());
+  const [azureKeyInput, setAzureKeyInput] = useState(getAzureKey());
+  const [azureRegionInput, setAzureRegionInput] = useState(getAzureRegion());
+  const [showKey, setShowKey] = useState(false);
+
+  // Per-provider voice selection
   const [gcpVoice, setGcpVoice] = useState(getGcpTtsVoice());
-  const [gcpLoading, setGcpLoading] = useState(false);
-  const [gcpProgress, setGcpProgress] = useState(null); // { i, total }
-  const [gcpAudioUrl, setGcpAudioUrl] = useState("");
-  const [gcpAudioBlob, setGcpAudioBlob] = useState(null);
+  const [openaiVoice, setOpenaiVoice] = useState(getOpenAiTtsVoice());
+  const [elevenVoiceId, setElevenVoiceId] = useState(getElevenLabsVoiceId());
+  const [azureVoice, setAzureVoice] = useState(getAzureVoice());
+
+  // Shared generation state
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(null); // { i, total }
+  const [audioUrl, setAudioUrl] = useState("");
+  const [audioBlob, setAudioBlob] = useState(null);
   const [fileName, setFileName] = useState("");
   const audioRef = useRef(null);
 
@@ -67,9 +152,9 @@ export default function TextToSpeech() {
 
   useEffect(() => {
     return () => {
-      if (gcpAudioUrl) URL.revokeObjectURL(gcpAudioUrl);
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
     };
-  }, [gcpAudioUrl]);
+  }, [audioUrl]);
 
   const handlePlayBrowser = () => {
     if (!text.trim()) {
@@ -77,11 +162,7 @@ export default function TextToSpeech() {
       return;
     }
     setBrowserStatus("playing");
-    speakWithBrowser(text, {
-      voiceURI,
-      rate,
-      onEnd: () => setBrowserStatus("idle"),
-    });
+    speakWithBrowser(text, { voiceURI, rate, onEnd: () => setBrowserStatus("idle") });
   };
 
   const handlePauseResumeBrowser = () => {
@@ -99,41 +180,65 @@ export default function TextToSpeech() {
     setBrowserStatus("idle");
   };
 
-  const handleSaveGcpKey = () => {
-    saveGcpTtsKey(gcpKeyInput);
-    setGcpKeySaved(!!gcpKeyInput.trim());
-    toast({ title: gcpKeyInput.trim() ? "Đã lưu API Key ✅" : "Đã xoá API Key" });
+  const handleChangeProvider = (p) => {
+    setProvider(p);
+    saveTtsProvider(p);
+    setShowKey(false);
+    setProviderReady(computeProviderReady(p));
   };
 
-  const handleGenerateGcp = async () => {
+  const handleSaveKey = () => {
+    if (provider === "gcp") {
+      saveGcpTtsKey(gcpKeyInput);
+    } else if (provider === "elevenlabs") {
+      saveElevenLabsKey(elevenKeyInput);
+    } else if (provider === "azure") {
+      saveAzureKey(azureKeyInput);
+      saveAzureRegion(azureRegionInput);
+    }
+    toast({ title: "Đã lưu ✅" });
+    setProviderReady(computeProviderReady(provider));
+  };
+
+  const handleGenerate = async () => {
     if (!text.trim()) {
       toast({ title: "Chưa có văn bản để tạo audio", variant: "destructive" });
       return;
     }
-    setGcpLoading(true);
-    setGcpProgress(null);
+    setLoading(true);
+    setProgress(null);
     try {
-      if (gcpAudioUrl) URL.revokeObjectURL(gcpAudioUrl);
-      saveGcpTtsVoice(gcpVoice);
-      const { blob, url } = await generateGcpSpeech(text, {
-        voiceName: gcpVoice,
-        onProgress: (i, total) => setGcpProgress({ i, total }),
-      });
-      setGcpAudioUrl(url);
-      setGcpAudioBlob(blob);
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      let result;
+      const onProgress = (i, total) => setProgress({ i, total });
+      if (provider === "gcp") {
+        saveGcpTtsVoice(gcpVoice);
+        result = await generateGcpSpeech(text, { voiceName: gcpVoice, onProgress });
+      } else if (provider === "openai") {
+        saveOpenAiTtsVoice(openaiVoice);
+        result = await generateOpenAiSpeech(text, { voice: openaiVoice, onProgress });
+      } else if (provider === "elevenlabs") {
+        saveElevenLabsVoiceId(elevenVoiceId);
+        result = await generateElevenLabsSpeech(text, { voiceId: elevenVoiceId, onProgress });
+      } else if (provider === "azure") {
+        saveAzureVoice(azureVoice);
+        result = await generateAzureSpeech(text, { voice: azureVoice, onProgress });
+      }
+      setAudioUrl(result.url);
+      setAudioBlob(result.blob);
       toast({ title: "🎧 Đã tạo xong audio!" });
       setTimeout(() => audioRef.current?.play(), 50);
     } catch (e) {
-      toast({ title: "Lỗi Google Cloud TTS", description: e.message, variant: "destructive" });
+      toast({ title: "Lỗi tạo audio", description: e.message, variant: "destructive" });
     }
-    setGcpLoading(false);
-    setGcpProgress(null);
+    setLoading(false);
+    setProgress(null);
   };
 
   const handleDownload = () => {
-    if (!gcpAudioBlob) return;
+    if (!audioBlob) return;
     const a = document.createElement("a");
-    a.href = gcpAudioUrl;
+    a.href = audioUrl;
     const safeName = (fileName.trim() || `audio-${Date.now()}`).replace(/[/\\?%*:|"<>]/g, "-");
     a.download = safeName.toLowerCase().endsWith(".mp3") ? safeName : `${safeName}.mp3`;
     document.body.appendChild(a);
@@ -142,6 +247,7 @@ export default function TextToSpeech() {
   };
 
   const charCount = text.length;
+  const hint = PROVIDER_HINTS[provider];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50">
@@ -180,85 +286,147 @@ export default function TextToSpeech() {
           <p className="text-xs text-slate-400 mt-1.5 text-right">{charCount.toLocaleString("vi")} ký tự</p>
         </div>
 
-        {/* Google Cloud TTS — main path: downloadable, audiobook quality */}
+        {/* AI TTS — downloadable, audiobook quality. Provider is a choice. */}
         <div className="rounded-2xl bg-white border border-violet-200 shadow-sm p-4">
           <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-1">
-            <Sparkles className="w-4 h-4 text-violet-500" /> Tạo Audio (Google Cloud TTS)
+            <Sparkles className="w-4 h-4 text-violet-500" /> Tạo Audio (AI)
           </h2>
+          <p className="text-xs text-slate-400 mb-3">Chọn dịch vụ đọc bên dưới — mỗi dịch vụ cần API Key riêng.</p>
+
+          {/* Provider tabs */}
+          <div className="flex flex-wrap gap-1.5 mb-3">
+            {TTS_AI_PROVIDERS.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => handleChangeProvider(p.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                  provider === p.id
+                    ? "bg-violet-600 text-white"
+                    : "bg-violet-50 text-slate-600 hover:bg-violet-100"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
           <p className="text-xs text-slate-400 mb-3">
-            Giọng tự nhiên, tải về được file .mp3. Cần API Key riêng của Google Cloud (khác với key Gemini/GPT/Claude
-            dùng để Auto Edit) — xem hướng dẫn lấy key bên dưới nếu chưa có.
+            {TTS_AI_PROVIDERS.find((p) => p.id === provider)?.note}
           </p>
 
-          {!gcpKeySaved && (
+          {!providerReady && (
             <details className="mb-3 text-xs text-slate-500 bg-slate-50 rounded-xl p-3 border border-slate-100">
-              <summary className="cursor-pointer font-medium text-violet-600">Cách lấy Google Cloud TTS API Key</summary>
-              <ol className="list-decimal list-inside mt-2 space-y-1">
-                <li>Vào <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">console.cloud.google.com</a>, tạo (hoặc chọn) 1 dự án.</li>
-                <li>Vào mục "APIs & Services" → tìm bật "Cloud Text-to-Speech API".</li>
-                <li>Google có thể yêu cầu bạn liên kết thẻ/tài khoản thanh toán (billing) để bật API này — kể cả khi dùng trong hạn mức miễn phí (WaveNet miễn phí tới 1 triệu ký tự/tháng), đây là yêu cầu của Google chứ không tính phí ngay nếu chưa vượt hạn mức.</li>
-                <li>Vào "Credentials" → "Create Credentials" → "API key". Copy key vừa tạo, dán vào ô bên dưới.</li>
-              </ol>
+              <summary className="cursor-pointer font-medium text-violet-600">Cách lấy {hint.keyLabel || "API Key"}</summary>
+              {hint.setup}
             </details>
           )}
 
-          <div className="flex items-center gap-2 mb-3">
-            <div className="relative flex-1">
-              <input
-                type={showGcpKey ? "text" : "password"}
-                value={gcpKeyInput}
-                onChange={(e) => setGcpKeyInput(e.target.value)}
-                placeholder="Dán Google Cloud API Key vào đây..."
-                className="w-full pl-3 pr-9 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
-              />
-              <button
-                onClick={() => setShowGcpKey((s) => !s)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-violet-600"
-              >
-                {showGcpKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-              </button>
+          {/* Key/region inputs — OpenAI has none, reuses the existing key */}
+          {provider !== "openai" && (
+            <div className="space-y-2 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showKey ? "text" : "password"}
+                    value={
+                      provider === "gcp" ? gcpKeyInput : provider === "elevenlabs" ? elevenKeyInput : azureKeyInput
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (provider === "gcp") setGcpKeyInput(v);
+                      else if (provider === "elevenlabs") setElevenKeyInput(v);
+                      else setAzureKeyInput(v);
+                    }}
+                    placeholder={`Dán ${hint.keyLabel} vào đây...`}
+                    className="w-full pl-3 pr-9 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                  />
+                  <button
+                    onClick={() => setShowKey((s) => !s)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-violet-600"
+                  >
+                    {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                {provider === "azure" && (
+                  <input
+                    value={azureRegionInput}
+                    onChange={(e) => setAzureRegionInput(e.target.value)}
+                    placeholder="Region (VD: southeastasia)"
+                    className="w-44 px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                  />
+                )}
+                <button
+                  onClick={handleSaveKey}
+                  className="flex items-center gap-1 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold transition-colors shrink-0"
+                >
+                  {providerReady ? <Check className="w-3.5 h-3.5" /> : null} Lưu
+                </button>
+              </div>
             </div>
-            <button
-              onClick={handleSaveGcpKey}
-              className="flex items-center gap-1 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold transition-colors shrink-0"
-            >
-              {gcpKeySaved ? <Check className="w-3.5 h-3.5" /> : null} Lưu
-            </button>
-          </div>
+          )}
 
-          {gcpKeySaved && (
+          {providerReady && (
             <div className="space-y-3">
               <div>
                 <label className="text-xs font-medium text-slate-500 mb-1 block">Giọng đọc</label>
-                <select
-                  value={gcpVoice}
-                  onChange={(e) => setGcpVoice(e.target.value)}
-                  className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
-                >
-                  {GCP_TTS_VOICES.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.label}
-                    </option>
-                  ))}
-                </select>
+                {provider === "gcp" && (
+                  <select
+                    value={gcpVoice}
+                    onChange={(e) => setGcpVoice(e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                  >
+                    {GCP_TTS_VOICES.map((v) => (
+                      <option key={v.id} value={v.id}>{v.label}</option>
+                    ))}
+                  </select>
+                )}
+                {provider === "openai" && (
+                  <select
+                    value={openaiVoice}
+                    onChange={(e) => setOpenaiVoice(e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                  >
+                    {OPENAI_TTS_VOICES.map((v) => (
+                      <option key={v} value={v}>{v}</option>
+                    ))}
+                  </select>
+                )}
+                {provider === "elevenlabs" && (
+                  <input
+                    value={elevenVoiceId}
+                    onChange={(e) => setElevenVoiceId(e.target.value)}
+                    placeholder="Voice ID (lấy từ ElevenLabs Voice Library)"
+                    className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                  />
+                )}
+                {provider === "azure" && (
+                  <select
+                    value={azureVoice}
+                    onChange={(e) => setAzureVoice(e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                  >
+                    {AZURE_TTS_VOICES.map((v) => (
+                      <option key={v.id} value={v.id}>{v.label}</option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <button
-                onClick={handleGenerateGcp}
-                disabled={gcpLoading}
+                onClick={handleGenerate}
+                disabled={loading}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:opacity-90 text-white text-sm font-semibold transition-all disabled:opacity-50"
               >
-                {gcpLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                {gcpLoading
-                  ? gcpProgress
-                    ? `Đang tạo đoạn ${gcpProgress.i}/${gcpProgress.total}...`
+                {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                {loading
+                  ? progress
+                    ? `Đang tạo đoạn ${progress.i}/${progress.total}...`
                     : "Đang tạo audio..."
                   : "Tạo audio"}
               </button>
 
-              {gcpAudioUrl && (
+              {audioUrl && (
                 <div className="space-y-2 pt-1 border-t border-violet-50">
-                  <audio ref={audioRef} src={gcpAudioUrl} controls className="w-full" />
+                  <audio ref={audioRef} src={audioUrl} controls className="w-full" />
                   <div className="flex items-center gap-2">
                     <input
                       value={fileName}
