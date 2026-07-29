@@ -50,6 +50,7 @@ export default function EditorToolbar({
   hasCustomAI,
   customAIProvider,
   onOpenSettings,
+  onOpenAISettings,
   onToggleSidebar,
   onSelfTranslate,
   selfTranslating,
@@ -251,22 +252,31 @@ export default function EditorToolbar({
 
       {/* Custom AI (Gemini / GPT / Claude) */}
       {hasCustomAI ? (
-        <button
-          onClick={onCustomEdit}
-          disabled={customAIEditing || aiEditing}
-          title={`Edit bằng ${provider.label}`}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r ${provider.gradFrom} ${provider.gradTo} hover:opacity-90 text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-50 shrink-0`}
-        >
-          {customAIEditing ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <span className="text-sm leading-none">{provider.emoji}</span>
-          )}
-          {provider.label}
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={onCustomEdit}
+            disabled={customAIEditing || aiEditing}
+            title={`Edit bằng ${provider.label}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r ${provider.gradFrom} ${provider.gradTo} hover:opacity-90 text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-50`}
+          >
+            {customAIEditing ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <span className="text-sm leading-none">{provider.emoji}</span>
+            )}
+            {provider.label}
+          </button>
+          <button
+            onClick={onOpenAISettings}
+            className="p-1.5 rounded-lg hover:bg-violet-50 text-slate-400 hover:text-violet-600 transition-colors"
+            title="Đổi nhà cung cấp/API Key AI"
+          >
+            <SettingsIcon className="w-3.5 h-3.5" />
+          </button>
+        </div>
       ) : (
         <button
-          onClick={onOpenSettings}
+          onClick={onOpenAISettings}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-semibold transition-all shrink-0"
         >
           <SettingsIcon className="w-3.5 h-3.5" />

@@ -200,14 +200,6 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <button
-              onClick={() => navigate("/text-to-speech")}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 text-sm font-medium transition-colors"
-              title="Đọc văn bản thành giọng nói"
-            >
-              <Volume2 className="w-4 h-4" />
-              <span className="hidden sm:inline">Đọc văn bản</span>
-            </button>
-            <button
               onClick={() => navigate("/settings")}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 text-sm font-medium transition-colors"
               title="Cài đặt"
@@ -301,20 +293,28 @@ export default function Home() {
             className="w-full pl-10 pr-3 py-2.5 text-sm rounded-2xl border border-violet-100 bg-white/80 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors"
           />
         </div>
-        <button
-          onClick={() => {
-            setForm({
-              title: "",
-              description: "",
-              source_language: "Trung",
-              cover_emoji: "📚",
-            });
-            setShowCreate(true);
-          }}
-          className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-sm hover:shadow-md transition-all"
-        >
-          <Plus className="w-4 h-4" /> Tạo bộ truyện mới
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate("/text-to-speech")}
+            className="flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-2xl bg-white border border-violet-200 hover:bg-violet-50 text-violet-600 text-sm font-semibold shadow-sm transition-all"
+          >
+            <Volume2 className="w-4 h-4" /> Tạo Audio
+          </button>
+          <button
+            onClick={() => {
+              setForm({
+                title: "",
+                description: "",
+                source_language: "Trung",
+                cover_emoji: "📚",
+              });
+              setShowCreate(true);
+            }}
+            className="flex items-center justify-center gap-1.5 px-5 py-2.5 rounded-2xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold shadow-sm hover:shadow-md transition-all"
+          >
+            <Plus className="w-4 h-4" /> Tạo bộ truyện mới
+          </button>
+        </div>
       </section>
 
       {/* Cards grid */}

@@ -18,6 +18,7 @@ import { exportAsTxt, exportAsDoc, exportGlossaryJson, exportChaptersCsv } from 
 import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBase64 } from "@/lib/llm";
 import ImageTranslateDialog from "@/components/workspace/ImageTranslateDialog";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
+import AISettingsDialog from "@/components/workspace/AISettingsDialog";
 import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
 import { diffTextChanges } from "@/lib/textDiff";
 import { countForeignChars } from "@/lib/highlight";
@@ -99,6 +100,7 @@ export default function Workspace() {
   const [showPronoun, setShowPronoun] = useState(false);
   const [clearTarget, setClearTarget] = useState(null); // { field, label } | null
   const [showContextualPronoun, setShowContextualPronoun] = useState(false);
+  const [showAISettings, setShowAISettings] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
   const [showImportChapters, setShowImportChapters] = useState(false);
   const [exportingChapters, setExportingChapters] = useState(false);
@@ -1606,6 +1608,7 @@ ${sourceText}`;
         hasCustomAI={hasCustomAI()}
         customAIProvider={getProvider()}
         onOpenSettings={() => navigate("/settings")}
+        onOpenAISettings={() => setShowAISettings(true)}
         onToggleSidebar={() => setShowSidebar(!showSidebar)}
         onSelfTranslate={handleSelfTranslate}
         selfTranslating={selfTranslating}
@@ -1837,6 +1840,7 @@ ${sourceText}`;
         checkingPronouns={checkingPronouns}
         pronounCheckDiff={pronounCheckDiff}
       />
+      <AISettingsDialog open={showAISettings} onOpenChange={setShowAISettings} />
       <ChapterManagerDialog
         open={showChapterManager}
         onOpenChange={setShowChapterManager}
@@ -1881,7 +1885,7 @@ ${sourceText}`;
         open={showImageTranslate}
         onOpenChange={setShowImageTranslate}
         hasCustomAI={hasCustomAI()}
-        onOpenSettings={() => navigate("/settings")}
+        onOpenSettings={() => setShowAISettings(true)}
         translating={imageTranslating}
         result={imageResult}
         onSelectFile={handleSelectImageFile}
