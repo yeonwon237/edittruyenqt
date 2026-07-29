@@ -1448,9 +1448,16 @@ ${sourceText}`;
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 to-indigo-50 flex flex-col">
-      {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-violet-100">
+    <div className="h-screen overflow-hidden bg-gradient-to-br from-violet-50 to-indigo-50 flex flex-col">
+      {/* Header + toolbar stay put — the page itself never scrolls (h-screen
+          overflow-hidden below), only the columns and sidebar do, each via
+          their own internal overflow-y-auto (see EditorPanel/GlossarySidebar).
+          Previously this wrapper was min-h-screen, which let the whole
+          layout grow taller than the viewport and pushed the scrollbar up
+          to the document instead, so both problems showed up together: the
+          header/toolbar scrolled out of view, and columns never got tall
+          enough to need their own scrollbar. */}
+      <header className="shrink-0 z-30 bg-white/80 backdrop-blur-md border-b border-violet-100">
         <div className="flex items-center gap-3 px-4 py-2.5">
           <Link
             to="/"

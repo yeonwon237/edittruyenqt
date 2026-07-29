@@ -7,9 +7,10 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2 } from "lucide-react";
+import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { ruleSummary } from "@/lib/pronounMatrix";
+import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 
 const EMPTY_FORM = {
   speaker: "",
@@ -33,6 +34,9 @@ export default function ContextualPronounDialog({
   const [editingIndex, setEditingIndex] = useState(-1);
   const [form, setForm] = useState(EMPTY_FORM);
   const [isDefault, setIsDefault] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIndices, setSelectedIndices] = useState(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -40,8 +44,38 @@ export default function ContextualPronounDialog({
       setEditingIndex(-1);
       setForm(EMPTY_FORM);
       setIsDefault(false);
+      setSelectMode(false);
+      setSelectedIndices(new Set());
     }
   }, [open, project]);
+
+  const toggleSelectMode = () => {
+    setSelectMode((prev) => !prev);
+    setSelectedIndices(new Set());
+  };
+
+  const toggleSelected = (idx) => {
+    setSelectedIndices((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    const next = rules.filter((_, i) => !selectedIndices.has(i));
+    setRules(next);
+    setSelectedIndices(new Set());
+    setSelectMode(false);
+    setConfirmBulkDelete(false);
+    if (selectedIndices.has(editingIndex)) {
+      setEditingIndex(-1);
+      setForm(EMPTY_FORM);
+      setIsDefault(false);
+    }
+    await persist(next);
+  };
 
   const upsertRule = (newRule, idx) => {
     let next;
@@ -270,6 +304,42 @@ export default function ContextualPronounDialog({
 
         {/* List of rules */}
         <div className="space-y-2">
+          {rules.length > 0 && (
+            <div className="flex items-center gap-2">
+              {selectMode ? (
+                <div className="flex-1 flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-violet-50 border border-violet-100">
+                  <span className="text-xs text-violet-700 font-medium flex-1">
+                    Đã chọn {selectedIndices.size}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmBulkDelete(true)}
+                    disabled={selectedIndices.size === 0}
+                    className="text-xs px-2 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Xóa đã chọn
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleSelectMode}
+                    className="p-1 rounded-md hover:bg-violet-100 text-violet-500"
+                    title="Thoát chế độ chọn"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={toggleSelectMode}
+                  className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-violet-600 bg-violet-50 hover:bg-violet-100 transition-colors"
+                  title="Chọn nhiều để xóa hàng loạt"
+                >
+                  <ListChecks className="w-3.5 h-3.5" /> Chọn nhiều
+                </button>
+              )}
+            </div>
+          )}
           {rules.length === 0 ? (
             <div className="text-center py-6 text-slate-400 text-sm">
               <p className="text-2xl mb-1">🗣️</p>
@@ -280,11 +350,21 @@ export default function ContextualPronounDialog({
               <div
                 key={idx}
                 className={`group flex items-start justify-between gap-2 p-3 rounded-xl border transition-colors ${
-                  editingIndex === idx
+                  selectedIndices.has(idx)
+                    ? "border-violet-400 bg-violet-50/60"
+                    : editingIndex === idx
                     ? "border-violet-400 bg-violet-50"
                     : "border-violet-100 bg-white hover:border-violet-200"
                 }`}
               >
+                {selectMode && (
+                  <input
+                    type="checkbox"
+                    checked={selectedIndices.has(idx)}
+                    onChange={() => toggleSelected(idx)}
+                    className="mt-1 accent-violet-600 shrink-0"
+                  />
+                )}
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-slate-800">{ruleSummary(r)}</p>
                   {r.note && (
@@ -300,28 +380,39 @@ export default function ContextualPronounDialog({
                     </span>
                   )}
                 </div>
-                <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={() => handleEdit(idx)}
-                    className="p-1 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600"
-                    title="Sửa"
-                  >
-                    <Pencil className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleDelete(idx)}
-                    className="p-1 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500"
-                    title="Xoá"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                {!selectMode && (
+                  <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={() => handleEdit(idx)}
+                      className="p-1 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600"
+                      title="Sửa"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDelete(idx)}
+                      className="p-1 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500"
+                      title="Xoá"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             ))
           )}
         </div>
+
+        <ConfirmDialog
+          open={confirmBulkDelete}
+          onOpenChange={setConfirmBulkDelete}
+          title={`Xóa ${selectedIndices.size} quy tắc đã chọn?`}
+          description="AI sẽ không còn áp dụng các quy tắc xưng hô này khi biên tập nữa."
+          confirmLabel="Xóa tất cả"
+          onConfirm={handleBulkDelete}
+        />
 
         <DialogFooter className="pt-2">
           <p className="text-xs text-slate-400 mr-auto max-w-md">

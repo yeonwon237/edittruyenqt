@@ -91,7 +91,7 @@ export default function EditorToolbar({
     // (rendered right after it in Workspace.jsx) painted on top and hid the
     // open dropdown underneath it (confirmed via elementFromPoint). Giving
     // the row itself a z-index promotes the whole row above that sibling.
-    <div className="relative z-50 flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 bg-white/60 backdrop-blur border-b border-violet-100">
+    <div className="relative z-50 shrink-0 flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 bg-white/60 backdrop-blur border-b border-violet-100">
       {/* Column selector */}
       <div ref={colsRef} className="relative shrink-0">
         <button
