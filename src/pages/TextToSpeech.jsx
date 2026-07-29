@@ -42,15 +42,13 @@ import {
   getElevenLabsVoiceId,
   saveElevenLabsVoiceId,
   generateElevenLabsSpeech,
-  hasAzureKey,
-  getAzureKey,
-  saveAzureKey,
-  getAzureRegion,
-  saveAzureRegion,
-  getAzureVoice,
-  saveAzureVoice,
-  generateAzureSpeech,
-  AZURE_TTS_VOICES,
+  hasGeminiKey,
+  getGeminiTtsModel,
+  saveGeminiTtsModel,
+  getGeminiTtsVoice,
+  saveGeminiTtsVoice,
+  generateGeminiSpeech,
+  GEMINI_TTS_VOICES,
 } from "@/lib/tts";
 
 // Per-provider setup notes shown above the key input — each is a different
@@ -83,14 +81,10 @@ const PROVIDER_HINTS = {
       </ol>
     ),
   },
-  azure: {
-    keyLabel: "Azure API Key",
+  gemini: {
+    keyLabel: null, // reuses the key already saved for AI Edit — no input needed
     setup: (
-      <ol className="list-decimal list-inside mt-2 space-y-1">
-        <li>Vào <a href="https://portal.azure.com/" target="_blank" rel="noreferrer" className="text-violet-600 hover:underline">portal.azure.com</a>, tạo tài nguyên "Speech service".</li>
-        <li>Sau khi tạo xong, vào tài nguyên đó → "Keys and Endpoint" → copy 1 trong 2 Key, và ghi nhớ "Region" (VD: southeastasia).</li>
-        <li>Cần nhập cả Key và Region bên dưới.</li>
-      </ol>
+      <p className="mt-2">Dùng chung API Key Gemini bạn đã nhập ở phần Auto Edit (Cài đặt → AI). Nếu chưa có, vào Cài đặt để thêm.</p>
     ),
   },
 };
@@ -110,7 +104,7 @@ export default function TextToSpeech() {
     gcp: hasGcpTtsKey(),
     openai: hasOpenAiKey(),
     elevenlabs: hasElevenLabsKey(),
-    azure: hasAzureKey() && !!getAzureRegion().trim(),
+    gemini: hasGeminiKey(),
   }[p]);
 
   // AI TTS provider selection
@@ -120,15 +114,14 @@ export default function TextToSpeech() {
   // Per-provider key inputs (draft, before "Lưu")
   const [gcpKeyInput, setGcpKeyInput] = useState(getGcpTtsKey());
   const [elevenKeyInput, setElevenKeyInput] = useState(getElevenLabsKey());
-  const [azureKeyInput, setAzureKeyInput] = useState(getAzureKey());
-  const [azureRegionInput, setAzureRegionInput] = useState(getAzureRegion());
   const [showKey, setShowKey] = useState(false);
 
   // Per-provider voice selection
   const [gcpVoice, setGcpVoice] = useState(getGcpTtsVoice());
   const [openaiVoice, setOpenaiVoice] = useState(getOpenAiTtsVoice());
   const [elevenVoiceId, setElevenVoiceId] = useState(getElevenLabsVoiceId());
-  const [azureVoice, setAzureVoice] = useState(getAzureVoice());
+  const [geminiVoice, setGeminiVoice] = useState(getGeminiTtsVoice());
+  const [geminiModel, setGeminiModel] = useState(getGeminiTtsModel());
 
   // Shared generation state
   const [loading, setLoading] = useState(false);
@@ -192,9 +185,6 @@ export default function TextToSpeech() {
       saveGcpTtsKey(gcpKeyInput);
     } else if (provider === "elevenlabs") {
       saveElevenLabsKey(elevenKeyInput);
-    } else if (provider === "azure") {
-      saveAzureKey(azureKeyInput);
-      saveAzureRegion(azureRegionInput);
     }
     toast({ title: "Đã lưu ✅" });
     setProviderReady(computeProviderReady(provider));
@@ -220,9 +210,10 @@ export default function TextToSpeech() {
       } else if (provider === "elevenlabs") {
         saveElevenLabsVoiceId(elevenVoiceId);
         result = await generateElevenLabsSpeech(text, { voiceId: elevenVoiceId, onProgress });
-      } else if (provider === "azure") {
-        saveAzureVoice(azureVoice);
-        result = await generateAzureSpeech(text, { voice: azureVoice, onProgress });
+      } else if (provider === "gemini") {
+        saveGeminiTtsVoice(geminiVoice);
+        saveGeminiTtsModel(geminiModel);
+        result = await generateGeminiSpeech(text, { voiceName: geminiVoice, model: geminiModel, onProgress });
       }
       setAudioUrl(result.url);
       setAudioBlob(result.blob);
@@ -320,21 +311,18 @@ export default function TextToSpeech() {
             </details>
           )}
 
-          {/* Key/region inputs — OpenAI has none, reuses the existing key */}
-          {provider !== "openai" && (
+          {/* Key input — OpenAI/Gemini have none, both reuse the existing AI Edit key */}
+          {provider !== "openai" && provider !== "gemini" && (
             <div className="space-y-2 mb-3">
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <input
                     type={showKey ? "text" : "password"}
-                    value={
-                      provider === "gcp" ? gcpKeyInput : provider === "elevenlabs" ? elevenKeyInput : azureKeyInput
-                    }
+                    value={provider === "gcp" ? gcpKeyInput : elevenKeyInput}
                     onChange={(e) => {
                       const v = e.target.value;
                       if (provider === "gcp") setGcpKeyInput(v);
-                      else if (provider === "elevenlabs") setElevenKeyInput(v);
-                      else setAzureKeyInput(v);
+                      else setElevenKeyInput(v);
                     }}
                     placeholder={`Dán ${hint.keyLabel} vào đây...`}
                     className="w-full pl-3 pr-9 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
@@ -346,14 +334,6 @@ export default function TextToSpeech() {
                     {showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                   </button>
                 </div>
-                {provider === "azure" && (
-                  <input
-                    value={azureRegionInput}
-                    onChange={(e) => setAzureRegionInput(e.target.value)}
-                    placeholder="Region (VD: southeastasia)"
-                    className="w-44 px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
-                  />
-                )}
                 <button
                   onClick={handleSaveKey}
                   className="flex items-center gap-1 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold transition-colors shrink-0"
@@ -398,18 +378,31 @@ export default function TextToSpeech() {
                     className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
                   />
                 )}
-                {provider === "azure" && (
+                {provider === "gemini" && (
                   <select
-                    value={azureVoice}
-                    onChange={(e) => setAzureVoice(e.target.value)}
+                    value={geminiVoice}
+                    onChange={(e) => setGeminiVoice(e.target.value)}
                     className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
                   >
-                    {AZURE_TTS_VOICES.map((v) => (
-                      <option key={v.id} value={v.id}>{v.label}</option>
+                    {GEMINI_TTS_VOICES.map((v) => (
+                      <option key={v} value={v}>{v}</option>
                     ))}
                   </select>
                 )}
               </div>
+
+              {provider === "gemini" && (
+                <div>
+                  <label className="text-xs font-medium text-slate-500 mb-1 block">
+                    Model (nâng cao — chỉ sửa nếu bị lỗi model không tồn tại)
+                  </label>
+                  <input
+                    value={geminiModel}
+                    onChange={(e) => setGeminiModel(e.target.value)}
+                    className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                  />
+                </div>
+              )}
 
               <button
                 onClick={handleGenerate}

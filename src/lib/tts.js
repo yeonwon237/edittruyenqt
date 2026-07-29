@@ -1,18 +1,23 @@
 // Text-to-speech: one free browser backend, plus a choice of paid/AI
 // backends for real downloadable audiobook-quality output — Google Cloud
-// TTS, OpenAI, ElevenLabs, Azure. Each needs its own account/API key (a
+// TTS, OpenAI, ElevenLabs, Gemini. Each needs its own account/API key (a
 // different product from each provider, not shared with anything else in
-// this app except OpenAI, which reuses the same key already stored for AI
-// Edit in llm.js). See per-provider comments below for setup/CORS/quality
-// notes — picked so the user can compare and pick, not because one is
-// obviously best for every case.
+// this app except OpenAI and Gemini, which reuse the same keys already
+// stored for AI Edit in llm.js). See per-provider comments below for
+// setup/CORS/quality notes — picked so the user can compare and pick, not
+// because one is obviously best for every case.
+//
+// Azure was considered and removed: its REST TTS endpoint's browser CORS
+// behavior was never confirmed (unlike OpenAI/Gemini, which this app
+// already proves work directly from the browser elsewhere), so it was the
+// one backend here that might have silently failed with no clear error.
 import { chunkText, getApiKey as getLlmApiKey } from "@/lib/llm";
 
 export const TTS_AI_PROVIDERS = [
   { id: "gcp", label: "Google Cloud TTS", note: "Hạn mức free lớn nhất (1 triệu ký tự/tháng), cần thẻ tín dụng để bật." },
   { id: "openai", label: "OpenAI", note: "Dùng chung API Key OpenAI đã có sẵn (nếu bạn đã cấu hình cho Auto Edit)." },
   { id: "elevenlabs", label: "ElevenLabs", note: "Giọng tự nhiên nhất, nhưng hạn mức free rất ít." },
-  { id: "azure", label: "Microsoft Azure", note: "Hạn mức free khá (500k ký tự/tháng), cần thêm \"vùng\" (region) lúc tạo tài nguyên." },
+  { id: "gemini", label: "Gemini", note: "Dùng chung API Key Gemini đã có sẵn (nếu bạn đã cấu hình cho Auto Edit)." },
 ];
 
 const TTS_PROVIDER_KEY = "tts_ai_provider";
@@ -393,118 +398,150 @@ export async function generateElevenLabsSpeech(text, { apiKey, voiceId, onProgre
   return { blob, url: URL.createObjectURL(blob) };
 }
 
-// ---- Microsoft Azure TTS ----
-// The most involved of the four: needs a "region" (wherever the Azure
-// Speech resource was created, e.g. "southeastasia") on top of the key,
-// and a two-step call — exchange the key for a short-lived bearer token
-// first, then send SSML (not plain text) to the actual synthesis endpoint.
-// CORS behavior for this REST endpoint isn't independently confirmed the
-// way OpenAI's is (this app already proves OpenAI works from the browser);
-// if this fails with a generic "Failed to fetch" (no response/status at
-// all) rather than a proper error message, that's most likely a CORS block
-// requiring a backend proxy Azure's REST API doesn't support from a
-// browser — flagged here so a failure here isn't mistaken for a wrong key.
-const AZURE_KEY_STORE = "azure_tts_api_key";
-const AZURE_REGION_KEY = "azure_tts_region";
-const AZURE_VOICE_KEY = "azure_tts_voice";
-const DEFAULT_AZURE_VOICE = "vi-VN-HoaiMyNeural";
-const AZURE_CHUNK_CHARS = 2000;
+// ---- Gemini TTS ----
+// Reuses the same Gemini API key already stored for AI Edit (llm.js) — no
+// new account/key needed if Gemini is already configured there. Unlike the
+// other three providers, Gemini's audio response is raw PCM with no file
+// container (not a ready-to-play/download file by itself), so it gets
+// wrapped in a WAV header client-side before use.
+const GEMINI_TTS_MODEL_KEY = "gemini_tts_model";
+const GEMINI_TTS_VOICE_KEY = "gemini_tts_voice";
+// Model IDs churn often (see llm.js's DEFAULT_MODELS comment — same caveat
+// applies here). This is only a starting default, editable in the UI; if it
+// 404s, check the current TTS-capable model name in Google AI Studio.
+const DEFAULT_GEMINI_TTS_MODEL = "gemini-3.1-flash-tts-preview";
+const DEFAULT_GEMINI_TTS_VOICE = "Kore";
 
-// Verified Vietnamese Neural voice names as of this writing — Azure's own
-// "voices/list" endpoint is the source of truth if these ever 400.
-export const AZURE_TTS_VOICES = [
-  { id: "vi-VN-HoaiMyNeural", label: "HoaiMy — nữ" },
-  { id: "vi-VN-NamMinhNeural", label: "NamMinh — nam" },
+// A handful of the documented prebuilt voice names — not exhaustive.
+export const GEMINI_TTS_VOICES = [
+  "Kore", "Puck", "Zephyr", "Charon", "Fenrir", "Leda", "Orus", "Aoede",
 ];
 
-export function getAzureKey() {
+export function getGeminiTtsModel() {
   try {
-    return localStorage.getItem(AZURE_KEY_STORE) || "";
+    return (localStorage.getItem(GEMINI_TTS_MODEL_KEY) || "").trim() || DEFAULT_GEMINI_TTS_MODEL;
   } catch {
-    return "";
+    return DEFAULT_GEMINI_TTS_MODEL;
   }
 }
-export function saveAzureKey(k) {
-  localStorage.setItem(AZURE_KEY_STORE, (k || "").trim());
+export function saveGeminiTtsModel(model) {
+  const trimmed = (model || "").trim();
+  if (!trimmed) localStorage.removeItem(GEMINI_TTS_MODEL_KEY);
+  else localStorage.setItem(GEMINI_TTS_MODEL_KEY, trimmed);
 }
-export function hasAzureKey() {
-  return !!getAzureKey().trim();
-}
-export function getAzureRegion() {
+export function getGeminiTtsVoice() {
   try {
-    return localStorage.getItem(AZURE_REGION_KEY) || "";
+    return localStorage.getItem(GEMINI_TTS_VOICE_KEY) || DEFAULT_GEMINI_TTS_VOICE;
   } catch {
-    return "";
+    return DEFAULT_GEMINI_TTS_VOICE;
   }
 }
-export function saveAzureRegion(r) {
-  localStorage.setItem(AZURE_REGION_KEY, (r || "").trim());
+export function saveGeminiTtsVoice(voice) {
+  localStorage.setItem(GEMINI_TTS_VOICE_KEY, voice || DEFAULT_GEMINI_TTS_VOICE);
 }
-export function getAzureVoice() {
-  try {
-    return localStorage.getItem(AZURE_VOICE_KEY) || DEFAULT_AZURE_VOICE;
-  } catch {
-    return DEFAULT_AZURE_VOICE;
-  }
-}
-export function saveAzureVoice(v) {
-  localStorage.setItem(AZURE_VOICE_KEY, v || DEFAULT_AZURE_VOICE);
+export function hasGeminiKey() {
+  return !!getLlmApiKey("gemini").trim();
 }
 
-function escapeXml(s) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
+// Gemini's audio response is raw PCM (16-bit signed, mono, 24kHz by
+// default) — an <audio> element or downloadable file needs a WAV container
+// wrapped around it first.
+function pcmToWavBlob(pcmBytes, sampleRate = 24000, channels = 1, bitsPerSample = 16) {
+  const blockAlign = (channels * bitsPerSample) / 8;
+  const byteRate = sampleRate * blockAlign;
+  const buffer = new ArrayBuffer(44 + pcmBytes.length);
+  const view = new DataView(buffer);
+
+  const writeStr = (offset, str) => {
+    for (let i = 0; i < str.length; i += 1) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + pcmBytes.length, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+  writeStr(36, "data");
+  view.setUint32(40, pcmBytes.length, true);
+  new Uint8Array(buffer, 44).set(pcmBytes);
+
+  return new Blob([buffer], { type: "audio/wav" });
 }
 
-async function getAzureToken(key, region) {
-  const res = await fetch(`https://${region}.api.cognitive.microsoft.com/sts/v1.0/issueToken`, {
-    method: "POST",
-    headers: { "Ocp-Apim-Subscription-Key": key },
-  });
-  if (!res.ok) {
-    throw new Error(`Không lấy được token Azure (${res.status}) — kiểm tra lại Key và Region.`);
+// Parses the "audio/L16;codec=pcm;rate=24000" style mimeType Gemini returns
+// for the sample rate, since it isn't always exactly 24000.
+function parseSampleRate(mimeType) {
+  const m = /rate=(\d+)/.exec(mimeType || "");
+  return m ? parseInt(m[1], 10) : 24000;
+}
+
+const GEMINI_CHUNK_CHARS = 2000;
+
+export async function generateGeminiSpeech(text, { model, voiceName, onProgress } = {}) {
+  const apiKey = getLlmApiKey("gemini").trim();
+  if (!apiKey) {
+    throw new Error("Chưa có Gemini API Key (thêm ở Cài đặt, mục AI Auto Edit).");
   }
-  return res.text();
-}
-
-export async function generateAzureSpeech(text, { apiKey, region, voice, onProgress } = {}) {
-  const key = (apiKey || getAzureKey()).trim();
-  const rg = (region || getAzureRegion()).trim();
-  if (!key) throw new Error("Chưa có Azure API Key.");
-  if (!rg) throw new Error("Chưa nhập Region (vùng) của tài nguyên Azure Speech.");
-  const v = voice || getAzureVoice();
-  const chunks = chunkText(text, AZURE_CHUNK_CHARS);
+  const m = model || getGeminiTtsModel();
+  const voice = voiceName || getGeminiTtsVoice();
+  const chunks = chunkText(text, GEMINI_CHUNK_CHARS);
   if (chunks.length === 0) throw new Error("Không có văn bản để tạo audio.");
 
-  const token = await getAzureToken(key, rg);
-
-  const parts = [];
+  const pcmParts = [];
+  let sampleRate = 24000;
   for (let i = 0; i < chunks.length; i += 1) {
     onProgress?.(i + 1, chunks.length);
     const chunk = chunks[i];
     if (!chunk.trim()) continue;
-    const ssml = `<speak version='1.0' xml:lang='vi-VN'><voice xml:lang='vi-VN' name='${v}'>${escapeXml(chunk)}</voice></speak>`;
     // eslint-disable-next-line no-await-in-loop
-    const res = await fetch(`https://${rg}.tts.speech.microsoft.com/cognitiveservices/v1`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/ssml+xml",
-        "X-Microsoft-OutputFormat": "audio-24khz-48kbitrate-mono-mp3",
-      },
-      body: ssml,
-    });
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: chunk }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
+          },
+        }),
+      }
+    );
     if (!res.ok) {
-      throw new Error(`Azure TTS lỗi ${res.status} — kiểm tra lại Key/Region/tên giọng.`);
+      let msg = `Gemini TTS lỗi ${res.status}`;
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const e = await res.json();
+        msg = e?.error?.message || msg;
+      } catch {}
+      if (res.status === 404) {
+        msg += ` — model "${m}" có thể không còn hỗ trợ TTS, kiểm tra lại tên model.`;
+      }
+      throw new Error(msg);
     }
     // eslint-disable-next-line no-await-in-loop
-    parts.push(await res.blob());
+    const data = await res.json();
+    const part = data?.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+    if (!part?.data) throw new Error("Gemini không trả về âm thanh nào.");
+    sampleRate = parseSampleRate(part.mimeType);
+    pcmParts.push(base64ToBytes(part.data));
   }
 
-  const blob = new Blob(parts, { type: "audio/mpeg" });
+  const totalLen = pcmParts.reduce((sum, p) => sum + p.length, 0);
+  const combined = new Uint8Array(totalLen);
+  let offset = 0;
+  for (const p of pcmParts) {
+    combined.set(p, offset);
+    offset += p.length;
+  }
+
+  const blob = pcmToWavBlob(combined, sampleRate);
   return { blob, url: URL.createObjectURL(blob) };
 }
