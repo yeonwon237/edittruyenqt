@@ -15,6 +15,7 @@ import ProtectedRoute from '@/components/ProtectedRoute';
 import Home from '@/pages/Home';
 import Workspace from '@/pages/Workspace';
 import Settings from '@/pages/Settings';
+import TextToSpeech from '@/pages/TextToSpeech';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -46,6 +47,7 @@ const AuthenticatedApp = () => {
         <Route path="/" element={<Home />} />
         <Route path="/workspace/:projectId" element={<Workspace />} />
         <Route path="/settings" element={<Settings />} />
+        <Route path="/text-to-speech" element={<TextToSpeech />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

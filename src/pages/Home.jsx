@@ -22,6 +22,7 @@ import {
   Languages,
   ArrowRight,
   Trash2,
+  Volume2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
@@ -198,6 +199,14 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => navigate("/text-to-speech")}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 text-sm font-medium transition-colors"
+              title="Đọc văn bản thành giọng nói"
+            >
+              <Volume2 className="w-4 h-4" />
+              <span className="hidden sm:inline">Đọc văn bản</span>
+            </button>
             <button
               onClick={() => navigate("/settings")}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 text-sm font-medium transition-colors"
