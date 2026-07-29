@@ -69,15 +69,52 @@ function indexOfLineEnd(text, from) {
   return idx === -1 ? text.length : idx;
 }
 
+// --- "có điểm" -> "có chút" ---
+// Both mean "a bit/somewhat", but "có điểm" (literal reading of 有点) reads
+// stiffly in Vietnamese — the user's own edits consistently reach for "có
+// chút" instead. Checked against the 200-chapter corpus: "có điểm" appears
+// 154 times in QT thô and is replaced 100% of the time — "có chút" in the
+// user's own Bản Edit is up by almost exactly that many occurrences (627 ->
+// ~725), with no leftover "có điểm" anywhere. No false positives found
+// either ("địa điểm" etc. don't match — the two words must be adjacent).
+const CO_DIEM_RE = new RegExp(`(?<![${WORD_CHAR}])(C|c)ó[ \\t]+điểm(?![${WORD_CHAR}])`, "gu");
+
+export function normalizeCoDiem(text) {
+  if (!text) return text;
+  return text.replace(CO_DIEM_RE, (_match, capLetter) => `${capLetter}ó chút`);
+}
+
+// --- "không cấm" -> "không khỏi" ---
+// Literal reading of 不禁 ("couldn't help but ..."), where 禁 was translated
+// as its "forbid/ban" sense ("cấm") instead of its "restrain" sense — always
+// sitting directly before a verb, e.g. "không cấm cảm thán" ("couldn't help
+// but sigh"). Checked against the 200-chapter corpus: 159/159 occurrences in
+// QT thô are gone from the user's own Bản Edit, replaced across the corpus
+// by a mix of "không khỏi" (11 -> 79) and "không kìm được" (0 -> 64) in
+// roughly the matching amount. This rule standardizes on "không khỏi" (both
+// are correct Vietnamese; a rule-based pass can't guess which of two valid
+// synonyms the user would have picked chapter to chapter). One garbled
+// non-idiom collision found in 159 real occurrences ("vùng cấm không cấm khu
+// vấn đề" — already-broken source text) — accepted as negligible.
+const KHONG_CAM_RE = new RegExp(`(?<![${WORD_CHAR}])(K|k)hông cấm(?![${WORD_CHAR}])`, "gu");
+
+export function normalizeKhongCam(text) {
+  if (!text) return text;
+  return text.replace(KHONG_CAM_RE, (_match, capLetter) => `${capLetter}hông khỏi`);
+}
+
 /**
  * Rule-based smoothing pipeline: QT thô (rough, already-Vietnamese) -> a
- * cleaner draft, no AI involved. Currently just the filler-particle pass;
- * more passes get added here as more patterns are confirmed against real
- * chapter data.
+ * cleaner draft, no AI involved. More passes get added here as more
+ * patterns are confirmed against real chapter data.
  * @param {string} qtRawText
  * @returns {string}
  */
 export function applyRuleEdit(qtRawText) {
   if (!qtRawText) return qtRawText;
-  return stripFillerParticles(qtRawText);
+  let text = qtRawText;
+  text = stripFillerParticles(text);
+  text = normalizeCoDiem(text);
+  text = normalizeKhongCam(text);
+  return text;
 }
