@@ -179,3 +179,23 @@ export function downloadSrt(lines, filenameBase) {
 export function downloadVtt(lines, filenameBase) {
   downloadBlob(`${filenameBase}.vtt`, new Blob([buildVtt(lines)], { type: "text/vtt;charset=utf-8" }));
 }
+
+// "Cổ phong" (period/classical-style) burn-in font for the cover-preview
+// overlay used by CreateVideo.jsx's drawCover. Deliberately Noto Serif
+// rather than a more overtly decorative display font: Google's Noto family
+// specifically guarantees full Unicode (incl. every Vietnamese diacritic
+// combination) glyph coverage, which a prettier but narrower-coverage
+// display font can silently fail to render correctly for Vietnamese text.
+export const SUBTITLE_FONT_FAMILY = "'Noto Serif', serif";
+
+let fontLoadPromise = null;
+// Canvas text rendering doesn't lazy-trigger a webfont download the way a
+// normal DOM element would — call this once up front so the font is
+// actually in the browser's font cache before drawCover tries to use it.
+export function ensureSubtitleFontLoaded() {
+  if (typeof document === "undefined" || !document.fonts) return Promise.resolve();
+  if (!fontLoadPromise) {
+    fontLoadPromise = document.fonts.load(`700 48px ${SUBTITLE_FONT_FAMILY}`).catch(() => {});
+  }
+  return fontLoadPromise;
+}
