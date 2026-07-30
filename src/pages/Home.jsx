@@ -10,7 +10,9 @@ import {
   Captions,
   ArrowRight,
   Sparkles,
+  Bot,
 } from "lucide-react";
+import AISettingsDialog from "@/components/workspace/AISettingsDialog";
 
 const FEATURES = [
   {
@@ -54,6 +56,7 @@ const FEATURES = [
 export default function Home() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
+  const [showAISettings, setShowAISettings] = useState(false);
 
   useEffect(() => {
     base44.auth.me().then(setUser).catch(() => {});
@@ -83,6 +86,14 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowAISettings(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 text-sm font-medium transition-colors"
+              title="Cấu hình AI (Key/model dùng chung cho mọi chức năng)"
+            >
+              <Bot className="w-4 h-4" />
+              <span className="hidden sm:inline">AI</span>
+            </button>
             <button
               onClick={() => navigate("/settings")}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 text-sm font-medium transition-colors"
@@ -164,6 +175,8 @@ export default function Home() {
           })}
         </div>
       </main>
+
+      <AISettingsDialog open={showAISettings} onOpenChange={setShowAISettings} />
     </div>
   );
 }

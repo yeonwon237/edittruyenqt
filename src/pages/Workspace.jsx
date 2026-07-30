@@ -27,7 +27,7 @@ import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
-import { Loader2, ArrowLeft, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon } from "lucide-react";
+import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -1464,8 +1464,16 @@ ${sourceText}`;
           <Link
             to="/stories"
             className="p-2 rounded-xl hover:bg-violet-50 text-slate-500 transition-colors"
+            title="Về danh sách truyện"
           >
             <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <Link
+            to="/"
+            className="p-2 rounded-xl hover:bg-violet-50 text-slate-500 transition-colors"
+            title="Về trang chủ"
+          >
+            <Home className="w-4 h-4" />
           </Link>
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-2xl shrink-0">{project.cover_emoji || "📚"}</span>
