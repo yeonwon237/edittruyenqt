@@ -19,21 +19,45 @@ export function hasGeminiImageKey() {
   return !!getApiKey("gemini").trim();
 }
 
-const DEFAULT_GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image";
+const GEMINI_IMAGE_MODEL_KEY = "gemini_image_model";
+// Real error seen in testing: "limit: 0, model: gemini-2.5-flash-preview-
+// image" — Google's own server named the model with a "-preview-" segment
+// this app's first guess ("gemini-2.5-flash-image") didn't have, AND
+// "limit: 0" (not "quota used up") means this account's free-tier key has
+// no allotment for this model at all — likely gated behind a paid/billing-
+// enabled account, same friction hit earlier with Google Cloud TTS. Kept
+// user-editable (same resilience pattern as every other AI model in this
+// app) since neither the exact name nor its availability is something this
+// environment can verify directly.
+const DEFAULT_GEMINI_IMAGE_MODEL = "gemini-2.5-flash-preview-image";
+
+export function getGeminiImageModel() {
+  try {
+    return (localStorage.getItem(GEMINI_IMAGE_MODEL_KEY) || "").trim() || DEFAULT_GEMINI_IMAGE_MODEL;
+  } catch {
+    return DEFAULT_GEMINI_IMAGE_MODEL;
+  }
+}
+export function saveGeminiImageModel(model) {
+  const trimmed = (model || "").trim();
+  if (!trimmed) localStorage.removeItem(GEMINI_IMAGE_MODEL_KEY);
+  else localStorage.setItem(GEMINI_IMAGE_MODEL_KEY, trimmed);
+}
 
 // Gemini's own image model ("Nano Banana") — reuses the same Gemini key
 // already stored for AI Edit (llm.js), no new signup. Noticeably better
-// quality than Pollinations' free tier in testing, free up to 500
-// images/day. Bonus: the response comes back as a data: URL (embedded
-// base64), not a remote URL, so it can NEVER taint the canvas — unlike
-// Pollinations, where a cross-origin image could block canvas.toBlob()
-// (CORS headers on Pollinations' side were never independently confirmed).
-export async function generateGeminiCoverImage(prompt, model = DEFAULT_GEMINI_IMAGE_MODEL) {
+// quality than Pollinations' free tier when it works. Response comes back
+// as a data: URL (embedded base64), not a remote URL, so it can NEVER
+// taint the canvas — unlike Pollinations, where a cross-origin image could
+// block canvas.toBlob() (CORS headers on Pollinations' side were never
+// independently confirmed).
+export async function generateGeminiCoverImage(prompt, model) {
+  const m = model || getGeminiImageModel();
   const apiKey = getApiKey("gemini").trim();
   if (!apiKey) throw new Error("Chưa có Gemini API Key (thêm ở nút AI trong Workspace hoặc bất kỳ đâu đã dùng Gemini).");
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -54,7 +78,9 @@ export async function generateGeminiCoverImage(prompt, model = DEFAULT_GEMINI_IM
       msg = e?.error?.message || msg;
     } catch {}
     if (res.status === 404) {
-      msg += ` — model "${model}" có thể không còn hỗ trợ tạo ảnh, kiểm tra lại tên model.`;
+      msg += ` — model "${m}" có thể không còn hỗ trợ tạo ảnh, kiểm tra lại tên model.`;
+    } else if (/limit:\s*0/.test(msg)) {
+      msg += " — Tài khoản của bạn chưa được cấp hạn mức cho model này (khác với việc dùng hết hạn mức), có thể cần bật billing hoặc dùng model khác. Thử đổi tên model ở ô bên dưới, hoặc dùng nguồn Pollinations thay thế.";
     }
     throw new Error(msg);
   }

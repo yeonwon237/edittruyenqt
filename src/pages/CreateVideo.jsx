@@ -12,6 +12,8 @@ import {
   translatePromptToEnglish,
   hasGeminiImageKey,
   generateGeminiCoverImage,
+  getGeminiImageModel,
+  saveGeminiImageModel,
 } from "@/lib/videoCover";
 
 export default function CreateVideo() {
@@ -26,6 +28,7 @@ export default function CreateVideo() {
 
   const [prompt, setPrompt] = useState("");
   const [imageSource, setImageSource] = useState(hasGeminiImageKey() ? "gemini" : "pollinations");
+  const [geminiImageModel, setGeminiImageModel] = useState(getGeminiImageModel());
   const [model, setModel] = useState("flux");
   const [seed, setSeed] = useState(0);
   const [image, setImage] = useState(null); // loaded HTMLImageElement
@@ -57,7 +60,7 @@ export default function CreateVideo() {
     setLoadingImage(true);
     try {
       if (imageSource === "gemini") {
-        const dataUrl = await generateGeminiCoverImage(englishPrompt);
+        const dataUrl = await generateGeminiCoverImage(englishPrompt, geminiImageModel);
         // A data: URL is same-origin by definition — no CORS/tainted-canvas
         // risk the way a remote Pollinations URL can have.
         const img = await loadImage(dataUrl, false);
@@ -240,6 +243,30 @@ export default function CreateVideo() {
                     🌸 Pollinations (miễn phí, không cần key)
                   </button>
                 </div>
+
+                {imageSource === "gemini" && (
+                  <div className="mb-2">
+                    <label className="text-[11px] font-medium text-slate-500 mb-1 block">
+                      Model Gemini tạo ảnh (nâng cao — chỉ sửa nếu bị lỗi "quota"/"model không tồn tại")
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        value={geminiImageModel}
+                        onChange={(e) => setGeminiImageModel(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 font-mono"
+                      />
+                      <button
+                        onClick={() => {
+                          saveGeminiImageModel(geminiImageModel);
+                          toast({ title: "Đã lưu model" });
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium"
+                      >
+                        Lưu
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 <label className="text-xs font-medium text-slate-500 mb-1 block">
                   Mô tả bối cảnh (để AI vẽ ảnh nền)
