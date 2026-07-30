@@ -23,7 +23,16 @@ export function canAutoTranslatePrompt() {
 // configured, or if the call fails — never blocks image generation.
 export async function translatePromptToEnglish(vietnameseText) {
   if (!vietnameseText.trim() || !hasCustomAI()) return vietnameseText;
-  const instruction = `Dịch và viết lại mô tả sau thành một prompt tiếng Anh ngắn gọn (1-2 câu, chỉ toàn từ khóa hình ảnh cụ thể: bối cảnh, trang phục, ánh sáng, không khí) để đưa vào công cụ vẽ ảnh AI (text-to-image). CHỈ xuất ra đúng câu prompt tiếng Anh, không giải thích, không có gì khác. Mô tả gốc: "${vietnameseText.trim()}"`;
+  // Explicitly told to turn abstract/genre words into concrete VISUAL
+  // description rather than translating them literally — a first version
+  // of this that just asked for a "short keyword prompt" still let genre
+  // words like "bách hợp" (a romance-genre label, not a visual descriptor)
+  // ride through untranslated-in-spirit, and Flux fell back to loosely
+  // associating it with unrelated imagery (a Guanyin Bodhisattva statue in
+  // testing). Asking for an actual descriptive scene — who/what/where/mood
+  // — instead of bare keywords gives the image model something concrete to
+  // render.
+  const instruction = `Người dùng muốn tạo ảnh bìa AI từ mô tả tiếng Việt sau (có thể chỉ là từ khóa rời rạc, kể cả thể loại truyện như "bách hợp", "ngôn tình", "tiên hiệp"...). Hãy viết lại thành MỘT đoạn mô tả cảnh cụ thể bằng tiếng Anh (2-3 câu) cho công cụ vẽ ảnh AI (text-to-image), mô tả rõ: có ai trong cảnh (giới tính, số lượng, trang phục), họ đang ở đâu, đang làm gì/tư thế gì, không khí/ánh sáng ra sao. TUYỆT ĐỐI không dịch nghĩa đen các từ chỉ thể loại/khái niệm trừu tượng (VD: "bách hợp" nghĩa là truyện tình cảm giữa hai cô gái — hãy mô tả CẢNH đó, không dịch thành hoa "lily" hay bất cứ nghĩa đen nào khác). Không thêm yếu tố tôn giáo/tượng thờ trừ khi mô tả gốc có nhắc tới. CHỈ xuất ra đúng đoạn mô tả tiếng Anh, không giải thích, không ghi chú gì thêm. Mô tả gốc: "${vietnameseText.trim()}"`;
   try {
     const result = await callLLM(instruction);
     const cleaned = result.replace(/^["']|["']$/g, "").trim();

@@ -46,31 +46,46 @@ export default function CreateVideo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image, title, chapterLabel]);
 
-  const handleGenerateBackground = async () => {
-    if (!prompt.trim()) {
-      toast({ title: "Nhập mô tả bối cảnh trước đã", variant: "destructive" });
-      return;
-    }
+  // Generates the background from an already-final English prompt — no
+  // translation step. Used both after translation happens and directly by
+  // the editable-prompt box, so the user can hand-tune the exact wording
+  // and regenerate without it being silently re-translated over.
+  const generateFromPrompt = async (englishPrompt, nextSeed) => {
     setLoadingImage(true);
     try {
-      const trimmed = prompt.trim();
-      // Reuse the cached translation on "đổi ảnh khác" (same wording, just a
-      // new random seed) instead of re-translating and burning AI quota
-      // for no reason.
-      let effectivePrompt = usedPrompt && translatedFrom === trimmed ? usedPrompt : null;
-      if (!effectivePrompt) {
-        effectivePrompt =
-          autoTranslate && canAutoTranslatePrompt() ? await translatePromptToEnglish(trimmed) : trimmed;
-        setUsedPrompt(effectivePrompt);
-        setTranslatedFrom(trimmed);
-      }
-      const url = buildPollinationsUrl(effectivePrompt, seed, model);
+      const url = buildPollinationsUrl(englishPrompt, nextSeed, model);
       const img = await loadImage(url, true);
       setImage(img);
     } catch (e) {
       toast({ title: "Lỗi tạo ảnh nền", description: e.message, variant: "destructive" });
     }
     setLoadingImage(false);
+  };
+
+  const handleGenerateBackground = async () => {
+    if (!prompt.trim()) {
+      toast({ title: "Nhập mô tả bối cảnh trước đã", variant: "destructive" });
+      return;
+    }
+    const trimmed = prompt.trim();
+    setLoadingImage(true);
+    let effectivePrompt = trimmed;
+    try {
+      // Reuse the cached translation on "đổi ảnh khác" (same wording, just a
+      // new random seed) instead of re-translating and burning AI quota
+      // for no reason.
+      effectivePrompt =
+        usedPrompt && translatedFrom === trimmed
+          ? usedPrompt
+          : autoTranslate && canAutoTranslatePrompt()
+          ? await translatePromptToEnglish(trimmed)
+          : trimmed;
+      setUsedPrompt(effectivePrompt);
+      setTranslatedFrom(trimmed);
+    } catch (e) {
+      toast({ title: "Lỗi dịch mô tả", description: e.message, variant: "destructive" });
+    }
+    await generateFromPrompt(effectivePrompt, seed);
   };
 
   const handleRegenerateBackground = () => {
@@ -80,6 +95,16 @@ export default function CreateVideo() {
     if (seed !== 0 && prompt.trim()) handleGenerateBackground();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seed]);
+
+  // "Tạo lại với mô tả này" — regenerate straight from whatever is in the
+  // editable English-prompt box right now, exactly as typed, no AI call.
+  const handleRegenerateFromEditedPrompt = () => {
+    if (!usedPrompt.trim()) {
+      toast({ title: "Chưa có mô tả để tạo ảnh", variant: "destructive" });
+      return;
+    }
+    generateFromPrompt(usedPrompt.trim(), Math.floor(Math.random() * 1_000_000));
+  };
 
   const handleUploadFile = (e) => {
     const file = e.target.files?.[0];
@@ -223,9 +248,25 @@ export default function CreateVideo() {
                   </label>
                 )}
                 {usedPrompt && (
-                  <p className="text-[11px] text-slate-400 mt-1.5 italic">
-                    Mô tả thực tế đã gửi: "{usedPrompt}"
-                  </p>
+                  <div className="mt-2">
+                    <label className="text-[11px] font-medium text-slate-500 mb-1 block">
+                      Mô tả tiếng Anh thực tế (sửa trực tiếp rồi tạo lại nếu ảnh chưa đúng ý)
+                    </label>
+                    <textarea
+                      value={usedPrompt}
+                      onChange={(e) => setUsedPrompt(e.target.value)}
+                      rows={3}
+                      className="w-full px-2.5 py-2 text-xs rounded-lg border border-violet-100 bg-white focus:outline-none focus:border-violet-400 resize-none"
+                    />
+                    <button
+                      onClick={handleRegenerateFromEditedPrompt}
+                      disabled={loadingImage}
+                      className="mt-1.5 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-violet-100 hover:bg-violet-200 text-violet-700 text-xs font-medium disabled:opacity-40"
+                    >
+                      {loadingImage ? <Loader2 className="w-3 h-3 animate-spin" /> : <ImagePlus className="w-3 h-3" />}
+                      Tạo lại với mô tả này
+                    </button>
+                  </div>
                 )}
                 <div className="flex items-center gap-2 mt-2">
                   <button
