@@ -20,16 +20,18 @@ export function hasGeminiImageKey() {
 }
 
 const GEMINI_IMAGE_MODEL_KEY = "gemini_image_model";
-// Real error seen in testing: "limit: 0, model: gemini-2.5-flash-preview-
-// image" — Google's own server named the model with a "-preview-" segment
-// this app's first guess ("gemini-2.5-flash-image") didn't have, AND
-// "limit: 0" (not "quota used up") means this account's free-tier key has
-// no allotment for this model at all — likely gated behind a paid/billing-
-// enabled account, same friction hit earlier with Google Cloud TTS. Kept
-// user-editable (same resilience pattern as every other AI model in this
-// app) since neither the exact name nor its availability is something this
-// environment can verify directly.
-const DEFAULT_GEMINI_IMAGE_MODEL = "gemini-2.5-flash-preview-image";
+// Verified against the user's own account via GET .../v1beta/models (not
+// guessed): they have 4 image-capable models — gemini-2.5-flash-image
+// ("Nano Banana" gen 1, hit "limit: 0" quota in testing — likely an older
+// model with no free allotment left), gemini-3-pro-image /
+// gemini-3-pro-image-preview ("Nano Banana Pro", larger/pricier tier), and
+// gemini-3.1-flash-image ("Nano Banana 2", newest flash-tier). Defaulting
+// to the 3.1 flash one: same generation as this app's other Gemini 3.x
+// defaults (llm.js's DEFAULT_MODELS), and "flash" tier is the
+// cheap/free-quota-friendly one elsewhere in this app, unlike "pro". Kept
+// user-editable regardless (same resilience pattern as every other AI
+// model here) since quota availability can still shift.
+const DEFAULT_GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image";
 
 export function getGeminiImageModel() {
   try {
