@@ -94,6 +94,59 @@ export async function generateGeminiCoverImage(prompt, model) {
   return `data:${part.mimeType || "image/png"};base64,${part.data}`;
 }
 
+const CLOUDFLARE_WORKER_URL_KEY = "cloudflare_image_worker_url";
+// The user's own dedicated Worker (scripts/cloudflare-image-worker.js),
+// deployed 2026-07-30 on their existing Cloudflare account (same one used
+// for the LilyHub project's workers) — genuinely free (10,000 Neurons/day
+// on Workers AI's free tier), unlike Gemini image gen which has repeatedly
+// hit "limit: 0" on this account regardless of model tried. Cloudflare's own
+// account-management API (api.cloudflare.com) doesn't allow direct browser
+// calls, which is why this goes through a small self-hosted Worker that
+// just adds CORS headers around a Workers AI (FLUX.1-schnell) call — not a
+// public third-party service, so there's no risk of it disappearing or
+// rate-limiting other users.
+const DEFAULT_CLOUDFLARE_WORKER_URL = "https://edittruyenqt-image.nthuy020693.workers.dev";
+
+export function getCloudflareWorkerUrl() {
+  try {
+    return (localStorage.getItem(CLOUDFLARE_WORKER_URL_KEY) || "").trim() || DEFAULT_CLOUDFLARE_WORKER_URL;
+  } catch {
+    return DEFAULT_CLOUDFLARE_WORKER_URL;
+  }
+}
+export function saveCloudflareWorkerUrl(url) {
+  const trimmed = (url || "").trim();
+  if (!trimmed) localStorage.removeItem(CLOUDFLARE_WORKER_URL_KEY);
+  else localStorage.setItem(CLOUDFLARE_WORKER_URL_KEY, trimmed);
+}
+
+// Returns a data: URL just like generateGeminiCoverImage above — same
+// immunity to CORS/tainted-canvas issues, since the Worker itself already
+// fetched the raw model output server-side and handed back base64.
+export async function generateCloudflareCoverImage(prompt) {
+  const workerUrl = getCloudflareWorkerUrl();
+  if (!workerUrl) throw new Error("Chưa cấu hình URL Cloudflare Worker.");
+
+  const res = await fetch(workerUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+  });
+
+  if (!res.ok) {
+    let msg = `Cloudflare Worker lỗi ${res.status}`;
+    try {
+      const e = await res.json();
+      msg = e?.error || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+
+  const data = await res.json();
+  if (!data?.image) throw new Error("Worker không trả về ảnh nào.");
+  return data.image;
+}
+
 // Pollinations/Flux (like most image models) understands short, keyword-
 // style ENGLISH prompts far better than Vietnamese — a raw Vietnamese
 // prompt like "cổ đại, bách hợp, cổ trang" gets loosely/wrongly associated

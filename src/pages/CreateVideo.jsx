@@ -14,6 +14,9 @@ import {
   generateGeminiCoverImage,
   getGeminiImageModel,
   saveGeminiImageModel,
+  generateCloudflareCoverImage,
+  getCloudflareWorkerUrl,
+  saveCloudflareWorkerUrl,
 } from "@/lib/videoCover";
 import { renderVideoFromAudioAndImage } from "@/lib/videoRender";
 import {
@@ -49,8 +52,12 @@ export default function CreateVideo() {
   const [chapterTitle, setChapterTitle] = useState("");
 
   const [prompt, setPrompt] = useState("");
-  const [imageSource, setImageSource] = useState(hasGeminiImageKey() ? "gemini" : "pollinations");
+  // Cloudflare (own Worker, free, verified good quality 2026-07-30) is now
+  // the default — Gemini has repeatedly hit "limit: 0" quota on this
+  // account regardless of model tried.
+  const [imageSource, setImageSource] = useState("cloudflare");
   const [geminiImageModel, setGeminiImageModel] = useState(getGeminiImageModel());
+  const [cloudflareWorkerUrl, setCloudflareWorkerUrl] = useState(getCloudflareWorkerUrl());
   const [model, setModel] = useState("flux");
   const [seed, setSeed] = useState(0);
   const [image, setImage] = useState(null); // loaded HTMLImageElement
@@ -122,6 +129,10 @@ export default function CreateVideo() {
         const dataUrl = await generateGeminiCoverImage(englishPrompt, geminiImageModel);
         // A data: URL is same-origin by definition — no CORS/tainted-canvas
         // risk the way a remote Pollinations URL can have.
+        const img = await loadImage(dataUrl, false);
+        setImage(img);
+      } else if (imageSource === "cloudflare") {
+        const dataUrl = await generateCloudflareCoverImage(englishPrompt);
         const img = await loadImage(dataUrl, false);
         setImage(img);
       } else {
@@ -407,7 +418,15 @@ export default function CreateVideo() {
 
               <div className="pt-2 border-t border-violet-50">
                 <label className="text-xs font-medium text-slate-500 mb-1 block">Nguồn ảnh</label>
-                <div className="flex gap-1.5 mb-2">
+                <div className="flex gap-1.5 mb-2 flex-wrap">
+                  <button
+                    onClick={() => setImageSource("cloudflare")}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      imageSource === "cloudflare" ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    ☁️ Cloudflare (miễn phí, chất lượng cao)
+                  </button>
                   {hasGeminiImageKey() && (
                     <button
                       onClick={() => setImageSource("gemini")}
@@ -415,7 +434,7 @@ export default function CreateVideo() {
                         imageSource === "gemini" ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                       }`}
                     >
-                      ✨ Gemini (chất lượng cao)
+                      ✨ Gemini
                     </button>
                   )}
                   <button
@@ -427,6 +446,30 @@ export default function CreateVideo() {
                     🌸 Pollinations (miễn phí, không cần key)
                   </button>
                 </div>
+
+                {imageSource === "cloudflare" && (
+                  <div className="mb-2">
+                    <label className="text-[11px] font-medium text-slate-500 mb-1 block">
+                      URL Cloudflare Worker (nâng cao — chỉ sửa nếu bạn deploy lại worker khác)
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        value={cloudflareWorkerUrl}
+                        onChange={(e) => setCloudflareWorkerUrl(e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 text-xs rounded-lg border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 font-mono"
+                      />
+                      <button
+                        onClick={() => {
+                          saveCloudflareWorkerUrl(cloudflareWorkerUrl);
+                          toast({ title: "Đã lưu URL" });
+                        }}
+                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium"
+                      >
+                        Lưu
+                      </button>
+                    </div>
+                  </div>
+                )}
 
                 {imageSource === "gemini" && (
                   <div className="mb-2">
@@ -538,7 +581,9 @@ export default function CreateVideo() {
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1.5">
-                  {imageSource === "gemini"
+                  {imageSource === "cloudflare"
+                    ? "Chạy trên Cloudflare Worker riêng của bạn (FLUX.1), miễn phí — đủ dùng thoải mái hàng ngày (giới hạn theo 'Neuron' tính toán của Cloudflare, không phải theo số ảnh cụ thể)."
+                    : imageSource === "gemini"
                     ? "Dùng chung API Key Gemini bạn đã có, chất lượng cao hơn, miễn phí tới 500 ảnh/ngày."
                     : "Ảnh nền tạo bằng AI miễn phí (Pollinations.ai), không cần đăng ký/API Key."}
                 </p>
