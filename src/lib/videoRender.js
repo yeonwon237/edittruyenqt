@@ -21,7 +21,14 @@ import { toBlobURL, fetchFile } from "@ffmpeg/util";
 // wrong and 404s. Deliberately left unversioned here so unpkg resolves it
 // to whatever the current latest published @ffmpeg/core actually is,
 // instead of guessing a version number that may not exist.
-const CORE_BASE_URL = "https://unpkg.com/@ffmpeg/core/dist/umd";
+//
+// /dist/esm, NOT /dist/umd: ffmpeg.wasm's own load() does a real ES
+// `import()` of ffmpeg-core.js internally, which only works against the
+// ESM build — the UMD build (a plain classic script, no `export`
+// statements) fails that import with exactly "failed to import
+// ffmpeg-core.js" (confirmed in testing), even though the file fetches
+// fine. This is apparently the standard gotcha for this library with Vite.
+const CORE_BASE_URL = "https://unpkg.com/@ffmpeg/core/dist/esm";
 
 let ffmpegInstance = null;
 let loadPromise = null;
