@@ -453,19 +453,20 @@ export default function CreateVideo() {
                 )}
 
                 <label className="text-xs font-medium text-slate-500 mb-1 block">
-                  Mô tả bối cảnh (để AI vẽ ảnh nền)
+                  Mô tả bối cảnh (để AI vẽ ảnh nền) — nên nói rõ <span className="font-semibold text-slate-600">có ai trong cảnh</span> (nam/nữ chính, ngoại hình, đang làm gì), không chỉ thể loại — chỉ nói thể loại/không khí thì AI phải tự bịa nhân vật, dễ ra ảnh không đúng ý
                 </label>
                 <div className="flex gap-2">
-                  <input
+                  <textarea
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="VD: cổ trang, cung điện huyền ảo, đêm trăng"
-                    className="flex-1 px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                    rows={2}
+                    placeholder="VD: nữ chính tóc dài đen, mặc áo lụa xanh cổ trang, đứng bên hồ sen nhìn xa xăm, hoàng hôn buồn man mác"
+                    className="flex-1 px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 resize-y"
                   />
                   <button
                     onClick={handleGenerateBackground}
                     disabled={loadingImage}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold shrink-0 disabled:opacity-50"
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold shrink-0 disabled:opacity-50 self-start"
                   >
                     {loadingImage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
                     Tạo ảnh
