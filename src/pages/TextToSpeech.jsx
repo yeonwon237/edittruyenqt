@@ -122,6 +122,7 @@ export default function TextToSpeech() {
   const [elevenVoiceId, setElevenVoiceId] = useState(getElevenLabsVoiceId());
   const [geminiVoice, setGeminiVoice] = useState(getGeminiTtsVoice());
   const [geminiModel, setGeminiModel] = useState(getGeminiTtsModel());
+  const [aiSpeed, setAiSpeed] = useState(1);
 
   // Shared generation state
   const [loading, setLoading] = useState(false);
@@ -203,17 +204,17 @@ export default function TextToSpeech() {
       const onProgress = (i, total) => setProgress({ i, total });
       if (provider === "gcp") {
         saveGcpTtsVoice(gcpVoice);
-        result = await generateGcpSpeech(text, { voiceName: gcpVoice, onProgress });
+        result = await generateGcpSpeech(text, { voiceName: gcpVoice, speed: aiSpeed, onProgress });
       } else if (provider === "openai") {
         saveOpenAiTtsVoice(openaiVoice);
-        result = await generateOpenAiSpeech(text, { voice: openaiVoice, onProgress });
+        result = await generateOpenAiSpeech(text, { voice: openaiVoice, speed: aiSpeed, onProgress });
       } else if (provider === "elevenlabs") {
         saveElevenLabsVoiceId(elevenVoiceId);
-        result = await generateElevenLabsSpeech(text, { voiceId: elevenVoiceId, onProgress });
+        result = await generateElevenLabsSpeech(text, { voiceId: elevenVoiceId, speed: aiSpeed, onProgress });
       } else if (provider === "gemini") {
         saveGeminiTtsVoice(geminiVoice);
         saveGeminiTtsModel(geminiModel);
-        result = await generateGeminiSpeech(text, { voiceName: geminiVoice, model: geminiModel, onProgress });
+        result = await generateGeminiSpeech(text, { voiceName: geminiVoice, model: geminiModel, speed: aiSpeed, onProgress });
       }
       setAudioUrl(result.url);
       setAudioBlob(result.blob);
@@ -403,6 +404,26 @@ export default function TextToSpeech() {
                   />
                 </div>
               )}
+
+              <div>
+                <label className="text-xs font-medium text-slate-500 mb-1 block">
+                  Tốc độ đọc: {aiSpeed.toFixed(2)}x
+                </label>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2"
+                  step="0.05"
+                  value={aiSpeed}
+                  onChange={(e) => setAiSpeed(parseFloat(e.target.value))}
+                  className="w-full accent-violet-600"
+                />
+                {provider === "gemini" && (
+                  <p className="text-[11px] text-amber-600 mt-1">
+                    ⚠️ Gemini không có tuỳ chỉnh tốc độ chính xác như 3 dịch vụ kia — chỉ điều chỉnh gần đúng, có thể không rõ rệt.
+                  </p>
+                )}
+              </div>
 
               <button
                 onClick={handleGenerate}

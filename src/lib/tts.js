@@ -191,7 +191,7 @@ const GCP_CHUNK_CHARS = 1500;
  * @param {{apiKey?: string, voiceName?: string, onProgress?: (i:number,total:number)=>void}} opts
  * @returns {Promise<{blob: Blob, url: string}>}
  */
-export async function generateGcpSpeech(text, { apiKey, voiceName, onProgress } = {}) {
+export async function generateGcpSpeech(text, { apiKey, voiceName, speed = 1, onProgress } = {}) {
   const key = (apiKey || getGcpTtsKey()).trim();
   if (!key) {
     throw new Error("Chưa có Google Cloud TTS API Key.");
@@ -216,7 +216,9 @@ export async function generateGcpSpeech(text, { apiKey, voiceName, onProgress } 
         body: JSON.stringify({
           input: { text: chunk },
           voice: { languageCode: "vi-VN", name: voice },
-          audioConfig: { audioEncoding: "MP3" },
+          // speakingRate: API range is 0.25-4.0, values outside ~0.5-2 tend
+          // to sound noticeably artificial.
+          audioConfig: { audioEncoding: "MP3", speakingRate: speed },
         }),
       }
     );
@@ -287,7 +289,7 @@ export function hasOpenAiKey() {
   return !!getLlmApiKey("openai").trim();
 }
 
-export async function generateOpenAiSpeech(text, { model, voice, onProgress } = {}) {
+export async function generateOpenAiSpeech(text, { model, voice, speed = 1, onProgress } = {}) {
   const key = getLlmApiKey("openai").trim();
   if (!key) throw new Error("Chưa có OpenAI API Key (thêm ở Cài đặt, mục AI Auto Edit).");
   const m = model || getOpenAiTtsModel();
@@ -304,7 +306,8 @@ export async function generateOpenAiSpeech(text, { model, voice, onProgress } = 
     const res = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-      body: JSON.stringify({ model: m, input: chunk, voice: v, response_format: "mp3" }),
+      // speed: API range is 0.25-4.0.
+      body: JSON.stringify({ model: m, input: chunk, voice: v, response_format: "mp3", speed }),
     });
     if (!res.ok) {
       let msg = `OpenAI TTS lỗi ${res.status}`;
@@ -359,7 +362,7 @@ export function saveElevenLabsVoiceId(id) {
   localStorage.setItem(ELEVENLABS_VOICE_KEY, (id || "").trim() || DEFAULT_ELEVENLABS_VOICE_ID);
 }
 
-export async function generateElevenLabsSpeech(text, { apiKey, voiceId, onProgress } = {}) {
+export async function generateElevenLabsSpeech(text, { apiKey, voiceId, speed = 1, onProgress } = {}) {
   const key = (apiKey || getElevenLabsKey()).trim();
   if (!key) throw new Error("Chưa có ElevenLabs API Key.");
   const voice = (voiceId || getElevenLabsVoiceId()).trim();
@@ -378,7 +381,10 @@ export async function generateElevenLabsSpeech(text, { apiKey, voiceId, onProgre
       body: JSON.stringify({
         text: chunk,
         model_id: "eleven_multilingual_v2",
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+        // ElevenLabs' own docs recommend staying within 0.7-1.2 for
+        // natural-sounding quality even though the field technically
+        // accepts up to 0.25-4.0 — the UI clamps to that safer range.
+        voice_settings: { stability: 0.5, similarity_boost: 0.75, speed },
       }),
     });
     if (!res.ok) {
@@ -483,13 +489,27 @@ function parseSampleRate(mimeType) {
 
 const GEMINI_CHUNK_CHARS = 2000;
 
-export async function generateGeminiSpeech(text, { model, voiceName, onProgress } = {}) {
+// Gemini's TTS has no dedicated numeric speed field (unlike GCP/OpenAI/
+// ElevenLabs) — it's "controllable" only via natural-language style
+// instructions prepended to the text. This is a best-effort translation of
+// a 0.5-2.0 slider into that instruction; unlike the other three providers
+// there's no guarantee Gemini actually honors it precisely.
+function speedToGeminiInstruction(speed) {
+  if (speed >= 1.35) return "Đọc thật nhanh: ";
+  if (speed >= 1.1) return "Đọc nhanh hơn bình thường một chút: ";
+  if (speed <= 0.7) return "Đọc thật chậm rãi: ";
+  if (speed <= 0.9) return "Đọc chậm hơn bình thường một chút: ";
+  return "";
+}
+
+export async function generateGeminiSpeech(text, { model, voiceName, speed = 1, onProgress } = {}) {
   const apiKey = getLlmApiKey("gemini").trim();
   if (!apiKey) {
     throw new Error("Chưa có Gemini API Key (thêm ở Cài đặt, mục AI Auto Edit).");
   }
   const m = model || getGeminiTtsModel();
   const voice = voiceName || getGeminiTtsVoice();
+  const speedPrefix = speedToGeminiInstruction(speed);
   const chunks = chunkText(text, GEMINI_CHUNK_CHARS);
   if (chunks.length === 0) throw new Error("Không có văn bản để tạo audio.");
 
@@ -506,7 +526,7 @@ export async function generateGeminiSpeech(text, { model, voiceName, onProgress 
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: chunk }] }],
+          contents: [{ parts: [{ text: speedPrefix + chunk }] }],
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } } },
