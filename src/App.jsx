@@ -18,6 +18,7 @@ import Workspace from '@/pages/Workspace';
 import Settings from '@/pages/Settings';
 import TextToSpeech from '@/pages/TextToSpeech';
 import CreateVideo from '@/pages/CreateVideo';
+import CreateSubtitle from '@/pages/CreateSubtitle';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -52,6 +53,7 @@ const AuthenticatedApp = () => {
         <Route path="/settings" element={<Settings />} />
         <Route path="/text-to-speech" element={<TextToSpeech />} />
         <Route path="/create-video" element={<CreateVideo />} />
+        <Route path="/create-subtitle" element={<CreateSubtitle />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

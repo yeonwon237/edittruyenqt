@@ -7,7 +7,6 @@
 // fetched directly by the browser, never proxied through this app's own
 // hosting.
 import { callLLM, getApiKey, hasCustomAI } from "@/lib/llm";
-import { SUBTITLE_FONT_FAMILY } from "@/lib/subtitles";
 
 export const COVER_WIDTH = 1920;
 export const COVER_HEIGHT = 1080;
@@ -188,9 +187,9 @@ function wrapLines(ctx, text, maxWidth) {
 /**
  * Draws the full cover onto `canvas` (sized to COVER_WIDTH x COVER_HEIGHT).
  * @param {HTMLCanvasElement} canvas
- * @param {{ image?: HTMLImageElement, title: string, chapterLabel?: string, subtitleText?: string }} opts
+ * @param {{ image?: HTMLImageElement, title: string, chapterLabel?: string }} opts
  */
-export function drawCover(canvas, { image, title, chapterLabel, subtitleText }) {
+export function drawCover(canvas, { image, title, chapterLabel }) {
   canvas.width = COVER_WIDTH;
   canvas.height = COVER_HEIGHT;
   const ctx = canvas.getContext("2d");
@@ -265,32 +264,6 @@ export function drawCover(canvas, { image, title, chapterLabel, subtitleText }) 
   // Thin accent bar, a small polish touch.
   ctx.fillStyle = "#a78bfa";
   ctx.fillRect(marginX, chapterY + 24, 140, 6);
-
-  // "Tạo Phụ Đề" burn-in style preview: bottom-center, black outline + white
-  // fill (distinct from the title's drop-shadow treatment above, matching
-  // the classic hardcoded-subtitle look) in the period-style serif font.
-  // This is a style preview only — a real cover only shows one static line,
-  // not a scrolling subtitle track — so it may visually sit under/overlap
-  // the title block above when both are present at once.
-  if (subtitleText?.trim()) {
-    const fontSize = 44;
-    ctx.font = `700 ${fontSize}px ${SUBTITLE_FONT_FAMILY}`;
-    ctx.textAlign = "center";
-    const maxWidth = COVER_WIDTH - 160;
-    const subLines = wrapLines(ctx, subtitleText.trim(), maxWidth);
-    const lineHeight = fontSize * 1.3;
-    const bottomY = COVER_HEIGHT - 36;
-    const startY = bottomY - (subLines.length - 1) * lineHeight;
-    ctx.lineJoin = "round";
-    ctx.lineWidth = 6;
-    ctx.strokeStyle = "#000000";
-    ctx.fillStyle = "#ffffff";
-    subLines.forEach((line, i) => {
-      const y = startY + i * lineHeight;
-      ctx.strokeText(line, COVER_WIDTH / 2, y);
-      ctx.fillText(line, COVER_WIDTH / 2, y);
-    });
-  }
 }
 
 export function canvasToPngBlob(canvas) {
