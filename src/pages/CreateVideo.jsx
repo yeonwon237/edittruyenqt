@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Clapperboard, Download, ImagePlus, RefreshCw, Upload, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
-import { buildPollinationsUrl, loadImage, drawCover, canvasToPngBlob } from "@/lib/videoCover";
+import { buildPollinationsUrl, loadImage, drawCover, canvasToPngBlob, POLLINATIONS_MODELS } from "@/lib/videoCover";
 
 export default function CreateVideo() {
   const navigate = useNavigate();
@@ -15,6 +15,7 @@ export default function CreateVideo() {
   const [chapterTitle, setChapterTitle] = useState("");
 
   const [prompt, setPrompt] = useState("");
+  const [model, setModel] = useState("flux");
   const [seed, setSeed] = useState(0);
   const [image, setImage] = useState(null); // loaded HTMLImageElement
   const [loadingImage, setLoadingImage] = useState(false);
@@ -41,7 +42,7 @@ export default function CreateVideo() {
     }
     setLoadingImage(true);
     try {
-      const url = buildPollinationsUrl(prompt.trim(), seed);
+      const url = buildPollinationsUrl(prompt.trim(), seed, model);
       const img = await loadImage(url, true);
       setImage(img);
     } catch (e) {
@@ -179,6 +180,15 @@ export default function CreateVideo() {
                     Tạo ảnh
                   </button>
                 </div>
+                <select
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="w-full mt-2 px-3 py-1.5 text-xs rounded-lg border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                >
+                  {POLLINATIONS_MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>{m.label}</option>
+                  ))}
+                </select>
                 <div className="flex items-center gap-2 mt-2">
                   <button
                     onClick={handleRegenerateBackground}

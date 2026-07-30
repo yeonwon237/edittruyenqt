@@ -6,12 +6,28 @@
 export const COVER_WIDTH = 1920;
 export const COVER_HEIGHT = 1080;
 
-export function buildPollinationsUrl(prompt, seed) {
-  const base = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
+// Pollinations model choices for the picker in the UI. "flux" is the
+// default: much better detail/proportions (faces, hands) at high
+// resolution than "turbo", which natively renders at a fixed low
+// resolution (512x512) and gets stretched up to fill 1920x1080 —
+// confirmed as the cause of the distorted/uncanny faces seen in testing.
+export const POLLINATIONS_MODELS = [
+  { id: "flux", label: "Flux (chi tiết, mặc định)" },
+  { id: "turbo", label: "Turbo (nhanh hơn, ảnh gốc nhỏ nên dễ méo khi phóng to)" },
+];
+
+export function buildPollinationsUrl(prompt, seed, model = "flux") {
+  // A light, generic quality nudge — Pollinations' simple prompt endpoint
+  // has no separate negative-prompt field, so this rides along in the main
+  // prompt. Kept short so it doesn't drown out the user's own description.
+  const fullPrompt = `${prompt}, high detail, realistic proportions, professional photography`;
+  const base = `https://image.pollinations.ai/prompt/${encodeURIComponent(fullPrompt)}`;
   const params = new URLSearchParams({
     width: String(COVER_WIDTH),
     height: String(COVER_HEIGHT),
+    model,
     nologo: "true",
+    enhance: "true",
   });
   if (seed !== undefined && seed !== null) params.set("seed", String(seed));
   return `${base}?${params.toString()}`;
