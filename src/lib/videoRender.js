@@ -15,21 +15,48 @@
 import { FFmpeg } from "@ffmpeg/ffmpeg";
 import { toBlobURL, fetchFile } from "@ffmpeg/util";
 
-const CORE_BASE_URL = "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd";
+// @ffmpeg/core is versioned INDEPENDENTLY from @ffmpeg/ffmpeg (the wrapper
+// in package.json) — an earlier version of this file guessed the core
+// version would match the wrapper's (0.12.6) and hardcoded that, which is
+// wrong and 404s. Deliberately left unversioned here so unpkg resolves it
+// to whatever the current latest published @ffmpeg/core actually is,
+// instead of guessing a version number that may not exist.
+const CORE_BASE_URL = "https://unpkg.com/@ffmpeg/core/dist/umd";
 
 let ffmpegInstance = null;
 let loadPromise = null;
+
+// Turns whatever ffmpeg.wasm/the browser throws (sometimes a plain Error,
+// sometimes an ErrorEvent from a failed Worker/script load with no useful
+// .message) into a string that's actually informative on screen — the
+// previous version surfaced a blank/empty error toast when this happened,
+// which is exactly what showed up in testing.
+function describeError(e) {
+  if (e instanceof Error && e.message) return e.message;
+  if (e?.message) return String(e.message);
+  if (typeof e === "string" && e) return e;
+  try {
+    const s = JSON.stringify(e);
+    if (s && s !== "{}") return s;
+  } catch {}
+  return String(e) || "Lỗi không xác định (không có mô tả chi tiết).";
+}
 
 function loadFfmpeg() {
   if (ffmpegInstance) return Promise.resolve(ffmpegInstance);
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
-    const ffmpeg = new FFmpeg();
-    const coreURL = await toBlobURL(`${CORE_BASE_URL}/ffmpeg-core.js`, "text/javascript");
-    const wasmURL = await toBlobURL(`${CORE_BASE_URL}/ffmpeg-core.wasm`, "application/wasm");
-    await ffmpeg.load({ coreURL, wasmURL });
-    ffmpegInstance = ffmpeg;
-    return ffmpeg;
+    try {
+      const ffmpeg = new FFmpeg();
+      const coreURL = await toBlobURL(`${CORE_BASE_URL}/ffmpeg-core.js`, "text/javascript");
+      const wasmURL = await toBlobURL(`${CORE_BASE_URL}/ffmpeg-core.wasm`, "application/wasm");
+      await ffmpeg.load({ coreURL, wasmURL });
+      ffmpegInstance = ffmpeg;
+      return ffmpeg;
+    } catch (e) {
+      loadPromise = null; // allow retrying instead of caching a failed load forever
+      throw new Error(`Không tải được công cụ dựng video: ${describeError(e)}`);
+    }
   })();
   return loadPromise;
 }
@@ -63,7 +90,7 @@ export async function renderVideoFromAudioAndImage({ imageBlob, audioFile, onPro
     await ffmpeg.writeFile("cover.png", await fetchFile(imageBlob));
     await ffmpeg.writeFile("audio.mp3", await fetchFile(audioFile));
 
-    await ffmpeg.exec([
+    const ret = await ffmpeg.exec([
       "-loop", "1",
       "-i", "cover.png",
       "-i", "audio.mp3",
@@ -75,10 +102,22 @@ export async function renderVideoFromAudioAndImage({ imageBlob, audioFile, onPro
       "-shortest",
       "output.mp4",
     ]);
+    // ffmpeg.wasm's exec() resolves with an exit code rather than throwing
+    // on failure in some versions — a non-zero code here means the merge
+    // itself failed (e.g. unreadable input) even though no JS exception
+    // was raised, so this needs its own explicit check.
+    if (typeof ret === "number" && ret !== 0) {
+      throw new Error(`FFmpeg thoát với mã lỗi ${ret} — có thể do file audio/ảnh không hợp lệ.`);
+    }
 
     onStatus?.("Đang hoàn tất...");
     const data = await ffmpeg.readFile("output.mp4");
+    if (!data || !data.length) {
+      throw new Error("Không tạo được file video (kết quả rỗng).");
+    }
     return new Blob([data.buffer], { type: "video/mp4" });
+  } catch (e) {
+    throw new Error(describeError(e));
   } finally {
     ffmpeg.off("progress", handleProgress);
     // Clean up the virtual filesystem so a second render in the same

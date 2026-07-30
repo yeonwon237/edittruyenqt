@@ -198,7 +198,11 @@ export default function CreateVideo() {
       setVideoUrl(URL.createObjectURL(blob));
       toast({ title: "🎬 Đã tạo xong video!" });
     } catch (e) {
-      toast({ title: "Lỗi dựng video", description: e.message, variant: "destructive" });
+      toast({
+        title: "Lỗi dựng video",
+        description: e?.message || "Lỗi không rõ nguyên nhân — thử tải lại trang rồi làm lại.",
+        variant: "destructive",
+      });
     }
     setRendering(false);
   };
