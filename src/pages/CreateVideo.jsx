@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Clapperboard, Download, ImagePlus, RefreshCw, Upload, Loader2 } from "lucide-react";
+import { ArrowLeft, Clapperboard, Download, ImagePlus, RefreshCw, Upload, Loader2, Music, Film } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import {
   buildPollinationsUrl,
@@ -15,12 +15,14 @@ import {
   getGeminiImageModel,
   saveGeminiImageModel,
 } from "@/lib/videoCover";
+import { renderVideoFromAudioAndImage } from "@/lib/videoRender";
 
 export default function CreateVideo() {
   const navigate = useNavigate();
   const { toast } = useToast();
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
+  const audioInputRef = useRef(null);
 
   const [title, setTitle] = useState("");
   const [chapterNumber, setChapterNumber] = useState("");
@@ -37,6 +39,12 @@ export default function CreateVideo() {
   const [usedPrompt, setUsedPrompt] = useState(""); // actual prompt sent to Pollinations, shown for transparency
   const [translatedFrom, setTranslatedFrom] = useState(""); // last raw prompt a translation was cached for
 
+  const [audioFile, setAudioFile] = useState(null);
+  const [rendering, setRendering] = useState(false);
+  const [renderProgress, setRenderProgress] = useState(0);
+  const [renderStatus, setRenderStatus] = useState("");
+  const [videoUrl, setVideoUrl] = useState("");
+
   const chapterLabel = [
     chapterNumber.trim() ? `Chương ${chapterNumber.trim()}` : "",
     chapterTitle.trim(),
@@ -51,6 +59,12 @@ export default function CreateVideo() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [image, title, chapterLabel]);
+
+  useEffect(() => {
+    return () => {
+      if (videoUrl) URL.revokeObjectURL(videoUrl);
+    };
+  }, [videoUrl]);
 
   // Generates the background from an already-final English prompt — no
   // translation step. Used both after translation happens and directly by
@@ -155,6 +169,49 @@ export default function CreateVideo() {
         variant: "destructive",
       });
     }
+  };
+
+  const handleSelectAudio = (e) => {
+    const file = e.target.files?.[0];
+    if (file) setAudioFile(file);
+  };
+
+  const handleRenderVideo = async () => {
+    if (!audioFile) {
+      toast({ title: "Chưa chọn file audio (.mp3)", variant: "destructive" });
+      return;
+    }
+    if (!canvasRef.current) return;
+    setRendering(true);
+    setRenderProgress(0);
+    setRenderStatus("");
+    if (videoUrl) URL.revokeObjectURL(videoUrl);
+    setVideoUrl("");
+    try {
+      const coverBlob = await canvasToPngBlob(canvasRef.current);
+      const blob = await renderVideoFromAudioAndImage({
+        imageBlob: coverBlob,
+        audioFile,
+        onProgress: setRenderProgress,
+        onStatus: setRenderStatus,
+      });
+      setVideoUrl(URL.createObjectURL(blob));
+      toast({ title: "🎬 Đã tạo xong video!" });
+    } catch (e) {
+      toast({ title: "Lỗi dựng video", description: e.message, variant: "destructive" });
+    }
+    setRendering(false);
+  };
+
+  const handleDownloadVideo = () => {
+    if (!videoUrl) return;
+    const a = document.createElement("a");
+    a.href = videoUrl;
+    const safeName = (title.trim() || "video").replace(/[/\\?%*:|"<>]/g, "-");
+    a.download = `${safeName}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
   return (
@@ -374,10 +431,66 @@ export default function CreateVideo() {
           </div>
         </div>
 
-        <div className="rounded-2xl bg-white/60 border border-slate-100 p-4 text-center">
-          <p className="text-sm text-slate-500">
-            🎬 <span className="font-medium">Ghép Audio + Bìa thành Video MP4</span> — đang phát triển, sẽ có ở đây.
+        <div className="rounded-2xl bg-white border border-violet-200 shadow-sm p-4">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-1">
+            <Film className="w-4 h-4 text-amber-500" /> Ghép Audio + Bìa thành Video MP4
+          </h2>
+          <p className="text-xs text-slate-400 mb-4">
+            Cần đã có ảnh bìa (tạo ở phần trên) và file audio .mp3 (tải về từ trang "Tạo Audio").
+            Dựng video chạy ngay trên trình duyệt của bạn, có thể mất vài phút với chương dài.
           </p>
+
+          <div className="flex flex-wrap items-center gap-2 mb-3">
+            <button
+              onClick={() => audioInputRef.current?.click()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium"
+            >
+              <Music className="w-3.5 h-3.5" /> {audioFile ? "Đổi file audio" : "Chọn file audio (.mp3)"}
+            </button>
+            {audioFile && <span className="text-xs text-slate-500 truncate max-w-[220px]">{audioFile.name}</span>}
+            <input
+              ref={audioInputRef}
+              type="file"
+              accept="audio/*"
+              onChange={handleSelectAudio}
+              className="hidden"
+            />
+          </div>
+
+          <button
+            onClick={handleRenderVideo}
+            disabled={rendering || !audioFile}
+            className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:opacity-90 text-white text-sm font-semibold transition-all disabled:opacity-50"
+          >
+            {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
+            🎬 Tự Động Render Video MP4
+          </button>
+
+          {rendering && (
+            <div className="mt-3">
+              <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className="h-full bg-amber-500 transition-all"
+                  style={{ width: `${renderProgress}%` }}
+                />
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">
+                {renderStatus} {renderProgress > 0 && `(${renderProgress}%)`}
+              </p>
+            </div>
+          )}
+
+          {videoUrl && (
+            <div className="mt-4 space-y-2">
+              <video src={videoUrl} controls className="w-full rounded-xl border border-violet-100" />
+              <button
+                onClick={handleDownloadVideo}
+                className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors"
+              >
+                <Download className="w-4 h-4" /> Tải Video MP4 Hoàn Chỉnh
+              </button>
+            </div>
+          )}
         </div>
       </main>
     </div>
