@@ -2,7 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Clapperboard, Download, ImagePlus, RefreshCw, Upload, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
-import { buildPollinationsUrl, loadImage, drawCover, canvasToPngBlob, POLLINATIONS_MODELS } from "@/lib/videoCover";
+import {
+  buildPollinationsUrl,
+  loadImage,
+  drawCover,
+  canvasToPngBlob,
+  POLLINATIONS_MODELS,
+  canAutoTranslatePrompt,
+  translatePromptToEnglish,
+} from "@/lib/videoCover";
 
 export default function CreateVideo() {
   const navigate = useNavigate();
@@ -19,6 +27,9 @@ export default function CreateVideo() {
   const [seed, setSeed] = useState(0);
   const [image, setImage] = useState(null); // loaded HTMLImageElement
   const [loadingImage, setLoadingImage] = useState(false);
+  const [autoTranslate, setAutoTranslate] = useState(canAutoTranslatePrompt());
+  const [usedPrompt, setUsedPrompt] = useState(""); // actual prompt sent to Pollinations, shown for transparency
+  const [translatedFrom, setTranslatedFrom] = useState(""); // last raw prompt a translation was cached for
 
   const chapterLabel = [
     chapterNumber.trim() ? `Chương ${chapterNumber.trim()}` : "",
@@ -42,7 +53,18 @@ export default function CreateVideo() {
     }
     setLoadingImage(true);
     try {
-      const url = buildPollinationsUrl(prompt.trim(), seed, model);
+      const trimmed = prompt.trim();
+      // Reuse the cached translation on "đổi ảnh khác" (same wording, just a
+      // new random seed) instead of re-translating and burning AI quota
+      // for no reason.
+      let effectivePrompt = usedPrompt && translatedFrom === trimmed ? usedPrompt : null;
+      if (!effectivePrompt) {
+        effectivePrompt =
+          autoTranslate && canAutoTranslatePrompt() ? await translatePromptToEnglish(trimmed) : trimmed;
+        setUsedPrompt(effectivePrompt);
+        setTranslatedFrom(trimmed);
+      }
+      const url = buildPollinationsUrl(effectivePrompt, seed, model);
       const img = await loadImage(url, true);
       setImage(img);
     } catch (e) {
@@ -189,6 +211,22 @@ export default function CreateVideo() {
                     <option key={m.id} value={m.id}>{m.label}</option>
                   ))}
                 </select>
+                {canAutoTranslatePrompt() && (
+                  <label className="flex items-center gap-2 mt-2 text-xs text-slate-600 select-none cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoTranslate}
+                      onChange={(e) => setAutoTranslate(e.target.checked)}
+                      className="accent-violet-600"
+                    />
+                    Dịch mô tả sang tiếng Anh bằng AI trước khi tạo ảnh (khuyến nghị — AI vẽ ảnh hiểu tiếng Anh chính xác hơn nhiều so với tiếng Việt)
+                  </label>
+                )}
+                {usedPrompt && (
+                  <p className="text-[11px] text-slate-400 mt-1.5 italic">
+                    Mô tả thực tế đã gửi: "{usedPrompt}"
+                  </p>
+                )}
                 <div className="flex items-center gap-2 mt-2">
                   <button
                     onClick={handleRegenerateBackground}

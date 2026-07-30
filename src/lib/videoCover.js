@@ -3,8 +3,36 @@
 // 1920x1080 (YouTube standard). Fully client-side, no server involved —
 // the background image is fetched directly by the browser from
 // Pollinations, never proxied through this app's own hosting.
+import { callLLM, hasCustomAI } from "@/lib/llm";
+
 export const COVER_WIDTH = 1920;
 export const COVER_HEIGHT = 1080;
+
+export function canAutoTranslatePrompt() {
+  return hasCustomAI();
+}
+
+// Pollinations/Flux (like most image models) understands short, keyword-
+// style ENGLISH prompts far better than Vietnamese — a raw Vietnamese
+// prompt like "cổ đại, bách hợp, cổ trang" gets loosely/wrongly associated
+// (confirmed in testing: produced a Guanyin Bodhisattva statue instead of
+// the intended historical-fantasy scene). Reuses whichever AI key the user
+// already has configured for Auto Edit (see llm.js) to translate + expand
+// the description into a concrete visual English prompt before it's sent
+// to Pollinations. Falls back to the raw text untouched if no AI key is
+// configured, or if the call fails — never blocks image generation.
+export async function translatePromptToEnglish(vietnameseText) {
+  if (!vietnameseText.trim() || !hasCustomAI()) return vietnameseText;
+  const instruction = `Dịch và viết lại mô tả sau thành một prompt tiếng Anh ngắn gọn (1-2 câu, chỉ toàn từ khóa hình ảnh cụ thể: bối cảnh, trang phục, ánh sáng, không khí) để đưa vào công cụ vẽ ảnh AI (text-to-image). CHỈ xuất ra đúng câu prompt tiếng Anh, không giải thích, không có gì khác. Mô tả gốc: "${vietnameseText.trim()}"`;
+  try {
+    const result = await callLLM(instruction);
+    const cleaned = result.replace(/^["']|["']$/g, "").trim();
+    return cleaned || vietnameseText;
+  } catch {
+    // Silent fallback — a failed translation shouldn't block cover creation.
+    return vietnameseText;
+  }
+}
 
 // Pollinations model choices for the picker in the UI. "flux" is the
 // default: much better detail/proportions (faces, hands) at high
