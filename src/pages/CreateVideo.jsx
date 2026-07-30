@@ -21,11 +21,20 @@ import {
   MIN_READING_WPM,
   MAX_READING_WPM,
   generateSubtitleLines,
+  generateSubtitleLinesFromDuration,
+  getAudioDuration,
   downloadSrt,
   downloadVtt,
   downloadBlob,
   ensureSubtitleFontLoaded,
 } from "@/lib/subtitles";
+
+function formatMinSec(totalSeconds) {
+  const s = Math.round(totalSeconds);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m} phút ${sec} giây`;
+}
 
 export default function CreateVideo() {
   const navigate = useNavigate();
@@ -57,6 +66,9 @@ export default function CreateVideo() {
 
   const [chapterText, setChapterText] = useState("");
   const [readingWpm, setReadingWpm] = useState(DEFAULT_READING_WPM);
+  const [timingMode, setTimingMode] = useState("wpm"); // "wpm" | "audio"
+  const [detectedAudioDuration, setDetectedAudioDuration] = useState(0);
+  const [generatingSubtitles, setGeneratingSubtitles] = useState(false);
   const [subtitleLines, setSubtitleLines] = useState([]);
   const [showSubtitleOnCover, setShowSubtitleOnCover] = useState(false);
   const [previewLineIndex, setPreviewLineIndex] = useState(0);
@@ -246,19 +258,37 @@ export default function CreateVideo() {
 
   const subtitleFileBaseName = (title.trim() || "phu-de").replace(/[/\\?%*:|"<>]/g, "-");
 
-  const handleGenerateSubtitles = () => {
+  const handleGenerateSubtitles = async () => {
     if (!chapterText.trim()) {
       toast({ title: "Dán văn bản chương vào trước đã", variant: "destructive" });
       return;
     }
-    const lines = generateSubtitleLines(chapterText, readingWpm);
-    if (!lines.length) {
-      toast({ title: "Không tách được câu nào từ văn bản này", variant: "destructive" });
+    if (timingMode === "audio" && !audioFile) {
+      toast({ title: "Chưa có file audio", description: "Chọn file .mp3 ở mục \"Ghép Audio + Bìa thành Video MP4\" bên trên trước.", variant: "destructive" });
       return;
     }
-    setSubtitleLines(lines);
-    setPreviewLineIndex(0);
-    toast({ title: `Đã tạo ${lines.length} dòng phụ đề`, description: "Xem và sửa lại nội dung/thời gian bên dưới trước khi tải." });
+
+    setGeneratingSubtitles(true);
+    try {
+      let lines;
+      if (timingMode === "audio") {
+        const duration = await getAudioDuration(audioFile);
+        setDetectedAudioDuration(duration);
+        lines = generateSubtitleLinesFromDuration(chapterText, duration);
+      } else {
+        lines = generateSubtitleLines(chapterText, readingWpm);
+      }
+      if (!lines.length) {
+        toast({ title: "Không tách được câu nào từ văn bản này", variant: "destructive" });
+        return;
+      }
+      setSubtitleLines(lines);
+      setPreviewLineIndex(0);
+      toast({ title: `Đã tạo ${lines.length} dòng phụ đề`, description: "Xem và sửa lại nội dung/thời gian bên dưới trước khi tải." });
+    } catch (e) {
+      toast({ title: "Lỗi tạo phụ đề", description: e?.message, variant: "destructive" });
+    }
+    setGeneratingSubtitles(false);
   };
 
   const updateSubtitleLine = (id, patch) => {
@@ -598,25 +628,62 @@ export default function CreateVideo() {
               />
             </div>
 
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="text-xs font-medium text-slate-500 mb-1 block">
-                  Tốc độ đọc: {readingWpm} từ/phút
-                </label>
-                <input
-                  type="range"
-                  min={MIN_READING_WPM}
-                  max={MAX_READING_WPM}
-                  value={readingWpm}
-                  onChange={(e) => setReadingWpm(Number(e.target.value))}
-                  className="w-40 accent-sky-600"
-                />
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Cách tính thời gian</label>
+              <div className="flex gap-1.5 mb-2">
+                <button
+                  onClick={() => setTimingMode("audio")}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    timingMode === "audio" ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  🎧 Đồng bộ theo Audio đã tạo (chính xác)
+                </button>
+                <button
+                  onClick={() => setTimingMode("wpm")}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    timingMode === "wpm" ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  📖 Theo tốc độ đọc (ước lượng)
+                </button>
               </div>
+
+              {timingMode === "audio" ? (
+                <p className="text-[11px] text-slate-400 mb-2">
+                  {audioFile ? (
+                    <>
+                      Sẽ đo thời lượng thật của file <span className="font-medium text-slate-600">{audioFile.name}</span> (đã chọn ở mục "Ghép Audio + Bìa" bên trên) và chia đều cho từng câu theo số từ —
+                      không cần biết tốc độ đọc là bao nhiêu, khớp đúng với giọng đọc thật.
+                      {detectedAudioDuration > 0 && ` Lần trước đo được: ${formatMinSec(detectedAudioDuration)}.`}
+                    </>
+                  ) : (
+                    <>Chưa có file audio — chọn file .mp3 ở mục "Ghép Audio + Bìa thành Video MP4" bên trên trước, rồi quay lại đây bấm tạo.</>
+                  )}
+                </p>
+              ) : (
+                <div className="mb-2">
+                  <label className="text-[11px] font-medium text-slate-500 mb-1 block">
+                    Tốc độ đọc: {readingWpm} từ/phút (chỉ là ước lượng — không liên quan đến tốc độ đã chọn khi tạo Audio, vì mỗi giọng AI có nền tốc độ khác nhau không công bố)
+                  </label>
+                  <input
+                    type="range"
+                    min={MIN_READING_WPM}
+                    max={MAX_READING_WPM}
+                    value={readingWpm}
+                    onChange={(e) => setReadingWpm(Number(e.target.value))}
+                    className="w-40 accent-sky-600"
+                  />
+                </div>
+              )}
+
               <button
                 onClick={handleGenerateSubtitles}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold shrink-0"
+                disabled={generatingSubtitles}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold disabled:opacity-50"
               >
-                <Captions className="w-3.5 h-3.5" /> Tạo Phụ Đề Tự Động
+                {generatingSubtitles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Captions className="w-3.5 h-3.5" />}
+                Tạo Phụ Đề Tự Động
               </button>
             </div>
 

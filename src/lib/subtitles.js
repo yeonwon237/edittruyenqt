@@ -57,6 +57,58 @@ export function generateSubtitleLines(text, wpm = DEFAULT_READING_WPM) {
   return computeSubtitleTiming(splitIntoSentences(text), wpm);
 }
 
+// Reads a File/Blob's real playback duration via a throwaway <audio>
+// element. Preferred over the wpm-estimate above whenever the user already
+// has the actual generated MP3 for this chapter — there's no reliable way
+// to convert a TTS engine's "speed" setting (e.g. Google Cloud TTS's
+// speakingRate multiplier) into a wpm figure, since that multiplier scales
+// against each engine/voice's own unpublished baseline pace. Measuring the
+// real file sidesteps needing to know that baseline at all.
+export function getAudioDuration(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const audio = new Audio();
+    audio.preload = "metadata";
+    audio.onloadedmetadata = () => {
+      const duration = audio.duration;
+      URL.revokeObjectURL(url);
+      if (!isFinite(duration) || duration <= 0) reject(new Error("Không đọc được thời lượng file audio này."));
+      else resolve(duration);
+    };
+    audio.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Không đọc được file audio này."));
+    };
+    audio.src = url;
+  });
+}
+
+// Distributes a known total duration across cues proportionally by word
+// count, instead of assuming a reading speed — every cue's share of the
+// real audio length matches its share of the text, so cues stay in sync
+// with the actual narration regardless of how fast/slow the TTS voice was
+// set. No MIN_LINE_DURATION_SEC floor here (unlike computeSubtitleTiming):
+// forcing a short cue to run longer than its real proportional slice would
+// push it past when the audio has already moved on to the next sentence.
+export function computeTimingFromDuration(sentences, totalDurationSec) {
+  const wordCounts = sentences.map((s) => s.split(/\s+/).filter(Boolean).length || 1);
+  const totalWords = wordCounts.reduce((sum, n) => sum + n, 0) || 1;
+  const totalGap = sentences.length > 1 ? GAP_SEC * (sentences.length - 1) : 0;
+  const effectiveTotal = Math.max(0, totalDurationSec - totalGap);
+  let cursor = 0;
+  return sentences.map((text, index) => {
+    const duration = effectiveTotal * (wordCounts[index] / totalWords);
+    const start = cursor;
+    const end = start + duration;
+    cursor = end + GAP_SEC;
+    return { id: index + 1, text, start, end };
+  });
+}
+
+export function generateSubtitleLinesFromDuration(text, totalDurationSec) {
+  return computeTimingFromDuration(splitIntoSentences(text), totalDurationSec);
+}
+
 function pad(n, len = 2) {
   return String(n).padStart(len, "0");
 }
