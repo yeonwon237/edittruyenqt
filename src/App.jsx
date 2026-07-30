@@ -13,9 +13,11 @@ import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import Home from '@/pages/Home';
+import StoryLibrary from '@/pages/StoryLibrary';
 import Workspace from '@/pages/Workspace';
 import Settings from '@/pages/Settings';
 import TextToSpeech from '@/pages/TextToSpeech';
+import CreateVideo from '@/pages/CreateVideo';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -45,9 +47,11 @@ const AuthenticatedApp = () => {
     <Routes>
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
         <Route path="/" element={<Home />} />
+        <Route path="/stories" element={<StoryLibrary />} />
         <Route path="/workspace/:projectId" element={<Workspace />} />
         <Route path="/settings" element={<Settings />} />
         <Route path="/text-to-speech" element={<TextToSpeech />} />
+        <Route path="/create-video" element={<CreateVideo />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

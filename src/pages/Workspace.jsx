@@ -1441,8 +1441,8 @@ ${sourceText}`;
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-violet-50 to-indigo-50">
         <div className="text-center">
           <p className="text-slate-500 mb-4">Không tìm thấy dự án</p>
-          <Link to="/" className="text-violet-600 hover:underline">
-            ← Về trang chủ
+          <Link to="/stories" className="text-violet-600 hover:underline">
+            ← Về danh sách truyện
           </Link>
         </div>
       </div>
@@ -1462,7 +1462,7 @@ ${sourceText}`;
       <header className="shrink-0 z-30 bg-white/80 backdrop-blur-md border-b border-violet-100">
         <div className="flex items-center gap-3 px-4 py-2.5">
           <Link
-            to="/"
+            to="/stories"
             className="p-2 rounded-xl hover:bg-violet-50 text-slate-500 transition-colors"
           >
             <ArrowLeft className="w-4 h-4" />
