@@ -10,6 +10,8 @@ import {
   POLLINATIONS_MODELS,
   canAutoTranslatePrompt,
   translatePromptToEnglish,
+  hasGeminiImageKey,
+  generateGeminiCoverImage,
 } from "@/lib/videoCover";
 
 export default function CreateVideo() {
@@ -23,6 +25,7 @@ export default function CreateVideo() {
   const [chapterTitle, setChapterTitle] = useState("");
 
   const [prompt, setPrompt] = useState("");
+  const [imageSource, setImageSource] = useState(hasGeminiImageKey() ? "gemini" : "pollinations");
   const [model, setModel] = useState("flux");
   const [seed, setSeed] = useState(0);
   const [image, setImage] = useState(null); // loaded HTMLImageElement
@@ -53,9 +56,17 @@ export default function CreateVideo() {
   const generateFromPrompt = async (englishPrompt, nextSeed) => {
     setLoadingImage(true);
     try {
-      const url = buildPollinationsUrl(englishPrompt, nextSeed, model);
-      const img = await loadImage(url, true);
-      setImage(img);
+      if (imageSource === "gemini") {
+        const dataUrl = await generateGeminiCoverImage(englishPrompt);
+        // A data: URL is same-origin by definition — no CORS/tainted-canvas
+        // risk the way a remote Pollinations URL can have.
+        const img = await loadImage(dataUrl, false);
+        setImage(img);
+      } else {
+        const url = buildPollinationsUrl(englishPrompt, nextSeed, model);
+        const img = await loadImage(url, true);
+        setImage(img);
+      }
     } catch (e) {
       toast({ title: "Lỗi tạo ảnh nền", description: e.message, variant: "destructive" });
     }
@@ -208,6 +219,28 @@ export default function CreateVideo() {
               </div>
 
               <div className="pt-2 border-t border-violet-50">
+                <label className="text-xs font-medium text-slate-500 mb-1 block">Nguồn ảnh</label>
+                <div className="flex gap-1.5 mb-2">
+                  {hasGeminiImageKey() && (
+                    <button
+                      onClick={() => setImageSource("gemini")}
+                      className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        imageSource === "gemini" ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      ✨ Gemini (chất lượng cao)
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setImageSource("pollinations")}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                      imageSource === "pollinations" ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    🌸 Pollinations (miễn phí, không cần key)
+                  </button>
+                </div>
+
                 <label className="text-xs font-medium text-slate-500 mb-1 block">
                   Mô tả bối cảnh (để AI vẽ ảnh nền)
                 </label>
@@ -227,15 +260,17 @@ export default function CreateVideo() {
                     Tạo ảnh
                   </button>
                 </div>
-                <select
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="w-full mt-2 px-3 py-1.5 text-xs rounded-lg border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
-                >
-                  {POLLINATIONS_MODELS.map((m) => (
-                    <option key={m.id} value={m.id}>{m.label}</option>
-                  ))}
-                </select>
+                {imageSource === "pollinations" && (
+                  <select
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    className="w-full mt-2 px-3 py-1.5 text-xs rounded-lg border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                  >
+                    {POLLINATIONS_MODELS.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                )}
                 {canAutoTranslatePrompt() && (
                   <label className="flex items-center gap-2 mt-2 text-xs text-slate-600 select-none cursor-pointer">
                     <input
@@ -291,7 +326,9 @@ export default function CreateVideo() {
                   />
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1.5">
-                  Ảnh nền tạo bằng AI miễn phí (Pollinations.ai), không cần đăng ký/API Key.
+                  {imageSource === "gemini"
+                    ? "Dùng chung API Key Gemini bạn đã có, chất lượng cao hơn, miễn phí tới 500 ảnh/ngày."
+                    : "Ảnh nền tạo bằng AI miễn phí (Pollinations.ai), không cần đăng ký/API Key."}
                 </p>
               </div>
 

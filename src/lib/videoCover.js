@@ -1,15 +1,68 @@
-// Video cover generator: background image (Pollinations.ai, free/no-key —
-// or a user-uploaded file) + HTML5 Canvas text overlay (title/chapter),
-// 1920x1080 (YouTube standard). Fully client-side, no server involved —
-// the background image is fetched directly by the browser from
-// Pollinations, never proxied through this app's own hosting.
-import { callLLM, hasCustomAI } from "@/lib/llm";
+// Video cover generator: background image — either Pollinations.ai
+// (free/no-key) or Gemini's own image model (reuses the Gemini key already
+// stored for Auto Edit, better quality, no CORS risk — see
+// generateGeminiCoverImage below) — or a user-uploaded file — composited
+// with an HTML5 Canvas text overlay (title/chapter), 1920x1080 (YouTube
+// standard). Fully client-side, no server involved — background images are
+// fetched directly by the browser, never proxied through this app's own
+// hosting.
+import { callLLM, getApiKey, hasCustomAI } from "@/lib/llm";
 
 export const COVER_WIDTH = 1920;
 export const COVER_HEIGHT = 1080;
 
 export function canAutoTranslatePrompt() {
   return hasCustomAI();
+}
+
+export function hasGeminiImageKey() {
+  return !!getApiKey("gemini").trim();
+}
+
+const DEFAULT_GEMINI_IMAGE_MODEL = "gemini-2.5-flash-image";
+
+// Gemini's own image model ("Nano Banana") — reuses the same Gemini key
+// already stored for AI Edit (llm.js), no new signup. Noticeably better
+// quality than Pollinations' free tier in testing, free up to 500
+// images/day. Bonus: the response comes back as a data: URL (embedded
+// base64), not a remote URL, so it can NEVER taint the canvas — unlike
+// Pollinations, where a cross-origin image could block canvas.toBlob()
+// (CORS headers on Pollinations' side were never independently confirmed).
+export async function generateGeminiCoverImage(prompt, model = DEFAULT_GEMINI_IMAGE_MODEL) {
+  const apiKey = getApiKey("gemini").trim();
+  if (!apiKey) throw new Error("Chưa có Gemini API Key (thêm ở nút AI trong Workspace hoặc bất kỳ đâu đã dùng Gemini).");
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseModalities: ["IMAGE"],
+          imageConfig: { aspectRatio: "16:9" },
+        },
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    let msg = `Gemini tạo ảnh lỗi ${res.status}`;
+    try {
+      const e = await res.json();
+      msg = e?.error?.message || msg;
+    } catch {}
+    if (res.status === 404) {
+      msg += ` — model "${model}" có thể không còn hỗ trợ tạo ảnh, kiểm tra lại tên model.`;
+    }
+    throw new Error(msg);
+  }
+
+  const data = await res.json();
+  const part = data?.candidates?.[0]?.content?.parts?.find((p) => p.inlineData)?.inlineData;
+  if (!part?.data) throw new Error("Gemini không trả về ảnh nào.");
+  return `data:${part.mimeType || "image/png"};base64,${part.data}`;
 }
 
 // Pollinations/Flux (like most image models) understands short, keyword-
