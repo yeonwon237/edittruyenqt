@@ -42,6 +42,7 @@ export default function CreateVideo() {
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
   const audioInputRef = useRef(null);
+  const subtitleAudioInputRef = useRef(null);
 
   const [title, setTitle] = useState("");
   const [chapterNumber, setChapterNumber] = useState("");
@@ -67,6 +68,11 @@ export default function CreateVideo() {
   const [chapterText, setChapterText] = useState("");
   const [readingWpm, setReadingWpm] = useState(DEFAULT_READING_WPM);
   const [timingMode, setTimingMode] = useState("wpm"); // "wpm" | "audio"
+  // Own file, independent from the "Ghép Audio + Bìa" section's audioFile —
+  // so someone who only wants subtitles doesn't have to visit that section
+  // first. Falls back to the shared audioFile below if this one isn't set,
+  // so picking it once up there still works too ("tiện thể làm ở đó").
+  const [subtitleAudioFile, setSubtitleAudioFile] = useState(null);
   const [detectedAudioDuration, setDetectedAudioDuration] = useState(0);
   const [generatingSubtitles, setGeneratingSubtitles] = useState(false);
   const [subtitleLines, setSubtitleLines] = useState([]);
@@ -81,6 +87,7 @@ export default function CreateVideo() {
     .join(": ");
 
   const subtitlePreviewText = showSubtitleOnCover ? subtitleLines[previewLineIndex]?.text || "" : "";
+  const effectiveSubtitleAudioFile = subtitleAudioFile || audioFile;
 
   // Prime the browser's webfont cache for the subtitle overlay font — canvas
   // text drawing won't trigger a lazy webfont download the way normal DOM
@@ -258,13 +265,18 @@ export default function CreateVideo() {
 
   const subtitleFileBaseName = (title.trim() || "phu-de").replace(/[/\\?%*:|"<>]/g, "-");
 
+  const handleSelectSubtitleAudio = (e) => {
+    const file = e.target.files?.[0];
+    if (file) setSubtitleAudioFile(file);
+  };
+
   const handleGenerateSubtitles = async () => {
     if (!chapterText.trim()) {
       toast({ title: "Dán văn bản chương vào trước đã", variant: "destructive" });
       return;
     }
-    if (timingMode === "audio" && !audioFile) {
-      toast({ title: "Chưa có file audio", description: "Chọn file .mp3 ở mục \"Ghép Audio + Bìa thành Video MP4\" bên trên trước.", variant: "destructive" });
+    if (timingMode === "audio" && !effectiveSubtitleAudioFile) {
+      toast({ title: "Chưa có file audio", description: "Chọn file .mp3 ngay trong mục này (hoặc đã chọn sẵn ở mục \"Ghép Audio + Bìa\" bên trên).", variant: "destructive" });
       return;
     }
 
@@ -272,7 +284,7 @@ export default function CreateVideo() {
     try {
       let lines;
       if (timingMode === "audio") {
-        const duration = await getAudioDuration(audioFile);
+        const duration = await getAudioDuration(effectiveSubtitleAudioFile);
         setDetectedAudioDuration(duration);
         lines = generateSubtitleLinesFromDuration(chapterText, duration);
       } else {
@@ -310,8 +322,8 @@ export default function CreateVideo() {
       toast({ title: "Chưa có phụ đề — bấm \"Tạo Phụ Đề Tự Động\" trước đã", variant: "destructive" });
       return;
     }
-    if (!audioFile) {
-      toast({ title: "Chưa chọn file audio (.mp3) ở phần Ghép Audio + Bìa bên trên", variant: "destructive" });
+    if (!effectiveSubtitleAudioFile) {
+      toast({ title: "Chưa chọn file audio (.mp3)", description: "Chọn ở mục Ghép Audio + Bìa hoặc ngay trong mục Tạo Phụ Đề bên dưới.", variant: "destructive" });
       return;
     }
     if (!canvasRef.current) return;
@@ -321,7 +333,7 @@ export default function CreateVideo() {
       // single click — staggering them a beat apart avoids that, at the
       // cost of the 3 files not landing perfectly simultaneously.
       downloadBlob(`${subtitleFileBaseName}-bia.png`, coverBlob);
-      setTimeout(() => downloadBlob(`${subtitleFileBaseName}.mp3`, audioFile), 400);
+      setTimeout(() => downloadBlob(`${subtitleFileBaseName}.mp3`, effectiveSubtitleAudioFile), 400);
       setTimeout(() => downloadSrt(subtitleLines, subtitleFileBaseName), 800);
       toast({ title: "Đang tải 3 file...", description: "Nếu trình duyệt hỏi cho phép tải nhiều file, chọn Cho phép." });
     } catch (e) {
@@ -650,17 +662,37 @@ export default function CreateVideo() {
               </div>
 
               {timingMode === "audio" ? (
-                <p className="text-[11px] text-slate-400 mb-2">
-                  {audioFile ? (
-                    <>
-                      Sẽ đo thời lượng thật của file <span className="font-medium text-slate-600">{audioFile.name}</span> (đã chọn ở mục "Ghép Audio + Bìa" bên trên) và chia đều cho từng câu theo số từ —
-                      không cần biết tốc độ đọc là bao nhiêu, khớp đúng với giọng đọc thật.
-                      {detectedAudioDuration > 0 && ` Lần trước đo được: ${formatMinSec(detectedAudioDuration)}.`}
-                    </>
-                  ) : (
-                    <>Chưa có file audio — chọn file .mp3 ở mục "Ghép Audio + Bìa thành Video MP4" bên trên trước, rồi quay lại đây bấm tạo.</>
-                  )}
-                </p>
+                <div className="mb-2">
+                  <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                    <button
+                      onClick={() => subtitleAudioInputRef.current?.click()}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-medium"
+                    >
+                      <Music className="w-3.5 h-3.5" /> {subtitleAudioFile ? "Đổi file audio" : "Chọn file audio (.mp3)"}
+                    </button>
+                    {effectiveSubtitleAudioFile && (
+                      <span className="text-xs text-slate-500 truncate max-w-[220px]">{effectiveSubtitleAudioFile.name}</span>
+                    )}
+                    <input
+                      ref={subtitleAudioInputRef}
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleSelectSubtitleAudio}
+                      className="hidden"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {effectiveSubtitleAudioFile ? (
+                      <>
+                        Sẽ đo thời lượng thật của file trên và chia đều cho từng câu theo số từ — không cần biết tốc độ đọc là bao nhiêu, khớp đúng với giọng đọc thật.
+                        {!subtitleAudioFile && " (đang dùng file đã chọn ở mục \"Ghép Audio + Bìa\" bên trên)"}
+                        {detectedAudioDuration > 0 && ` Lần trước đo được: ${formatMinSec(detectedAudioDuration)}.`}
+                      </>
+                    ) : (
+                      <>Chưa có file audio — chọn ngay ở trên, hoặc file đã chọn ở mục "Ghép Audio + Bìa" phía trên cũng dùng được.</>
+                    )}
+                  </p>
+                </div>
               ) : (
                 <div className="mb-2">
                   <label className="text-[11px] font-medium text-slate-500 mb-1 block">
