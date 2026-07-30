@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Clapperboard, Download, ImagePlus, RefreshCw, Upload, Loader2, Music, Film } from "lucide-react";
+import { ArrowLeft, Clapperboard, Captions, Download, ImagePlus, Package, RefreshCw, Upload, Loader2, Music, Film } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import {
   buildPollinationsUrl,
@@ -16,6 +16,16 @@ import {
   saveGeminiImageModel,
 } from "@/lib/videoCover";
 import { renderVideoFromAudioAndImage } from "@/lib/videoRender";
+import {
+  DEFAULT_READING_WPM,
+  MIN_READING_WPM,
+  MAX_READING_WPM,
+  generateSubtitleLines,
+  downloadSrt,
+  downloadVtt,
+  downloadBlob,
+  ensureSubtitleFontLoaded,
+} from "@/lib/subtitles";
 
 export default function CreateVideo() {
   const navigate = useNavigate();
@@ -45,6 +55,12 @@ export default function CreateVideo() {
   const [renderStatus, setRenderStatus] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
 
+  const [chapterText, setChapterText] = useState("");
+  const [readingWpm, setReadingWpm] = useState(DEFAULT_READING_WPM);
+  const [subtitleLines, setSubtitleLines] = useState([]);
+  const [showSubtitleOnCover, setShowSubtitleOnCover] = useState(false);
+  const [previewLineIndex, setPreviewLineIndex] = useState(0);
+
   const chapterLabel = [
     chapterNumber.trim() ? `Chương ${chapterNumber.trim()}` : "",
     chapterTitle.trim(),
@@ -52,13 +68,23 @@ export default function CreateVideo() {
     .filter(Boolean)
     .join(": ");
 
+  const subtitlePreviewText = showSubtitleOnCover ? subtitleLines[previewLineIndex]?.text || "" : "";
+
+  // Prime the browser's webfont cache for the subtitle overlay font — canvas
+  // text drawing won't trigger a lazy webfont download the way normal DOM
+  // text does, so without this the first preview draw could briefly (or, on
+  // a slow connection, persistently) fall back to the default serif.
+  useEffect(() => {
+    ensureSubtitleFontLoaded();
+  }, []);
+
   // Redraw whenever any input changes.
   useEffect(() => {
     if (canvasRef.current) {
-      drawCover(canvasRef.current, { image, title, chapterLabel });
+      drawCover(canvasRef.current, { image, title, chapterLabel, subtitleText: subtitlePreviewText });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [image, title, chapterLabel]);
+  }, [image, title, chapterLabel, subtitlePreviewText]);
 
   useEffect(() => {
     return () => {
@@ -216,6 +242,61 @@ export default function CreateVideo() {
     document.body.appendChild(a);
     a.click();
     a.remove();
+  };
+
+  const subtitleFileBaseName = (title.trim() || "phu-de").replace(/[/\\?%*:|"<>]/g, "-");
+
+  const handleGenerateSubtitles = () => {
+    if (!chapterText.trim()) {
+      toast({ title: "Dán văn bản chương vào trước đã", variant: "destructive" });
+      return;
+    }
+    const lines = generateSubtitleLines(chapterText, readingWpm);
+    if (!lines.length) {
+      toast({ title: "Không tách được câu nào từ văn bản này", variant: "destructive" });
+      return;
+    }
+    setSubtitleLines(lines);
+    setPreviewLineIndex(0);
+    toast({ title: `Đã tạo ${lines.length} dòng phụ đề`, description: "Xem và sửa lại nội dung/thời gian bên dưới trước khi tải." });
+  };
+
+  const updateSubtitleLine = (id, patch) => {
+    setSubtitleLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  };
+
+  const handleDownloadSrt = () => {
+    if (!subtitleLines.length) return;
+    downloadSrt(subtitleLines, subtitleFileBaseName);
+  };
+
+  const handleDownloadVtt = () => {
+    if (!subtitleLines.length) return;
+    downloadVtt(subtitleLines, subtitleFileBaseName);
+  };
+
+  const handleDownloadFullPackage = async () => {
+    if (!subtitleLines.length) {
+      toast({ title: "Chưa có phụ đề — bấm \"Tạo Phụ Đề Tự Động\" trước đã", variant: "destructive" });
+      return;
+    }
+    if (!audioFile) {
+      toast({ title: "Chưa chọn file audio (.mp3) ở phần Ghép Audio + Bìa bên trên", variant: "destructive" });
+      return;
+    }
+    if (!canvasRef.current) return;
+    try {
+      const coverBlob = await canvasToPngBlob(canvasRef.current);
+      // Browsers can prompt/block more than one download triggered from a
+      // single click — staggering them a beat apart avoids that, at the
+      // cost of the 3 files not landing perfectly simultaneously.
+      downloadBlob(`${subtitleFileBaseName}-bia.png`, coverBlob);
+      setTimeout(() => downloadBlob(`${subtitleFileBaseName}.mp3`, audioFile), 400);
+      setTimeout(() => downloadSrt(subtitleLines, subtitleFileBaseName), 800);
+      toast({ title: "Đang tải 3 file...", description: "Nếu trình duyệt hỏi cho phép tải nhiều file, chọn Cho phép." });
+    } catch (e) {
+      toast({ title: "Lỗi đóng gói", description: e?.message, variant: "destructive" });
+    }
   };
 
   return (
@@ -495,6 +576,144 @@ export default function CreateVideo() {
               </button>
             </div>
           )}
+        </div>
+
+        <div className="rounded-2xl bg-white border border-violet-200 shadow-sm p-4">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-1">
+            <Captions className="w-4 h-4 text-sky-500" /> Tạo Phụ Đề (.srt / .vtt)
+          </h2>
+          <p className="text-xs text-slate-400 mb-4">
+            Dán văn bản chương, hệ thống tự tách câu và tính thời gian dựa theo tốc độ đọc, rồi cho sửa tay trước khi tải về.
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Văn bản chương truyện</label>
+              <textarea
+                value={chapterText}
+                onChange={(e) => setChapterText(e.target.value)}
+                rows={6}
+                placeholder="Dán nội dung chương vào đây..."
+                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 resize-y"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500 mb-1 block">
+                  Tốc độ đọc: {readingWpm} từ/phút
+                </label>
+                <input
+                  type="range"
+                  min={MIN_READING_WPM}
+                  max={MAX_READING_WPM}
+                  value={readingWpm}
+                  onChange={(e) => setReadingWpm(Number(e.target.value))}
+                  className="w-40 accent-sky-600"
+                />
+              </div>
+              <button
+                onClick={handleGenerateSubtitles}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold shrink-0"
+              >
+                <Captions className="w-3.5 h-3.5" /> Tạo Phụ Đề Tự Động
+              </button>
+            </div>
+
+            {subtitleLines.length > 0 && (
+              <>
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-violet-100 divide-y divide-violet-50">
+                  {subtitleLines.map((line) => (
+                    <div key={line.id} className="p-2.5 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                        <span className="font-semibold text-slate-500 w-6 shrink-0">#{line.id}</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={Number(line.start.toFixed(1))}
+                          onChange={(e) => updateSubtitleLine(line.id, { start: Number(e.target.value) })}
+                          className="w-16 px-1.5 py-1 rounded-lg border border-violet-100 text-xs"
+                        />
+                        <span>→</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={Number(line.end.toFixed(1))}
+                          onChange={(e) => updateSubtitleLine(line.id, { end: Number(e.target.value) })}
+                          className="w-16 px-1.5 py-1 rounded-lg border border-violet-100 text-xs"
+                        />
+                        <span>giây</span>
+                      </div>
+                      <textarea
+                        value={line.text}
+                        onChange={(e) => updateSubtitleLine(line.id, { text: e.target.value })}
+                        rows={1}
+                        className="w-full px-2 py-1 text-xs rounded-lg border border-violet-100 bg-slate-50/50 resize-none focus:outline-none focus:border-violet-400"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-2 border-t border-violet-50">
+                  <label className="flex items-center gap-2 text-xs text-slate-600 select-none cursor-pointer mb-2">
+                    <input
+                      type="checkbox"
+                      checked={showSubtitleOnCover}
+                      onChange={(e) => setShowSubtitleOnCover(e.target.checked)}
+                      className="accent-sky-600"
+                    />
+                    Xem trước phụ đề trên ảnh bìa (phông cổ phong, viền đen/chữ trắng)
+                  </label>
+                  {showSubtitleOnCover && (
+                    <select
+                      value={previewLineIndex}
+                      onChange={(e) => setPreviewLineIndex(Number(e.target.value))}
+                      className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400"
+                    >
+                      {subtitleLines.map((l, i) => (
+                        <option key={l.id} value={i}>
+                          #{l.id}: {l.text.slice(0, 40)}
+                          {l.text.length > 40 ? "…" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    onClick={handleDownloadSrt}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Tải File Phụ Đề .srt
+                  </button>
+                  <button
+                    onClick={handleDownloadVtt}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-sky-100 hover:bg-sky-200 text-sky-700 text-xs font-semibold"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Tải File Phụ Đề .vtt
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-white border border-violet-200 shadow-sm p-4">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-1">
+            <Package className="w-4 h-4 text-indigo-500" /> Tải Gói Full
+          </h2>
+          <p className="text-xs text-slate-400 mb-3">
+            Tải cùng lúc 3 file: ảnh bìa PNG, audio MP3 (đã chọn ở phần Ghép Audio + Bìa) và phụ đề .srt.
+          </p>
+          <button
+            onClick={handleDownloadFullPackage}
+            className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 to-indigo-600 hover:opacity-90 text-white text-sm font-semibold transition-all"
+          >
+            <Download className="w-4 h-4" /> Tải Gói Full (MP3 + PNG + SRT)
+          </button>
         </div>
       </main>
     </div>

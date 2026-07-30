@@ -44,11 +44,10 @@ const FEATURES = [
     id: "subtitle",
     icon: Captions,
     title: "Tạo Phụ Đề",
-    desc: "Sắp ra mắt.",
-    to: null,
-    gradFrom: "from-slate-400",
-    gradTo: "to-slate-500",
-    comingSoon: true,
+    desc: "Tự tách câu, căn thời gian, xem trước trên ảnh bìa và tải .srt/.vtt — trong trang Tạo Video.",
+    to: "/create-video",
+    gradFrom: "from-sky-500",
+    gradTo: "to-indigo-600",
   },
 ];
 
