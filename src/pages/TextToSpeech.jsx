@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   Check,
+  Captions,
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import {
@@ -50,6 +51,23 @@ import {
   generateGeminiSpeech,
   GEMINI_TTS_VOICES,
 } from "@/lib/tts";
+import {
+  DEFAULT_READING_WPM,
+  MIN_READING_WPM,
+  MAX_READING_WPM,
+  generateSubtitleLines,
+  generateSubtitleLinesFromDuration,
+  getAudioDuration,
+  downloadSrt,
+  downloadVtt,
+} from "@/lib/subtitles";
+
+function formatMinSec(totalSeconds) {
+  const s = Math.round(totalSeconds);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m} phút ${sec} giây`;
+}
 
 // Per-provider setup notes shown above the key input — each is a different
 // product with its own account/CORS/quirks (see src/lib/tts.js).
@@ -131,6 +149,16 @@ export default function TextToSpeech() {
   const [audioBlob, setAudioBlob] = useState(null);
   const [fileName, setFileName] = useState("");
   const audioRef = useRef(null);
+
+  // Subtitle generation — reuses the same `text` and `audioBlob` already on
+  // this page (no separate paste-box or file picker needed, unlike the
+  // standalone /create-subtitle page): the audio was already made from this
+  // exact text, so both timing modes work with zero extra input.
+  const [readingWpm, setReadingWpm] = useState(DEFAULT_READING_WPM);
+  const [timingMode, setTimingMode] = useState("audio"); // "audio" | "wpm"
+  const [detectedAudioDuration, setDetectedAudioDuration] = useState(0);
+  const [generatingSubtitles, setGeneratingSubtitles] = useState(false);
+  const [subtitleLines, setSubtitleLines] = useState([]);
 
   const browserSupported = supportsBrowserTts();
 
@@ -238,6 +266,54 @@ export default function TextToSpeech() {
     a.remove();
   };
 
+  const subtitleFileBaseName = (fileName.trim() || "phu-de").replace(/[/\\?%*:|"<>]/g, "-");
+
+  const handleGenerateSubtitles = async () => {
+    if (!text.trim()) {
+      toast({ title: "Chưa có văn bản để tạo phụ đề", variant: "destructive" });
+      return;
+    }
+    if (timingMode === "audio" && !audioBlob) {
+      toast({ title: "Chưa có audio", description: "Bấm \"Tạo audio\" ở trên trước, hoặc chuyển sang chế độ ước lượng theo tốc độ đọc.", variant: "destructive" });
+      return;
+    }
+
+    setGeneratingSubtitles(true);
+    try {
+      let lines;
+      if (timingMode === "audio") {
+        const duration = await getAudioDuration(audioBlob);
+        setDetectedAudioDuration(duration);
+        lines = generateSubtitleLinesFromDuration(text, duration);
+      } else {
+        lines = generateSubtitleLines(text, readingWpm);
+      }
+      if (!lines.length) {
+        toast({ title: "Không tách được câu nào từ văn bản này", variant: "destructive" });
+        return;
+      }
+      setSubtitleLines(lines);
+      toast({ title: `Đã tạo ${lines.length} dòng phụ đề`, description: "Xem và sửa lại nội dung/thời gian bên dưới trước khi tải." });
+    } catch (e) {
+      toast({ title: "Lỗi tạo phụ đề", description: e?.message, variant: "destructive" });
+    }
+    setGeneratingSubtitles(false);
+  };
+
+  const updateSubtitleLine = (id, patch) => {
+    setSubtitleLines((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+  };
+
+  const handleDownloadSrt = () => {
+    if (!subtitleLines.length) return;
+    downloadSrt(subtitleLines, subtitleFileBaseName);
+  };
+
+  const handleDownloadVtt = () => {
+    if (!subtitleLines.length) return;
+    downloadVtt(subtitleLines, subtitleFileBaseName);
+  };
+
   const charCount = text.length;
   const hint = PROVIDER_HINTS[provider];
 
@@ -259,7 +335,7 @@ export default function TextToSpeech() {
               Tạo Audio Truyện
             </h1>
             <p className="text-xs text-slate-400 hidden sm:block">
-              Dán văn bản vào, tạo file âm thanh, tải về máy
+              Dán văn bản, tạo audio và phụ đề, tải về máy
             </p>
           </div>
         </div>
@@ -459,6 +535,129 @@ export default function TextToSpeech() {
               )}
             </div>
           )}
+        </div>
+
+        {/* Subtitle generator — reuses the text + audio already above */}
+        <div className="rounded-2xl bg-white border border-violet-200 shadow-sm p-4">
+          <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-1">
+            <Captions className="w-4 h-4 text-sky-500" /> Tạo Phụ Đề (.srt / .vtt)
+          </h2>
+          <p className="text-xs text-slate-400 mb-3">
+            Dùng luôn văn bản và audio ở trên để tự tách câu, căn thời gian, rồi cho sửa tay trước khi tải về.
+          </p>
+
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1 block">Cách tính thời gian</label>
+              <div className="flex gap-1.5 mb-2">
+                <button
+                  onClick={() => setTimingMode("audio")}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    timingMode === "audio" ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  🎧 Đồng bộ theo Audio đã tạo (chính xác)
+                </button>
+                <button
+                  onClick={() => setTimingMode("wpm")}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    timingMode === "wpm" ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                  }`}
+                >
+                  📖 Theo tốc độ đọc (ước lượng)
+                </button>
+              </div>
+
+              {timingMode === "audio" ? (
+                <p className="text-[11px] text-slate-400 mb-2">
+                  {audioBlob ? (
+                    <>
+                      Sẽ đo thời lượng thật của audio đã tạo ở trên và chia đều cho từng câu theo số từ — khớp đúng với giọng đọc thật.
+                      {detectedAudioDuration > 0 && ` Lần trước đo được: ${formatMinSec(detectedAudioDuration)}.`}
+                    </>
+                  ) : (
+                    <>Chưa có audio — bấm "Tạo audio" ở mục trên trước, hoặc chuyển sang chế độ ước lượng.</>
+                  )}
+                </p>
+              ) : (
+                <div className="mb-2">
+                  <label className="text-[11px] font-medium text-slate-500 mb-1 block">
+                    Tốc độ đọc: {readingWpm} từ/phút (chỉ là ước lượng)
+                  </label>
+                  <input
+                    type="range"
+                    min={MIN_READING_WPM}
+                    max={MAX_READING_WPM}
+                    value={readingWpm}
+                    onChange={(e) => setReadingWpm(Number(e.target.value))}
+                    className="w-40 accent-sky-600"
+                  />
+                </div>
+              )}
+
+              <button
+                onClick={handleGenerateSubtitles}
+                disabled={generatingSubtitles}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold disabled:opacity-50"
+              >
+                {generatingSubtitles ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Captions className="w-3.5 h-3.5" />}
+                Tạo Phụ Đề Tự Động
+              </button>
+            </div>
+
+            {subtitleLines.length > 0 && (
+              <>
+                <div className="max-h-72 overflow-y-auto rounded-xl border border-violet-100 divide-y divide-violet-50">
+                  {subtitleLines.map((line) => (
+                    <div key={line.id} className="p-2.5 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                        <span className="font-semibold text-slate-500 w-6 shrink-0">#{line.id}</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={Number(line.start.toFixed(1))}
+                          onChange={(e) => updateSubtitleLine(line.id, { start: Number(e.target.value) })}
+                          className="w-16 px-1.5 py-1 rounded-lg border border-violet-100 text-xs"
+                        />
+                        <span>→</span>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          value={Number(line.end.toFixed(1))}
+                          onChange={(e) => updateSubtitleLine(line.id, { end: Number(e.target.value) })}
+                          className="w-16 px-1.5 py-1 rounded-lg border border-violet-100 text-xs"
+                        />
+                        <span>giây</span>
+                      </div>
+                      <textarea
+                        value={line.text}
+                        onChange={(e) => updateSubtitleLine(line.id, { text: e.target.value })}
+                        rows={1}
+                        className="w-full px-2 py-1 text-xs rounded-lg border border-violet-100 bg-slate-50/50 resize-none focus:outline-none focus:border-violet-400"
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    onClick={handleDownloadSrt}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Tải File Phụ Đề .srt
+                  </button>
+                  <button
+                    onClick={handleDownloadVtt}
+                    className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-sky-100 hover:bg-sky-200 text-sky-700 text-xs font-semibold"
+                  >
+                    <Download className="w-3.5 h-3.5" /> Tải File Phụ Đề .vtt
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Browser TTS — free quick preview, not downloadable */}

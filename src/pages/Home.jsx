@@ -28,7 +28,7 @@ const FEATURES = [
     id: "audio",
     icon: Volume2,
     title: "Tạo Audio",
-    desc: "Chuyển văn bản truyện thành audio, tải về file .mp3.",
+    desc: "Chuyển văn bản truyện thành audio, kèm tạo phụ đề .srt/.vtt.",
     to: "/text-to-speech",
     gradFrom: "from-emerald-500",
     gradTo: "to-teal-600",
