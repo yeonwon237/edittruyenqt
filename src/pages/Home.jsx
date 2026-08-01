@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 import {
   BookOpen,
   Settings as SettingsIcon,
@@ -55,18 +55,15 @@ const FEATURES = [
 
 export default function Home() {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
+  const { user, logout } = useAuth();
   const [showAISettings, setShowAISettings] = useState(false);
 
-  useEffect(() => {
-    base44.auth.me().then(setUser).catch(() => {});
-  }, []);
-
   const handleLogout = async () => {
-    await base44.auth.logout("/login");
+    await logout();
+    window.location.href = "/login";
   };
 
-  const greeting = user?.full_name ? `Chào, ${user.full_name} 👋` : "Chào bạn 👋";
+  const greeting = user?.user_metadata?.full_name ? `Chào, ${user.user_metadata.full_name} 👋` : "Chào bạn 👋";
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50">

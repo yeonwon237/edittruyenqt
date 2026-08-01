@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { Project, Chapter, GlossaryTerm } from "@/api/entities";
 import { useToast } from "@/components/ui/use-toast";
 import {
   Dialog,
@@ -76,7 +76,7 @@ export default function StoryLibrary() {
   const loadProjects = async () => {
     try {
       const data = await fetchAllPages(
-        (limit, skip) => base44.entities.Project.list("-updated_date", limit, skip),
+        (limit, skip) => Project.list("-updated_date", limit, skip),
         { pageSize: 200, maxItems: 5000 }
       );
       setProjects(data);
@@ -106,20 +106,20 @@ export default function StoryLibrary() {
       const chapterIds = (
         await fetchAllPages(
           (limit, skip) =>
-            base44.entities.Chapter.filter({ project_id: deleteTarget.id }, "chapter_order", limit, skip, ["id"]),
+            Chapter.filter({ project_id: deleteTarget.id }, "chapter_order", limit, skip, ["id"]),
           { pageSize: 500, maxItems: 5000 }
         )
       ).map((c) => c.id);
       const termIds = (
         await fetchAllPages(
           (limit, skip) =>
-            base44.entities.GlossaryTerm.filter({ project_id: deleteTarget.id }, "-created_date", limit, skip, ["id"]),
+            GlossaryTerm.filter({ project_id: deleteTarget.id }, "-created_date", limit, skip, ["id"]),
           { pageSize: 500, maxItems: 5000 }
         )
       ).map((t) => t.id);
-      await deleteInBatches(chapterIds, (id) => base44.entities.Chapter.delete(id));
-      await deleteInBatches(termIds, (id) => base44.entities.GlossaryTerm.delete(id));
-      await base44.entities.Project.delete(deleteTarget.id);
+      await deleteInBatches(chapterIds, (id) => Chapter.delete(id));
+      await deleteInBatches(termIds, (id) => GlossaryTerm.delete(id));
+      await Project.delete(deleteTarget.id);
       setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
       toast({ title: `Đã xóa "${deleteTarget.title}" và toàn bộ dữ liệu liên quan 🗑️` });
     } catch (e) {
@@ -132,7 +132,7 @@ export default function StoryLibrary() {
   const handleCreate = async () => {
     if (!form.title.trim()) return;
     try {
-      const created = await base44.entities.Project.create({
+      const created = await Project.create({
         title: form.title.trim(),
         description: form.description.trim(),
         source_language: form.source_language,
@@ -143,7 +143,7 @@ export default function StoryLibrary() {
         contextual_pronoun_rules: [],
         visible_columns: ["raw", "qt", "edited"],
       });
-      await base44.entities.Chapter.create({
+      await Chapter.create({
         project_id: created.id,
         title: "Chương 1",
         chapter_order: 0,

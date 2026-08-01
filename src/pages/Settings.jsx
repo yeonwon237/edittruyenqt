@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { useAuth } from "@/lib/AuthContext";
 import { useToast } from "@/components/ui/use-toast";
 import { ArrowLeft, LogOut } from "lucide-react";
 import { isDraftMode, setDraftMode } from "@/lib/draftMode";
@@ -13,16 +13,13 @@ import { Switch } from "@/components/ui/switch";
 // app-wide appearance.
 export default function Settings() {
   const { toast } = useToast();
-  const [user, setUser] = useState(null);
+  const { user, logout } = useAuth();
   const [draftMode, setDraftModeState] = useState(isDraftMode());
   const [theme, setThemeState] = useState(getTheme());
 
-  useEffect(() => {
-    base44.auth.me().then(setUser).catch(() => {});
-  }, []);
-
   const handleLogout = async () => {
-    await base44.auth.logout("/login");
+    await logout();
+    window.location.href = "/login";
   };
 
   const handleToggleDraftMode = (checked) => {
@@ -70,8 +67,8 @@ export default function Settings() {
               Tài khoản
             </h2>
             <p className="text-sm text-slate-500">
-              {user.full_name && (
-                <span className="font-medium">{user.full_name} · </span>
+              {user.user_metadata?.full_name && (
+                <span className="font-medium">{user.user_metadata.full_name} · </span>
               )}
               {user.email}
             </p>

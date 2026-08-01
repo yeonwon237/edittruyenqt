@@ -5,7 +5,6 @@ import {
   Plus,
   PanelLeft,
   Loader2,
-  Bot,
   Sparkles,
   Settings as SettingsIcon,
   Columns3,
@@ -43,8 +42,6 @@ export default function EditorToolbar({
   onQuickAddGlossary,
   onBatchReplace,
   onPronounSwitcher,
-  onAutoEdit,
-  aiEditing,
   onCustomEdit,
   customAIEditing,
   hasCustomAI,
@@ -235,27 +232,12 @@ export default function EditorToolbar({
         <span className="hidden sm:inline">Rule Edit</span>
       </button>
 
-      {/* Auto Edit (built-in InvokeLLM) */}
-      <button
-        onClick={onAutoEdit}
-        disabled={aiEditing || customAIEditing}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-50 shrink-0"
-        title="Tự động edit bằng AI nền tảng"
-      >
-        {aiEditing ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        ) : (
-          <Bot className="w-3.5 h-3.5" />
-        )}
-        Auto Edit
-      </button>
-
       {/* Custom AI (Gemini / GPT / Claude) */}
       {hasCustomAI ? (
         <div className="flex items-center gap-1 shrink-0">
           <button
             onClick={onCustomEdit}
-            disabled={customAIEditing || aiEditing}
+            disabled={customAIEditing}
             title={`Edit bằng ${provider.label}`}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r ${provider.gradFrom} ${provider.gradTo} hover:opacity-90 text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-50`}
           >

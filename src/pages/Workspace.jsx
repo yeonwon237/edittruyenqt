@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { supabase } from "@/api/supabaseClient";
+import { Project, Chapter, GlossaryTerm, PromptPreset } from "@/api/entities";
 import { useToast } from "@/components/ui/use-toast";
 import EditorPanel from "@/components/workspace/EditorPanel";
 import EditorToolbar from "@/components/workspace/EditorToolbar";
@@ -80,7 +81,6 @@ export default function Workspace() {
   const [mobileActiveCol, setMobileActiveCol] = useState("edited");
   const [saving, setSaving] = useState(false);
   const [draftMode] = useState(isDraftMode());
-  const [aiEditing, setAiEditing] = useState(false);
   const [checkingPronouns, setCheckingPronouns] = useState(false);
   const [pronounCheckDiff, setPronounCheckDiff] = useState(null);
   const [selfTranslating, setSelfTranslating] = useState(false);
@@ -143,7 +143,7 @@ export default function Workspace() {
   const loadProjectData = async () => {
     setLoading(true);
     try {
-      const proj = await base44.entities.Project.get(projectId);
+      const proj = await Project.get(projectId);
       setProject(proj);
       const vc = Array.isArray(proj.visible_columns) && proj.visible_columns.length
         ? proj.visible_columns
@@ -158,7 +158,7 @@ export default function Workspace() {
       // huge) chapter bodies — this is the main egress fix for large novels.
       const lightChapters = await fetchAllPages(
         (limit, skip) =>
-          base44.entities.Chapter.filter(
+          Chapter.filter(
             { project_id: projectId },
             "chapter_order",
             limit,
@@ -176,7 +176,7 @@ export default function Workspace() {
       }
 
       if (lightChapters.length > 0) {
-        const first = await base44.entities.Chapter.get(lightChapters[0].id);
+        const first = await Chapter.get(lightChapters[0].id);
         chapterCacheRef.current.set(first.id, first);
         lastSavedRef.current.set(first.id, snapshotOf(first));
         setCurrentChapter(first);
@@ -191,7 +191,7 @@ export default function Workspace() {
       // keeps this correct without adding UI complexity.
       const terms = await fetchAllPages(
         (limit, skip) =>
-          base44.entities.GlossaryTerm.filter(
+          GlossaryTerm.filter(
             { project_id: projectId },
             "-created_date",
             limit,
@@ -208,7 +208,7 @@ export default function Workspace() {
       }
 
       // Prompt presets: a small personal library shared across all projects.
-      const presetList = await base44.entities.PromptPreset.list("-created_date", 200);
+      const presetList = await PromptPreset.list("-created_date", 200);
       setPresets(presetList);
       if (proj.active_preset_id) {
         const active = presetList.find((p) => p.id === proj.active_preset_id);
@@ -237,7 +237,7 @@ export default function Workspace() {
     const snap = snapshotOf(chapter);
     if (lastSavedRef.current.get(chapter.id) === snap) return;
     try {
-      await base44.entities.Chapter.update(chapter.id, {
+      await Chapter.update(chapter.id, {
         raw_original: chapter.raw_original || "",
         qt_raw: chapter.qt_raw || "",
         edited: chapter.edited || "",
@@ -274,7 +274,7 @@ export default function Workspace() {
     let target = chapterCacheRef.current.get(chapterId);
     if (!target) {
       try {
-        target = await base44.entities.Chapter.get(chapterId);
+        target = await Chapter.get(chapterId);
         lastSavedRef.current.set(chapterId, snapshotOf(target));
       } catch (e) {
         toast({ title: "Lỗi tải chương", description: e.message, variant: "destructive" });
@@ -384,14 +384,14 @@ export default function Workspace() {
   const handleSaveTerm = async (termData) => {
     try {
       if (editingTerm) {
-        await base44.entities.GlossaryTerm.update(editingTerm.id, termData);
+        await GlossaryTerm.update(editingTerm.id, termData);
         setGlossaryTerms((prev) =>
           prev.map((t) =>
             t.id === editingTerm.id ? { ...t, ...termData } : t
           )
         );
       } else {
-        const created = await base44.entities.GlossaryTerm.create({
+        const created = await GlossaryTerm.create({
           ...termData,
           project_id: projectId,
         });
@@ -412,7 +412,7 @@ export default function Workspace() {
 
   const handleDeleteTerm = async (termId) => {
     try {
-      await base44.entities.GlossaryTerm.delete(termId);
+      await GlossaryTerm.delete(termId);
       setGlossaryTerms((prev) => prev.filter((t) => t.id !== termId));
       toast({ title: "Đã xóa thuật ngữ" });
     } catch (e) {
@@ -427,7 +427,7 @@ export default function Workspace() {
   const handleBulkDeleteTerms = async (termIds) => {
     if (!termIds.length) return;
     try {
-      await Promise.all(termIds.map((id) => base44.entities.GlossaryTerm.delete(id)));
+      await Promise.all(termIds.map((id) => GlossaryTerm.delete(id)));
       const idSet = new Set(termIds);
       setGlossaryTerms((prev) => prev.filter((t) => !idSet.has(t.id)));
       toast({ title: `Đã xóa ${termIds.length} thuật ngữ` });
@@ -442,7 +442,7 @@ export default function Workspace() {
 
   const handleUpdateProject = async (updates) => {
     try {
-      const updated = await base44.entities.Project.update(projectId, updates);
+      const updated = await Project.update(projectId, updates);
       setProject(updated);
       return updated;
     } catch (e) {
@@ -482,10 +482,10 @@ export default function Workspace() {
     try {
       let saved;
       if (presetId) {
-        saved = await base44.entities.PromptPreset.update(presetId, data);
+        saved = await PromptPreset.update(presetId, data);
         setPresets((prev) => prev.map((p) => (p.id === presetId ? saved : p)));
       } else {
-        saved = await base44.entities.PromptPreset.create(data);
+        saved = await PromptPreset.create(data);
         setPresets((prev) => [saved, ...prev]);
       }
       if (project?.active_preset_id === saved.id) setActivePreset(saved);
@@ -499,7 +499,7 @@ export default function Workspace() {
 
   const handleDeletePreset = async (presetId) => {
     try {
-      await base44.entities.PromptPreset.delete(presetId);
+      await PromptPreset.delete(presetId);
       setPresets((prev) => prev.filter((p) => p.id !== presetId));
       if (project?.active_preset_id === presetId) {
         await handleUpdateProject({ active_preset_id: "" });
@@ -674,52 +674,6 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     return results.join("\n\n");
   };
 
-  // AI auto-edit (Base44 managed AI)
-  const doAutoEdit = async () => {
-    if (!currentChapter) {
-      toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
-      return;
-    }
-    const chapterId = currentChapter.id;
-    const prevEdited = currentChapter.edited || "";
-    // Rule Edit runs first as a free, zero-AI pre-pass — it fixes known
-    // mechanical QT-thô patterns outright, so the AI only has to handle the
-    // parts that genuinely need understanding, not re-derive fixes it would
-    // have gotten right anyway.
-    const sourceText = applyRuleEdit(currentChapter.qt_raw || currentChapter.raw_original || "");
-    if (!sourceText.trim()) {
-      toast({ title: "Không có văn bản để edit!", variant: "destructive" });
-      return;
-    }
-    setAiEditing(true);
-    try {
-      const editedText = await runChunkedEdit(
-        sourceText,
-        async (prompt) => {
-          const result = await base44.integrations.Core.InvokeLLM({ prompt });
-          return typeof result === "string"
-            ? result
-            : result?.output || result?.response || "";
-        },
-        (i, total) =>
-          total > 1 && toast({ title: `🤖 Đang xử lý đoạn ${i}/${total}...` })
-      );
-      const finalText = applyHardRules(editedText);
-      setCurrentChapter((prev) =>
-        prev && prev.id === chapterId ? { ...prev, edited: finalText } : prev
-      );
-      setAiUndo({ chapterId, previous: prevEdited });
-      checkLineAlignment(sourceText, finalText);
-      toast({
-        title: "🤖 Đã tự động edit chương!",
-        description: "Kiểm tra và chỉnh sửa thêm nhé",
-      });
-    } catch (e) {
-      toast({ title: "Lỗi AI", description: e.message, variant: "destructive" });
-    }
-    setAiEditing(false);
-  };
-
   // Custom AI edit (Gemini / GPT / Claude, user's own key)
   const doCustomEdit = async () => {
     if (!currentChapter) {
@@ -780,7 +734,6 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
       runner();
     }
   };
-  const handleAutoEdit = () => runAiEdit(doAutoEdit);
   const handleGeminiEdit = () => runAiEdit(doCustomEdit);
 
   const handleUndoAiEdit = () => {
@@ -823,6 +776,10 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
       toast({ title: "Chưa có quy tắc nào trong Ma Trận Xưng Hô!", variant: "destructive" });
       return;
     }
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return;
+    }
     const sourceText = currentChapter.edited || "";
     if (!sourceText.trim()) {
       toast({ title: "Bản Edit đang trống, chưa có gì để kiểm tra!", variant: "destructive" });
@@ -833,11 +790,7 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
     setCheckingPronouns(true);
     setPronounCheckDiff(null);
     try {
-      const callFn = async (prompt) => {
-        if (hasCustomAI()) return await callLLM(prompt);
-        const result = await base44.integrations.Core.InvokeLLM({ prompt });
-        return typeof result === "string" ? result : result?.output || result?.response || "";
-      };
+      const callFn = (prompt) => callLLM(prompt);
       const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
       let fixedText;
       if (chunks.length <= 1) {
@@ -1017,6 +970,10 @@ Trả về ĐÚNG định dạng sau, không thêm giải thích nào khác:
       toast({ title: "Chương chưa có văn bản để phân tích!", variant: "destructive" });
       return;
     }
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return;
+    }
     setShowDetectNames(true);
     setDetectingNames(true);
     setNameCandidates(null);
@@ -1034,13 +991,7 @@ Nếu không tìm thấy tên riêng nào, trả về mảng rỗng [].
 ĐOẠN VĂN:
 ${textForDetection}`;
 
-      let raw;
-      if (hasCustomAI()) {
-        raw = await callLLM(prompt);
-      } else {
-        const result = await base44.integrations.Core.InvokeLLM({ prompt });
-        raw = typeof result === "string" ? result : result?.output || result?.response || "";
-      }
+      const raw = await callLLM(prompt);
       const parsed = parseNameCandidates(raw);
       const existing = new Set(glossaryTerms.map((t) => t.source_term));
       setNameCandidates(parsed.filter((c) => !existing.has(c.source_term)));
@@ -1062,7 +1013,7 @@ ${textForDetection}`;
         custom_fields: {},
         project_id: projectId,
       }));
-      const created = await base44.entities.GlossaryTerm.bulkCreate(withProjectId);
+      const created = await GlossaryTerm.bulkCreate(withProjectId);
       setGlossaryTerms((prev) => [...created, ...prev]);
       setShowDetectNames(false);
       toast({ title: `Đã thêm ${created.length} tên vào Glossary! 🌸` });
@@ -1085,6 +1036,10 @@ ${textForDetection}`;
       toast({ title: "Chương chưa có văn bản để phân tích!", variant: "destructive" });
       return null;
     }
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return null;
+    }
     const prompt = `Bạn là biên tập viên truyện dịch giàu kinh nghiệm. Đọc đoạn văn bản sau (có thể là bản dịch thô QT/Convert, chưa mượt) và đề xuất cấu hình "preset văn phong" phù hợp nhất để AI dùng khi biên tập bộ truyện này.
 
 Trả về DUY NHẤT một object JSON hợp lệ (không markdown, không giải thích thêm), đúng dạng:
@@ -1098,13 +1053,7 @@ Nếu không đủ căn cứ để đề xuất mục nào (đặc biệt charac
 ${sourceText}`;
 
     try {
-      let raw;
-      if (hasCustomAI()) {
-        raw = await callLLM(prompt);
-      } else {
-        const result = await base44.integrations.Core.InvokeLLM({ prompt });
-        raw = typeof result === "string" ? result : result?.output || result?.response || "";
-      }
+      const raw = await callLLM(prompt);
       let text = (raw || "").trim();
       text = text.replace(/^```(json)?/i, "").replace(/```$/, "").trim();
       const parsed = JSON.parse(text);
@@ -1198,7 +1147,7 @@ ${sourceText}`;
       for (let i = 0; i < withProjectId.length; i += 500) {
         const batch = withProjectId.slice(i, i + 500);
         // eslint-disable-next-line no-await-in-loop
-        const result = await base44.entities.GlossaryTerm.bulkCreate(batch);
+        const result = await GlossaryTerm.bulkCreate(batch);
         created = created.concat(result);
       }
       setGlossaryTerms((prev) => [...created, ...prev]);
@@ -1218,7 +1167,7 @@ ${sourceText}`;
         (m, c) => Math.max(m, c.chapter_order ?? 0),
         -1
       );
-      const created = await base44.entities.Chapter.create({
+      const created = await Chapter.create({
         project_id: projectId,
         title: `Chương ${chapterList.length + 1}`,
         chapter_order: maxOrder + 1,
@@ -1246,7 +1195,7 @@ ${sourceText}`;
 
   const handleRenameChapter = async (chapterId, newTitle) => {
     try {
-      await base44.entities.Chapter.update(chapterId, { title: newTitle });
+      await Chapter.update(chapterId, { title: newTitle });
       setChapterList((prev) =>
         prev.map((c) => (c.id === chapterId ? { ...c, title: newTitle } : c))
       );
@@ -1263,7 +1212,7 @@ ${sourceText}`;
 
   const handleDeleteChapter = async (chapterId) => {
     try {
-      await base44.entities.Chapter.delete(chapterId);
+      await Chapter.delete(chapterId);
       const remaining = chapterList.filter((c) => c.id !== chapterId);
       setChapterList(remaining);
       chapterCacheRef.current.delete(chapterId);
@@ -1273,7 +1222,7 @@ ${sourceText}`;
           const nextId = remaining[0].id;
           let target = chapterCacheRef.current.get(nextId);
           if (!target) {
-            target = await base44.entities.Chapter.get(nextId);
+            target = await Chapter.get(nextId);
             chapterCacheRef.current.set(nextId, target);
             lastSavedRef.current.set(nextId, snapshotOf(target));
           }
@@ -1308,7 +1257,7 @@ ${sourceText}`;
     list[toIndex] = updatedMoved;
     setChapterList(list);
     try {
-      await base44.entities.Chapter.update(moved.id, { chapter_order: newOrder });
+      await Chapter.update(moved.id, { chapter_order: newOrder });
       const cached = chapterCacheRef.current.get(moved.id);
       if (cached) chapterCacheRef.current.set(moved.id, { ...cached, chapter_order: newOrder });
     } catch (e) {
@@ -1334,7 +1283,7 @@ ${sourceText}`;
       for (let i = 0; i < toCreate.length; i += 200) {
         const batch = toCreate.slice(i, i + 200);
         // eslint-disable-next-line no-await-in-loop
-        const result = await base44.entities.Chapter.bulkCreate(batch);
+        const result = await Chapter.bulkCreate(batch);
         created = created.concat(result);
       }
       const lightweight = created.map((c) => ({
@@ -1365,7 +1314,7 @@ ${sourceText}`;
     setExportingChapters(true);
     try {
       const full = await fetchAllPages(
-        (limit, skip) => base44.entities.Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
+        (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
         { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
       );
       exportChaptersCsv(full, project?.title || "Chuong");
@@ -1385,7 +1334,8 @@ ${sourceText}`;
   };
 
   const handleLogout = async () => {
-    await base44.auth.logout("/login");
+    await supabase.auth.signOut();
+    window.location.href = "/login";
   };
 
   const handleOpenPronoun = () => {
@@ -1609,8 +1559,6 @@ ${sourceText}`;
         onQuickAddGlossary={handleQuickAddGlossary}
         onBatchReplace={() => setShowBatchReplace(true)}
         onPronounSwitcher={handleOpenPronoun}
-        onAutoEdit={handleAutoEdit}
-        aiEditing={aiEditing}
         onCustomEdit={handleGeminiEdit}
         customAIEditing={geminiEditing}
         hasCustomAI={hasCustomAI()}
