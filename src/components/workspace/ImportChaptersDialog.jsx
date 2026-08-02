@@ -52,7 +52,9 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
   const [importing, setImporting] = useState(false);
   const [fileParsed, setFileParsed] = useState([]);
   const [fileName, setFileName] = useState("");
+  const [txtFileName, setTxtFileName] = useState("");
   const fileInputRef = useRef(null);
+  const txtFileInputRef = useRef(null);
 
   const pattern = presetKey === "custom" ? customPattern : PRESETS[presetKey].source;
 
@@ -73,8 +75,22 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
       setTargetColumn("raw_original");
       setFileParsed([]);
       setFileName("");
+      setTxtFileName("");
     }
     onOpenChange(v);
+  };
+
+  const handleTxtFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const content = await file.text();
+      setText(content);
+      setTxtFileName(file.name);
+    } catch (err) {
+      toast({ title: "Lỗi đọc file", description: err.message, variant: "destructive" });
+    }
+    e.target.value = "";
   };
 
   const handleFileChange = async (e) => {
@@ -144,10 +160,30 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
         <div className="space-y-3">
           {mode === "paste" ? (
             <>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={txtFileInputRef}
+                  type="file"
+                  accept=".txt"
+                  onChange={handleTxtFileChange}
+                  className="hidden"
+                />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => txtFileInputRef.current?.click()}
+                  className="border-violet-200 text-violet-600 rounded-xl"
+                >
+                  <Upload className="w-3.5 h-3.5 mr-1" /> Tải file .txt lên
+                </Button>
+                {txtFileName && (
+                  <span className="text-xs text-slate-400">Đã tải: {txtFileName}</span>
+                )}
+              </div>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="Dán toàn bộ văn bản gồm nhiều chương vào đây..."
+                placeholder="Dán toàn bộ văn bản gồm nhiều chương vào đây, hoặc tải file .txt lên ở trên..."
                 rows={8}
                 className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400 resize-none font-mono"
               />
@@ -185,6 +221,9 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
               <p className="text-xs text-slate-500 mb-3">
                 File CSV/TSV có cột: <b>Chương</b> (số thứ tự, tùy chọn), <b>Title</b> (tên
                 chương), <b>Nội dung</b>. Tên cột có thể là tiếng Việt hoặc tiếng Anh.
+                <br />
+                File .txt thuần (chưa tách cột) → dùng tab "Dán &amp; tự tách" và bấm "Tải file
+                .txt lên".
               </p>
               <input
                 ref={fileInputRef}
