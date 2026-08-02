@@ -1,5 +1,16 @@
 import { escapeCsvField } from "./csvUtils";
 
+const CHUONG_KEYWORD = String.fromCharCode(0x43, 0x68, 0x01b0, 0x01a1, 0x6e, 0x67); // "Chương"
+
+function chapterHeading(c, i) {
+  const order = c.chapter_order ?? i;
+  return c.title?.trim() ? `${CHUONG_KEYWORD} ${order}: ${c.title.trim()}` : `${CHUONG_KEYWORD} ${order}`;
+}
+
+function chapterBody(c) {
+  return c.edited || c.qt_raw || c.raw_original || "";
+}
+
 function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -42,6 +53,110 @@ export function exportChaptersCsv(chapters, filename) {
   const csv = rows.map((r) => r.map((v) => escapeCsvField(v)).join(",")).join("\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
   downloadBlob(blob, `${filename}.csv`);
+}
+
+// Plain-text bulk export — chapters joined with a "Chương N: Title" heading
+// line ahead of each one, same format ImportChaptersDialog's built-in "vi"
+// preset regex already recognizes, so the file round-trips back into this
+// app's own bulk import if needed.
+export function exportChaptersTxt(chapters, filename) {
+  const text = chapters
+    .map((c, i) => `${chapterHeading(c, i)}\n\n${chapterBody(c)}`)
+    .join("\n\n\n");
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  downloadBlob(blob, `${filename}.txt`);
+}
+
+// .docx bulk export — each chapter becomes a Heading-1 title followed by
+// one Word paragraph per source line (so re-importing this file with
+// documentImport.js's extractTextFromDocx reconstructs the same line
+// breaks). docx.js writes real OOXML/plain-Unicode text, so unlike PDF
+// there's no font-embedding step needed for Vietnamese to render correctly
+// — verified via a real generate-then-read-back-with-mammoth round trip.
+export async function exportChaptersDocx(chapters, filename) {
+  const { Document, Packer, Paragraph, HeadingLevel, TextRun } = await import("docx");
+  const children = chapters.flatMap((c, i) => [
+    new Paragraph({ heading: HeadingLevel.HEADING_1, children: [new TextRun(chapterHeading(c, i))] }),
+    ...chapterBody(c)
+      .split("\n")
+      .map((line) => new Paragraph({ children: [new TextRun(line)] })),
+  ]);
+  const doc = new Document({ sections: [{ children }] });
+  const blob = await Packer.toBlob(doc);
+  downloadBlob(blob, `${filename}.docx`);
+}
+
+// .pdf bulk export via jsPDF. jsPDF's built-in fonts only cover WinAnsi
+// (Latin-1-ish) glyphs, which silently mangles Vietnamese diacritics — a
+// Unicode-capable font has to be embedded. Noto Sans is fetched from a CDN
+// at export time rather than bundled (same "load heavy assets from a CDN,
+// don't bloat the app bundle" pattern this app already uses for ffmpeg.wasm
+// and the subtitle-preview Google Font), and cached in memory for the rest
+// of the session so exporting more than once doesn't re-download it.
+// Verified end-to-end: generated a PDF with full Vietnamese diacritics,
+// re-extracted the text with pdf.js, and confirmed it comes back identical.
+const NOTO_SANS_URL =
+  "https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf";
+let notoSansBase64Cache = null;
+
+function arrayBufferToBase64(buf) {
+  let binary = "";
+  const bytes = new Uint8Array(buf);
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function loadNotoSansBase64() {
+  if (notoSansBase64Cache) return notoSansBase64Cache;
+  const res = await fetch(NOTO_SANS_URL);
+  if (!res.ok) throw new Error("Không tải được font Unicode để xuất PDF (kiểm tra mạng)");
+  notoSansBase64Cache = arrayBufferToBase64(await res.arrayBuffer());
+  return notoSansBase64Cache;
+}
+
+export async function exportChaptersPdf(chapters, filename) {
+  const { jsPDF } = await import("jspdf");
+  const fontBase64 = await loadNotoSansBase64();
+
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  doc.addFileToVFS("NotoSans-Regular.ttf", fontBase64);
+  doc.addFont("NotoSans-Regular.ttf", "NotoSans", "normal");
+  doc.setFont("NotoSans");
+
+  const marginX = 40;
+  const marginTop = 50;
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const maxWidth = pageWidth - marginX * 2;
+  const lineHeight = 15;
+  let y = marginTop;
+
+  chapters.forEach((c, i) => {
+    if (i > 0) {
+      doc.addPage();
+      y = marginTop;
+    }
+    doc.setFontSize(14);
+    const titleLines = doc.splitTextToSize(chapterHeading(c, i), maxWidth);
+    doc.text(titleLines, marginX, y);
+    y += titleLines.length * (lineHeight + 3) + 10;
+
+    doc.setFontSize(11);
+    const contentLines = doc.splitTextToSize(chapterBody(c), maxWidth);
+    contentLines.forEach((line) => {
+      if (y > pageHeight - marginTop) {
+        doc.addPage();
+        y = marginTop;
+      }
+      doc.text(line, marginX, y);
+      y += lineHeight;
+    });
+  });
+
+  doc.save(`${filename}.pdf`);
 }
 
 export function exportGlossaryJson(terms, project, filename) {

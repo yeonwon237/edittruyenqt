@@ -16,7 +16,15 @@ import ChapterManagerDialog from "@/components/workspace/ChapterManagerDialog";
 import ImportChaptersDialog from "@/components/workspace/ImportChaptersDialog";
 import BatchEditDialog from "@/components/workspace/BatchEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
-import { exportAsTxt, exportAsDoc, exportGlossaryJson, exportChaptersCsv } from "@/lib/exportUtils";
+import {
+  exportAsTxt,
+  exportAsDoc,
+  exportGlossaryJson,
+  exportChaptersCsv,
+  exportChaptersTxt,
+  exportChaptersDocx,
+  exportChaptersPdf,
+} from "@/lib/exportUtils";
 import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBase64 } from "@/lib/llm";
 import ImageTranslateDialog from "@/components/workspace/ImageTranslateDialog";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
@@ -1325,7 +1333,17 @@ ${sourceText}`;
   // This is the one place worth paying full-content egress for: the user
   // explicitly asked for a bulk export, so there's no way around reading
   // every chapter body at least once.
-  const handleExportAllChapters = async () => {
+  // Shared by all 3 export scopes below — dispatches to the right
+  // exportUtils serializer for the format the user picked from each export
+  // button's dropdown menu.
+  const runChaptersExport = async (format, chapters, filename) => {
+    if (format === "txt") return exportChaptersTxt(chapters, filename);
+    if (format === "docx") return exportChaptersDocx(chapters, filename);
+    if (format === "pdf") return exportChaptersPdf(chapters, filename);
+    return exportChaptersCsv(chapters, filename);
+  };
+
+  const handleExportAllChapters = async (format = "csv") => {
     if (chapterList.length === 0) return;
     setExportingChapters(true);
     try {
@@ -1333,7 +1351,7 @@ ${sourceText}`;
         (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
         { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
       );
-      exportChaptersCsv(full, project?.title || "Chuong");
+      await runChaptersExport(format, full, project?.title || "Chuong");
       toast({ title: `Đã xuất ${full.length} chương! 📤` });
     } catch (e) {
       toast({ title: "Lỗi xuất file", description: e.message, variant: "destructive" });
@@ -1345,7 +1363,7 @@ ${sourceText}`;
   // chapters that actually have Bản Edit content — for when the user has
   // only finished editing a handful of chapters out of a much bigger import
   // and wants just those, not the whole (mostly still-QT-thô) project.
-  const handleExportEditedChapters = async () => {
+  const handleExportEditedChapters = async (format = "csv") => {
     if (chapterList.length === 0) return;
     setExportingEdited(true);
     try {
@@ -1362,7 +1380,7 @@ ${sourceText}`;
         });
         return;
       }
-      exportChaptersCsv(editedOnly, `${project?.title || "Chuong"}_DaEdit`);
+      await runChaptersExport(format, editedOnly, `${project?.title || "Chuong"}_DaEdit`);
       toast({ title: `Đã xuất ${editedOnly.length} chương đã Edit! 📤` });
     } catch (e) {
       toast({ title: "Lỗi xuất file", description: e.message, variant: "destructive" });
@@ -1377,7 +1395,7 @@ ${sourceText}`;
   // so re-exporting after editing a few more chapters doesn't re-download
   // the whole novel's content every time — the user reported that repeatedly
   // exporting "all edited" got heavy as more chapters piled up.
-  const handleExportSelectedChapters = async (chapterIds) => {
+  const handleExportSelectedChapters = async (chapterIds, format = "csv") => {
     if (!chapterIds || chapterIds.length === 0) return;
     setExportingSelected(true);
     try {
@@ -1394,7 +1412,7 @@ ${sourceText}`;
         picked.push(chapter);
       }
       picked.sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
-      exportChaptersCsv(picked, `${project?.title || "Chuong"}_ChonLoc`);
+      await runChaptersExport(format, picked, `${project?.title || "Chuong"}_ChonLoc`);
       toast({ title: `Đã xuất ${picked.length} chương đã chọn! 📤` });
     } catch (e) {
       toast({ title: "Lỗi xuất file", description: e.message, variant: "destructive" });

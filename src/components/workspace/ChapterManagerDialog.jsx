@@ -11,6 +11,12 @@ import {
 import { Button } from "@/components/ui/button";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
+import {
   GripVertical,
   Pencil,
   Trash2,
@@ -21,6 +27,34 @@ import {
   Sparkles,
   ListChecks,
 } from "lucide-react";
+
+const EXPORT_FORMATS = [
+  { key: "csv", label: "CSV" },
+  { key: "txt", label: "TXT" },
+  { key: "docx", label: "DOCX (Word)" },
+  { key: "pdf", label: "PDF" },
+];
+
+// One button that opens a "choose export format" menu, reused for all 3
+// export scopes (tất cả / đã Edit / đã chọn) below.
+function ExportMenuButton({ label, busyLabel, busy, disabled, onPick, buttonClassName, size = "sm" }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size={size} variant="outline" disabled={disabled || busy} className={buttonClassName}>
+          <Download className="w-3.5 h-3.5 mr-1" /> {busy ? busyLabel : label}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {EXPORT_FORMATS.map((f) => (
+          <DropdownMenuItem key={f.key} onClick={() => onPick(f.key)}>
+            {f.label}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
 
 export default function ChapterManagerDialog({
   open,
@@ -104,25 +138,22 @@ export default function ChapterManagerDialog({
                 >
                   <Sparkles className="w-3.5 h-3.5 mr-1" /> Edit AI hàng loạt
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onExportAll}
-                  disabled={exporting || exportingEdited || chapters.length === 0}
-                  className="border-violet-200 text-violet-600 rounded-xl"
-                >
-                  <Download className="w-3.5 h-3.5 mr-1" /> {exporting ? "Đang xuất..." : "Xuất tất cả"}
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onExportEdited}
-                  disabled={exporting || exportingEdited || chapters.length === 0}
-                  className="border-violet-200 text-violet-600 rounded-xl"
-                >
-                  <Download className="w-3.5 h-3.5 mr-1" />{" "}
-                  {exportingEdited ? "Đang xuất..." : "Xuất chương đã Edit"}
-                </Button>
+                <ExportMenuButton
+                  label="Xuất tất cả"
+                  busyLabel="Đang xuất..."
+                  busy={exporting}
+                  disabled={exportingEdited || chapters.length === 0}
+                  onPick={(format) => onExportAll(format)}
+                  buttonClassName="border-violet-200 text-violet-600 rounded-xl"
+                />
+                <ExportMenuButton
+                  label="Xuất chương đã Edit"
+                  busyLabel="Đang xuất..."
+                  busy={exportingEdited}
+                  disabled={exporting || chapters.length === 0}
+                  onPick={(format) => onExportEdited(format)}
+                  buttonClassName="border-violet-200 text-violet-600 rounded-xl"
+                />
                 <Button
                   size="sm"
                   variant={selectMode ? "default" : "outline"}
@@ -154,15 +185,14 @@ export default function ChapterManagerDialog({
                 <span className="text-xs text-violet-700 font-medium flex-1">
                   Đã chọn {selectedIds.size} chương
                 </span>
-                <Button
-                  size="sm"
-                  onClick={() => onExportSelected([...selectedIds])}
-                  disabled={selectedIds.size === 0 || exportingSelected}
-                  className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl h-7 px-2.5 text-xs"
-                >
-                  <Download className="w-3 h-3 mr-1" />
-                  {exportingSelected ? "Đang xuất..." : "Xuất chương đã chọn"}
-                </Button>
+                <ExportMenuButton
+                  label="Xuất chương đã chọn"
+                  busyLabel="Đang xuất..."
+                  busy={exportingSelected}
+                  disabled={selectedIds.size === 0}
+                  onPick={(format) => onExportSelected([...selectedIds], format)}
+                  buttonClassName="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl h-7 px-2.5 text-xs"
+                />
                 <button
                   onClick={toggleSelectMode}
                   className="p-1 rounded-md hover:bg-violet-100 text-violet-500"
