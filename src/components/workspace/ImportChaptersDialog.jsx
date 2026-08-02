@@ -8,8 +8,15 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Upload, FileSpreadsheet } from "lucide-react";
+import { Upload, FileSpreadsheet, Loader2 } from "lucide-react";
 import { parseChaptersFile } from "@/lib/importChapters";
+import {
+  extractTextFromDocx,
+  extractTextFromPdf,
+  extractChaptersFromEpub,
+  epubChaptersToMarkedText,
+  EPUB_CHAPTER_REGEX_SOURCE,
+} from "@/lib/documentImport";
 import { useToast } from "@/components/ui/use-toast";
 
 const CHUONG_KEYWORD = String.fromCharCode(0x43, 0x68, 0x01b0, 0x01a1, 0x6e, 0x67); // "Chương"
@@ -53,6 +60,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
   const [fileParsed, setFileParsed] = useState([]);
   const [fileName, setFileName] = useState("");
   const [txtFileName, setTxtFileName] = useState("");
+  const [extracting, setExtracting] = useState(false);
   const fileInputRef = useRef(null);
   const txtFileInputRef = useRef(null);
 
@@ -80,16 +88,56 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
     onOpenChange(v);
   };
 
-  const handleTxtFileChange = async (e) => {
+  // Handles .txt/.docx/.pdf/.epub uniformly: whatever comes out is either
+  // dropped straight into the same textarea+regex auto-split flow used for
+  // pasted text (txt/docx/pdf — none of these have machine-readable chapter
+  // structure, so a heading pattern is still needed), or for .epub — which
+  // DOES have a real author-defined chapter list — reconstructed as marked
+  // text with the split pattern auto-selected, so the same preview/import
+  // pipeline still applies without a second, parallel code path.
+  const handleBookFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const ext = file.name.split(".").pop().toLowerCase();
+    setExtracting(true);
+    // Reset back to the default split pattern first — otherwise a leftover
+    // EPUB marker pattern from a previous upload in this same dialog
+    // session would silently mis-split a plain .txt/.docx/.pdf loaded next.
+    setPresetKey("vi");
+    setCustomPattern("");
     try {
-      const content = await file.text();
-      setText(content);
+      if (ext === "txt") {
+        setText(await file.text());
+      } else if (ext === "docx") {
+        setText(await extractTextFromDocx(file));
+      } else if (ext === "pdf") {
+        setText(await extractTextFromPdf(file));
+      } else if (ext === "epub") {
+        const epubChapters = await extractChaptersFromEpub(file);
+        if (epubChapters.length === 0) {
+          toast({
+            title: "Không tách được chương nào từ EPUB",
+            description: "File có thể dùng cấu trúc khác thường — thử xuất sang .txt rồi tải lên.",
+            variant: "destructive",
+          });
+          return;
+        }
+        setText(epubChaptersToMarkedText(epubChapters));
+        setPresetKey("custom");
+        setCustomPattern(EPUB_CHAPTER_REGEX_SOURCE);
+      } else {
+        toast({
+          title: "Định dạng chưa hỗ trợ",
+          description: "Chỉ hỗ trợ .txt, .docx, .pdf, .epub",
+          variant: "destructive",
+        });
+        return;
+      }
       setTxtFileName(file.name);
     } catch (err) {
       toast({ title: "Lỗi đọc file", description: err.message, variant: "destructive" });
     }
+    setExtracting(false);
     e.target.value = "";
   };
 
@@ -160,30 +208,36 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
         <div className="space-y-3">
           {mode === "paste" ? (
             <>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <input
                   ref={txtFileInputRef}
                   type="file"
-                  accept=".txt"
-                  onChange={handleTxtFileChange}
+                  accept=".txt,.docx,.pdf,.epub"
+                  onChange={handleBookFileChange}
                   className="hidden"
                 />
                 <Button
                   size="sm"
                   variant="outline"
                   onClick={() => txtFileInputRef.current?.click()}
+                  disabled={extracting}
                   className="border-violet-200 text-violet-600 rounded-xl"
                 >
-                  <Upload className="w-3.5 h-3.5 mr-1" /> Tải file .txt lên
+                  {extracting ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" />
+                  ) : (
+                    <Upload className="w-3.5 h-3.5 mr-1" />
+                  )}
+                  {extracting ? "Đang đọc file..." : "Tải file lên (.txt/.docx/.pdf/.epub)"}
                 </Button>
-                {txtFileName && (
+                {txtFileName && !extracting && (
                   <span className="text-xs text-slate-400">Đã tải: {txtFileName}</span>
                 )}
               </div>
               <textarea
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="Dán toàn bộ văn bản gồm nhiều chương vào đây, hoặc tải file .txt lên ở trên..."
+                placeholder="Dán toàn bộ văn bản gồm nhiều chương vào đây, hoặc tải file lên ở trên..."
                 rows={8}
                 className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400 resize-none font-mono"
               />
@@ -222,8 +276,8 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
                 File CSV/TSV có cột: <b>Chương</b> (số thứ tự, tùy chọn), <b>Title</b> (tên
                 chương), <b>Nội dung</b>. Tên cột có thể là tiếng Việt hoặc tiếng Anh.
                 <br />
-                File .txt thuần (chưa tách cột) → dùng tab "Dán &amp; tự tách" và bấm "Tải file
-                .txt lên".
+                File sách thuần (.txt/.docx/.pdf/.epub, chưa tách cột) → dùng tab "Dán &amp; tự
+                tách" và bấm nút tải file ở đó.
               </p>
               <input
                 ref={fileInputRef}
