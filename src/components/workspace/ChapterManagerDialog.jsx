@@ -24,6 +24,8 @@ export default function ChapterManagerDialog({
   onOpenImport,
   onExportAll,
   exporting,
+  onExportEdited,
+  exportingEdited,
   onBatchEdit,
 }) {
   const [editingId, setEditingId] = useState(null);
@@ -76,10 +78,20 @@ export default function ChapterManagerDialog({
                   size="sm"
                   variant="outline"
                   onClick={onExportAll}
-                  disabled={exporting || chapters.length === 0}
+                  disabled={exporting || exportingEdited || chapters.length === 0}
                   className="border-violet-200 text-violet-600 rounded-xl"
                 >
-                  <Download className="w-3.5 h-3.5 mr-1" /> {exporting ? "Đang xuất..." : "Xuất file"}
+                  <Download className="w-3.5 h-3.5 mr-1" /> {exporting ? "Đang xuất..." : "Xuất tất cả"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onExportEdited}
+                  disabled={exporting || exportingEdited || chapters.length === 0}
+                  className="border-violet-200 text-violet-600 rounded-xl"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1" />{" "}
+                  {exportingEdited ? "Đang xuất..." : "Xuất chương đã Edit"}
                 </Button>
                 <Button
                   size="sm"

@@ -105,6 +105,7 @@ export default function Workspace() {
   const [showChapterManager, setShowChapterManager] = useState(false);
   const [showImportChapters, setShowImportChapters] = useState(false);
   const [exportingChapters, setExportingChapters] = useState(false);
+  const [exportingEdited, setExportingEdited] = useState(false);
   const [showBatchEdit, setShowBatchEdit] = useState(false);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchFinished, setBatchFinished] = useState(false);
@@ -1339,6 +1340,35 @@ ${sourceText}`;
     setExportingChapters(false);
   };
 
+  // Same full-content read as "Xuất tất cả", but filtered down to only
+  // chapters that actually have Bản Edit content — for when the user has
+  // only finished editing a handful of chapters out of a much bigger import
+  // and wants just those, not the whole (mostly still-QT-thô) project.
+  const handleExportEditedChapters = async () => {
+    if (chapterList.length === 0) return;
+    setExportingEdited(true);
+    try {
+      const full = await fetchAllPages(
+        (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
+        { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
+      );
+      const editedOnly = full.filter((c) => c.edited?.trim());
+      if (editedOnly.length === 0) {
+        toast({
+          title: "Chưa có chương nào có Bản Edit",
+          description: "Edit ít nhất 1 chương rồi thử lại.",
+          variant: "destructive",
+        });
+        return;
+      }
+      exportChaptersCsv(editedOnly, `${project?.title || "Chuong"}_DaEdit`);
+      toast({ title: `Đã xuất ${editedOnly.length} chương đã Edit! 📤` });
+    } catch (e) {
+      toast({ title: "Lỗi xuất file", description: e.message, variant: "destructive" });
+    }
+    setExportingEdited(false);
+  };
+
   // Batch AI edit across every chapter in the project. Deliberately reuses
   // buildEditPrompt/applyRuleEdit/applyHardRules/runChunkedEdit verbatim (the
   // same functions the single-chapter "Edit AI" button calls) so glossary,
@@ -1928,6 +1958,8 @@ ${sourceText}`;
         onOpenImport={() => setShowImportChapters(true)}
         onExportAll={handleExportAllChapters}
         exporting={exportingChapters}
+        onExportEdited={handleExportEditedChapters}
+        exportingEdited={exportingEdited}
         onBatchEdit={() => setShowBatchEdit(true)}
       />
       <ImportChaptersDialog
