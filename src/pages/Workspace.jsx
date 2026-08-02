@@ -15,6 +15,7 @@ import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog"
 import ChapterManagerDialog from "@/components/workspace/ChapterManagerDialog";
 import ImportChaptersDialog from "@/components/workspace/ImportChaptersDialog";
 import BatchEditDialog from "@/components/workspace/BatchEditDialog";
+import BatchTitleEditDialog from "@/components/workspace/BatchTitleEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import {
   exportAsTxt,
@@ -128,6 +129,18 @@ export default function Workspace() {
   });
   const [batchErrors, setBatchErrors] = useState([]);
   const batchStopRef = useRef(false);
+  const [showBatchTitleEdit, setShowBatchTitleEdit] = useState(false);
+  const [batchTitleRunning, setBatchTitleRunning] = useState(false);
+  const [batchTitleFinished, setBatchTitleFinished] = useState(false);
+  const [batchTitleProgress, setBatchTitleProgress] = useState({
+    done: 0,
+    total: 0,
+    edited: 0,
+    failed: 0,
+    currentTitle: "",
+  });
+  const [batchTitleErrors, setBatchTitleErrors] = useState([]);
+  const batchTitleStopRef = useRef(false);
   const [showDetectNames, setShowDetectNames] = useState(false);
   const [detectingNames, setDetectingNames] = useState(false);
   const [nameCandidates, setNameCandidates] = useState(null);
@@ -1522,6 +1535,95 @@ ${sourceText}`;
     batchStopRef.current = true;
   };
 
+  // Chapter TITLES are a single flat field (unlike raw/qt/edited content) —
+  // they come straight from whatever heading the import auto-split matched,
+  // so they're never translated/cleaned unless the user retypes them by
+  // hand. This dials in AI translation for just the title text, scoped to
+  // whichever chapters the user picked in BatchTitleEditDialog (not "all"
+  // unconditionally — not every run should touch every chapter).
+  const buildTitleEditPrompt = (rawTitle) => {
+    const glossaryText = glossaryTerms
+      .map((t) => `- "${t.source_term}" → "${t.translation}"`)
+      .join("\n");
+    return `Bạn là biên tập viên truyện dịch. Hãy dịch/làm sạch TÊN CHƯƠNG sau đây sang tiếng Việt tự nhiên, mượt mà.
+
+QUY TẮC:
+1. Nếu tên chương có số thứ tự ở đầu (ví dụ "Chương 12", "Chapter 12", "第12章"), giữ nguyên định dạng "Chương <số>" ở đầu, chỉ dịch phần tiêu đề phía sau.
+2. PHẢI tuân thủ Glossary nếu tên chương chứa tên riêng có trong đó.
+3. KHÔNG thêm giải thích, không thêm dấu ngoặc kép bao quanh, chỉ xuất ra đúng 1 dòng là tên chương đã dịch.
+
+GLOSSARY:
+${glossaryText || "(trống)"}
+
+TÊN CHƯƠNG GỐC:
+${rawTitle}
+
+Tên chương đã dịch:`;
+  };
+
+  const handleStartBatchTitleEdit = async (selectedIds) => {
+    if (!hasCustomAI()) {
+      toast({
+        title: "Cần cấu hình AI trước",
+        description: "Bấm nút AI trên thanh công cụ để nhập API key.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (selectedIds.length === 0) return;
+
+    batchTitleStopRef.current = false;
+    setBatchTitleErrors([]);
+    setBatchTitleFinished(false);
+    const targets = chapterList
+      .filter((c) => selectedIds.includes(c.id))
+      .sort((a, b) => a.chapter_order - b.chapter_order);
+    setBatchTitleProgress({ done: 0, total: targets.length, edited: 0, failed: 0, currentTitle: "" });
+    setBatchTitleRunning(true);
+
+    for (let i = 0; i < targets.length; i++) {
+      if (batchTitleStopRef.current) break;
+      const meta = targets[i];
+      setBatchTitleProgress((p) => ({ ...p, currentTitle: meta.title }));
+      try {
+        const newTitle = (await callLLM(buildTitleEditPrompt(meta.title || ""))).trim();
+        if (newTitle) {
+          await Chapter.update(meta.id, { title: newTitle });
+          setChapterList((prev) =>
+            prev.map((c) => (c.id === meta.id ? { ...c, title: newTitle } : c))
+          );
+          const cached = chapterCacheRef.current.get(meta.id);
+          if (cached) chapterCacheRef.current.set(meta.id, { ...cached, title: newTitle });
+          if (currentChapter?.id === meta.id) {
+            setCurrentChapter((prev) => (prev ? { ...prev, title: newTitle } : prev));
+          }
+        }
+        setBatchTitleProgress((p) => ({ ...p, done: p.done + 1, edited: p.edited + 1 }));
+      } catch (e) {
+        setBatchTitleErrors((prev) => [...prev, { title: meta.title, message: e.message }]);
+        setBatchTitleProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
+      }
+      // Same 700ms spacing as the content batch edit, to stay clear of the
+      // provider's per-minute rate limit across many rapid calls.
+      if (!batchTitleStopRef.current && i < targets.length - 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+    }
+
+    setBatchTitleRunning(false);
+    setBatchTitleFinished(true);
+    toast({
+      title: batchTitleStopRef.current
+        ? "Đã dừng dịch tên hàng loạt ⏸️"
+        : "Hoàn tất dịch tên chương! ✨",
+    });
+  };
+
+  const handleStopBatchTitleEdit = () => {
+    batchTitleStopRef.current = true;
+  };
+
   const handleManualSave = async () => {
     if (!currentChapter) return;
     setSaving(true);
@@ -2014,6 +2116,7 @@ ${sourceText}`;
         onExportSelected={handleExportSelectedChapters}
         exportingSelected={exportingSelected}
         onBatchEdit={() => setShowBatchEdit(true)}
+        onBatchTitleEdit={() => setShowBatchTitleEdit(true)}
       />
       <ImportChaptersDialog
         open={showImportChapters}
@@ -2030,6 +2133,17 @@ ${sourceText}`;
         errors={batchErrors}
         onStart={handleStartBatchEdit}
         onStop={handleStopBatchEdit}
+      />
+      <BatchTitleEditDialog
+        open={showBatchTitleEdit}
+        onOpenChange={setShowBatchTitleEdit}
+        chapters={chapterList}
+        running={batchTitleRunning}
+        finished={batchTitleFinished}
+        progress={batchTitleProgress}
+        errors={batchTitleErrors}
+        onStart={handleStartBatchTitleEdit}
+        onStop={handleStopBatchTitleEdit}
       />
       <DetectNamesDialog
         open={showDetectNames}

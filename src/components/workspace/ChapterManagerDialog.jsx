@@ -15,6 +15,10 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuPortal,
 } from "@/components/ui/dropdown-menu";
 import {
   GripVertical,
@@ -26,6 +30,8 @@ import {
   X,
   Sparkles,
   ListChecks,
+  Languages,
+  MoreHorizontal,
 } from "lucide-react";
 
 const EXPORT_FORMATS = [
@@ -73,6 +79,7 @@ export default function ChapterManagerDialog({
   onExportSelected,
   exportingSelected,
   onBatchEdit,
+  onBatchTitleEdit,
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -131,31 +138,6 @@ export default function ChapterManagerDialog({
               <div className="flex gap-1.5 flex-wrap">
                 <Button
                   size="sm"
-                  variant="outline"
-                  onClick={onBatchEdit}
-                  disabled={chapters.length === 0}
-                  className="border-violet-200 text-violet-600 rounded-xl"
-                >
-                  <Sparkles className="w-3.5 h-3.5 mr-1" /> Edit AI hàng loạt
-                </Button>
-                <ExportMenuButton
-                  label="Xuất tất cả"
-                  busyLabel="Đang xuất..."
-                  busy={exporting}
-                  disabled={exportingEdited || chapters.length === 0}
-                  onPick={(format) => onExportAll(format)}
-                  buttonClassName="border-violet-200 text-violet-600 rounded-xl"
-                />
-                <ExportMenuButton
-                  label="Xuất chương đã Edit"
-                  busyLabel="Đang xuất..."
-                  busy={exportingEdited}
-                  disabled={exporting || chapters.length === 0}
-                  onPick={(format) => onExportEdited(format)}
-                  buttonClassName="border-violet-200 text-violet-600 rounded-xl"
-                />
-                <Button
-                  size="sm"
                   variant={selectMode ? "default" : "outline"}
                   onClick={toggleSelectMode}
                   disabled={chapters.length === 0}
@@ -167,14 +149,59 @@ export default function ChapterManagerDialog({
                 >
                   <ListChecks className="w-3.5 h-3.5 mr-1" /> Chọn chương
                 </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={onOpenImport}
-                  className="border-violet-200 text-violet-600 rounded-xl"
-                >
-                  <Upload className="w-3.5 h-3.5 mr-1" /> Nhập hàng loạt
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-violet-200 text-violet-600 rounded-xl px-2"
+                      title="Thao tác khác"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={onOpenImport}>
+                      <Upload className="w-3.5 h-3.5" /> Nhập hàng loạt
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={onBatchEdit} disabled={chapters.length === 0}>
+                      <Sparkles className="w-3.5 h-3.5" /> Edit AI hàng loạt (nội dung)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={onBatchTitleEdit} disabled={chapters.length === 0}>
+                      <Languages className="w-3.5 h-3.5" /> Dịch tên chương bằng AI
+                    </DropdownMenuItem>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger disabled={exportingEdited || chapters.length === 0}>
+                        <Download className="w-3.5 h-3.5" />
+                        {exporting ? "Đang xuất..." : "Xuất tất cả"}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent>
+                          {EXPORT_FORMATS.map((f) => (
+                            <DropdownMenuItem key={f.key} onClick={() => onExportAll(f.key)}>
+                              {f.label}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                    <DropdownMenuSub>
+                      <DropdownMenuSubTrigger disabled={exporting || chapters.length === 0}>
+                        <Download className="w-3.5 h-3.5" />
+                        {exportingEdited ? "Đang xuất..." : "Xuất chương đã Edit"}
+                      </DropdownMenuSubTrigger>
+                      <DropdownMenuPortal>
+                        <DropdownMenuSubContent>
+                          {EXPORT_FORMATS.map((f) => (
+                            <DropdownMenuItem key={f.key} onClick={() => onExportEdited(f.key)}>
+                              {f.label}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuSubContent>
+                      </DropdownMenuPortal>
+                    </DropdownMenuSub>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </DialogTitle>
             <DialogDescription>
