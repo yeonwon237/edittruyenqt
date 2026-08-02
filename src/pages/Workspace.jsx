@@ -106,6 +106,7 @@ export default function Workspace() {
   const [showImportChapters, setShowImportChapters] = useState(false);
   const [exportingChapters, setExportingChapters] = useState(false);
   const [exportingEdited, setExportingEdited] = useState(false);
+  const [exportingSelected, setExportingSelected] = useState(false);
   const [showBatchEdit, setShowBatchEdit] = useState(false);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchFinished, setBatchFinished] = useState(false);
@@ -1369,6 +1370,38 @@ ${sourceText}`;
     setExportingEdited(false);
   };
 
+  // Export a hand-picked set of chapters only — unlike "Xuất tất cả"/"Xuất
+  // chương đã Edit" (which both read every chapter's full content just to
+  // filter it down), this fetches ONLY the chosen chapter ids, reusing the
+  // in-memory cache for any already opened this session. Exists specifically
+  // so re-exporting after editing a few more chapters doesn't re-download
+  // the whole novel's content every time — the user reported that repeatedly
+  // exporting "all edited" got heavy as more chapters piled up.
+  const handleExportSelectedChapters = async (chapterIds) => {
+    if (!chapterIds || chapterIds.length === 0) return;
+    setExportingSelected(true);
+    try {
+      const picked = [];
+      for (let i = 0; i < chapterIds.length; i++) {
+        const id = chapterIds[i];
+        let chapter = chapterCacheRef.current.get(id);
+        if (!chapter) {
+          // eslint-disable-next-line no-await-in-loop
+          chapter = await Chapter.get(id);
+          chapterCacheRef.current.set(id, chapter);
+          capCache(chapterCacheRef.current);
+        }
+        picked.push(chapter);
+      }
+      picked.sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+      exportChaptersCsv(picked, `${project?.title || "Chuong"}_ChonLoc`);
+      toast({ title: `Đã xuất ${picked.length} chương đã chọn! 📤` });
+    } catch (e) {
+      toast({ title: "Lỗi xuất file", description: e.message, variant: "destructive" });
+    }
+    setExportingSelected(false);
+  };
+
   // Batch AI edit across every chapter in the project. Deliberately reuses
   // buildEditPrompt/applyRuleEdit/applyHardRules/runChunkedEdit verbatim (the
   // same functions the single-chapter "Edit AI" button calls) so glossary,
@@ -1960,6 +1993,8 @@ ${sourceText}`;
         exporting={exportingChapters}
         onExportEdited={handleExportEditedChapters}
         exportingEdited={exportingEdited}
+        onExportSelected={handleExportSelectedChapters}
+        exportingSelected={exportingSelected}
         onBatchEdit={() => setShowBatchEdit(true)}
       />
       <ImportChaptersDialog

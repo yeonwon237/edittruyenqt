@@ -10,7 +10,17 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
-import { GripVertical, Pencil, Trash2, Upload, Download, Check, X, Sparkles } from "lucide-react";
+import {
+  GripVertical,
+  Pencil,
+  Trash2,
+  Upload,
+  Download,
+  Check,
+  X,
+  Sparkles,
+  ListChecks,
+} from "lucide-react";
 
 export default function ChapterManagerDialog({
   open,
@@ -26,16 +36,22 @@ export default function ChapterManagerDialog({
   exporting,
   onExportEdited,
   exportingEdited,
+  onExportSelected,
+  exportingSelected,
   onBatchEdit,
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   useEffect(() => {
     if (!open) {
       setEditingId(null);
       setDeleteTarget(null);
+      setSelectMode(false);
+      setSelectedIds(new Set());
     }
   }, [open]);
 
@@ -55,6 +71,20 @@ export default function ChapterManagerDialog({
     if (!result.destination) return;
     if (result.destination.index === result.source.index) return;
     onReorder(result.source.index, result.destination.index);
+  };
+
+  const toggleSelectMode = () => {
+    setSelectMode((v) => !v);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelected = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   return (
@@ -95,6 +125,19 @@ export default function ChapterManagerDialog({
                 </Button>
                 <Button
                   size="sm"
+                  variant={selectMode ? "default" : "outline"}
+                  onClick={toggleSelectMode}
+                  disabled={chapters.length === 0}
+                  className={
+                    selectMode
+                      ? "bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
+                      : "border-violet-200 text-violet-600 rounded-xl"
+                  }
+                >
+                  <ListChecks className="w-3.5 h-3.5 mr-1" /> Chọn chương
+                </Button>
+                <Button
+                  size="sm"
                   variant="outline"
                   onClick={onOpenImport}
                   className="border-violet-200 text-violet-600 rounded-xl"
@@ -106,6 +149,29 @@ export default function ChapterManagerDialog({
             <DialogDescription>
               Kéo thả để sắp xếp lại thứ tự chương. Bấm vào tên để đổi tên.
             </DialogDescription>
+            {selectMode && (
+              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-violet-50 border border-violet-100">
+                <span className="text-xs text-violet-700 font-medium flex-1">
+                  Đã chọn {selectedIds.size} chương
+                </span>
+                <Button
+                  size="sm"
+                  onClick={() => onExportSelected([...selectedIds])}
+                  disabled={selectedIds.size === 0 || exportingSelected}
+                  className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl h-7 px-2.5 text-xs"
+                >
+                  <Download className="w-3 h-3 mr-1" />
+                  {exportingSelected ? "Đang xuất..." : "Xuất chương đã chọn"}
+                </Button>
+                <button
+                  onClick={toggleSelectMode}
+                  className="p-1 rounded-md hover:bg-violet-100 text-violet-500"
+                  title="Thoát chế độ chọn"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto cute-scrollbar -mx-1 px-1">
@@ -117,21 +183,37 @@ export default function ChapterManagerDialog({
                   {(provided) => (
                     <div ref={provided.innerRef} {...provided.droppableProps} className="space-y-1.5">
                       {chapters.map((ch, index) => (
-                        <Draggable key={ch.id} draggableId={ch.id} index={index}>
+                        <Draggable
+                          key={ch.id}
+                          draggableId={ch.id}
+                          index={index}
+                          isDragDisabled={selectMode}
+                        >
                           {(dragProvided, snapshot) => (
                             <div
                               ref={dragProvided.innerRef}
                               {...dragProvided.draggableProps}
                               className={`flex items-center gap-2 p-2.5 rounded-xl border transition-colors ${
                                 snapshot.isDragging ? "bg-violet-100 border-violet-300 shadow-lg" : "bg-white border-violet-100"
-                              } ${ch.id === currentChapterId ? "ring-2 ring-violet-300" : ""}`}
+                              } ${ch.id === currentChapterId ? "ring-2 ring-violet-300" : ""} ${
+                                selectMode && selectedIds.has(ch.id) ? "border-violet-400 bg-violet-50/60" : ""
+                              }`}
                             >
-                              <span
-                                {...dragProvided.dragHandleProps}
-                                className="text-slate-300 hover:text-slate-400 cursor-grab active:cursor-grabbing shrink-0"
-                              >
-                                <GripVertical className="w-4 h-4" />
-                              </span>
+                              {selectMode ? (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedIds.has(ch.id)}
+                                  onChange={() => toggleSelected(ch.id)}
+                                  className="accent-violet-600 shrink-0"
+                                />
+                              ) : (
+                                <span
+                                  {...dragProvided.dragHandleProps}
+                                  className="text-slate-300 hover:text-slate-400 cursor-grab active:cursor-grabbing shrink-0"
+                                >
+                                  <GripVertical className="w-4 h-4" />
+                                </span>
+                              )}
 
                               {editingId === ch.id ? (
                                 <>
@@ -155,25 +237,31 @@ export default function ChapterManagerDialog({
                               ) : (
                                 <>
                                   <button
-                                    onClick={() => onSelect(ch.id)}
+                                    onClick={() =>
+                                      selectMode ? toggleSelected(ch.id) : onSelect(ch.id)
+                                    }
                                     className="flex-1 min-w-0 text-left text-sm text-slate-700 truncate hover:text-violet-600"
                                   >
                                     {ch.title}
                                   </button>
-                                  <button
-                                    onClick={() => startEdit(ch)}
-                                    className="p-1.5 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600 shrink-0"
-                                    title="Đổi tên"
-                                  >
-                                    <Pencil className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => setDeleteTarget(ch)}
-                                    className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 shrink-0"
-                                    title="Xóa chương"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
+                                  {!selectMode && (
+                                    <>
+                                      <button
+                                        onClick={() => startEdit(ch)}
+                                        className="p-1.5 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600 shrink-0"
+                                        title="Đổi tên"
+                                      >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        onClick={() => setDeleteTarget(ch)}
+                                        className="p-1.5 rounded-md hover:bg-red-50 text-slate-400 hover:text-red-500 shrink-0"
+                                        title="Xóa chương"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </>
+                                  )}
                                 </>
                               )}
                             </div>
