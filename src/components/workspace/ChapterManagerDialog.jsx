@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
-import { GripVertical, Pencil, Trash2, Upload, Download, Check, X } from "lucide-react";
+import { GripVertical, Pencil, Trash2, Upload, Download, Check, X, Sparkles } from "lucide-react";
 
 export default function ChapterManagerDialog({
   open,
@@ -24,6 +24,7 @@ export default function ChapterManagerDialog({
   onOpenImport,
   onExportAll,
   exporting,
+  onBatchEdit,
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -61,7 +62,16 @@ export default function ChapterManagerDialog({
           <DialogHeader>
             <DialogTitle className="text-violet-700 flex items-center justify-between gap-2 flex-wrap">
               <span>📚 Quản lý chương ({chapters.length})</span>
-              <div className="flex gap-1.5">
+              <div className="flex gap-1.5 flex-wrap">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onBatchEdit}
+                  disabled={chapters.length === 0}
+                  className="border-violet-200 text-violet-600 rounded-xl"
+                >
+                  <Sparkles className="w-3.5 h-3.5 mr-1" /> Edit AI hàng loạt
+                </Button>
                 <Button
                   size="sm"
                   variant="outline"

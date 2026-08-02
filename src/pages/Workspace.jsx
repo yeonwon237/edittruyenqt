@@ -14,6 +14,7 @@ import BatchReplaceDialog from "@/components/workspace/BatchReplaceDialog";
 import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog";
 import ChapterManagerDialog from "@/components/workspace/ChapterManagerDialog";
 import ImportChaptersDialog from "@/components/workspace/ImportChaptersDialog";
+import BatchEditDialog from "@/components/workspace/BatchEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import { exportAsTxt, exportAsDoc, exportGlossaryJson, exportChaptersCsv } from "@/lib/exportUtils";
 import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBase64 } from "@/lib/llm";
@@ -104,6 +105,19 @@ export default function Workspace() {
   const [showChapterManager, setShowChapterManager] = useState(false);
   const [showImportChapters, setShowImportChapters] = useState(false);
   const [exportingChapters, setExportingChapters] = useState(false);
+  const [showBatchEdit, setShowBatchEdit] = useState(false);
+  const [batchRunning, setBatchRunning] = useState(false);
+  const [batchFinished, setBatchFinished] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({
+    done: 0,
+    total: 0,
+    edited: 0,
+    skipped: 0,
+    failed: 0,
+    currentTitle: "",
+  });
+  const [batchErrors, setBatchErrors] = useState([]);
+  const batchStopRef = useRef(false);
   const [showDetectNames, setShowDetectNames] = useState(false);
   const [detectingNames, setDetectingNames] = useState(false);
   const [nameCandidates, setNameCandidates] = useState(null);
@@ -1325,6 +1339,108 @@ ${sourceText}`;
     setExportingChapters(false);
   };
 
+  // Batch AI edit across every chapter in the project. Deliberately reuses
+  // buildEditPrompt/applyRuleEdit/applyHardRules/runChunkedEdit verbatim (the
+  // same functions the single-chapter "Edit AI" button calls) so glossary,
+  // batch replace rules, contextual pronoun matrix and the active preset's
+  // văn phong all apply identically here — no separate/simplified prompt.
+  // Persists each chapter to the DB as soon as it's done (not batched at the
+  // end) so a stopped/interrupted run never loses already-finished work, and
+  // a chapter with existing Bản Edit content is skipped so re-running after
+  // a stop or a rate-limit error only processes what's left.
+  const handleStartBatchEdit = async () => {
+    if (!hasCustomAI()) {
+      toast({
+        title: "Cần cấu hình AI trước",
+        description: "Bấm nút AI trên thanh công cụ để nhập API key.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (chapterList.length === 0) return;
+
+    batchStopRef.current = false;
+    setBatchErrors([]);
+    setBatchFinished(false);
+    const ordered = [...chapterList].sort((a, b) => a.chapter_order - b.chapter_order);
+    setBatchProgress({
+      done: 0,
+      total: ordered.length,
+      edited: 0,
+      skipped: 0,
+      failed: 0,
+      currentTitle: "",
+    });
+    setBatchRunning(true);
+
+    for (let i = 0; i < ordered.length; i++) {
+      if (batchStopRef.current) break;
+      const meta = ordered[i];
+      setBatchProgress((p) => ({ ...p, currentTitle: meta.title }));
+      try {
+        let chapter = chapterCacheRef.current.get(meta.id);
+        if (!chapter) {
+          chapter = await Chapter.get(meta.id);
+          chapterCacheRef.current.set(meta.id, chapter);
+          capCache(chapterCacheRef.current);
+        }
+
+        if (chapter.edited?.trim()) {
+          setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
+          continue;
+        }
+        const sourceText = applyRuleEdit(chapter.qt_raw || chapter.raw_original || "");
+        if (!sourceText.trim()) {
+          setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
+          continue;
+        }
+
+        const editedText = await runChunkedEdit(
+          sourceText,
+          (prompt) => callLLM(prompt),
+          (chunkI, chunkTotal) =>
+            chunkTotal > 1 &&
+            setBatchProgress((p) => ({
+              ...p,
+              currentTitle: `${meta.title} (đoạn ${chunkI}/${chunkTotal})`,
+            }))
+        );
+        const finalText = applyHardRules(editedText);
+
+        await Chapter.update(meta.id, { edited: finalText });
+        const updatedChapter = { ...chapter, edited: finalText };
+        chapterCacheRef.current.set(meta.id, updatedChapter);
+        lastSavedRef.current.set(meta.id, snapshotOf(updatedChapter));
+        if (currentChapter?.id === meta.id) {
+          setCurrentChapter(updatedChapter);
+        }
+        setBatchProgress((p) => ({ ...p, done: p.done + 1, edited: p.edited + 1 }));
+      } catch (e) {
+        setBatchErrors((prev) => [...prev, { title: meta.title, message: e.message }]);
+        setBatchProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
+      }
+      // Small gap between chapters — 190 back-to-back calls can trip a
+      // provider's per-minute rate limit even when each call individually
+      // succeeds.
+      if (!batchStopRef.current && i < ordered.length - 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+    }
+
+    setBatchRunning(false);
+    setBatchFinished(true);
+    toast({
+      title: batchStopRef.current
+        ? "Đã dừng edit hàng loạt ⏸️"
+        : "Hoàn tất edit AI hàng loạt! ✨",
+    });
+  };
+
+  const handleStopBatchEdit = () => {
+    batchStopRef.current = true;
+  };
+
   const handleManualSave = async () => {
     if (!currentChapter) return;
     setSaving(true);
@@ -1812,11 +1928,23 @@ ${sourceText}`;
         onOpenImport={() => setShowImportChapters(true)}
         onExportAll={handleExportAllChapters}
         exporting={exportingChapters}
+        onBatchEdit={() => setShowBatchEdit(true)}
       />
       <ImportChaptersDialog
         open={showImportChapters}
         onOpenChange={setShowImportChapters}
         onImport={handleImportChapters}
+      />
+      <BatchEditDialog
+        open={showBatchEdit}
+        onOpenChange={setShowBatchEdit}
+        totalChapters={chapterList.length}
+        running={batchRunning}
+        finished={batchFinished}
+        progress={batchProgress}
+        errors={batchErrors}
+        onStart={handleStartBatchEdit}
+        onStop={handleStopBatchEdit}
       />
       <DetectNamesDialog
         open={showDetectNames}
