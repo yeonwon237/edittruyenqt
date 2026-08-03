@@ -129,6 +129,7 @@ export default function TextToSpeech() {
   const [browserAudioUrl, setBrowserAudioUrl] = useState("");
   const [convertingMp3, setConvertingMp3] = useState(false);
   const [mp3ConvertProgress, setMp3ConvertProgress] = useState(0);
+  const [browserRecordError, setBrowserRecordError] = useState("");
 
   const computeProviderReady = (p) => ({
     gcp: hasGcpTtsKey(),
@@ -226,8 +227,13 @@ export default function TextToSpeech() {
       toast({ title: "Chưa có văn bản để đọc", variant: "destructive" });
       return;
     }
+    // Recording takes over from any ongoing preview playback (it cancels and
+    // restarts the speech internally) — reset the preview UI so it doesn't
+    // show a stale "Tạm dừng"/"Dừng" state while recording runs.
+    setBrowserStatus("idle");
     setRecordingBrowser(true);
     setBrowserRecordStatus("");
+    setBrowserRecordError("");
     try {
       if (browserAudioUrl) URL.revokeObjectURL(browserAudioUrl);
       setBrowserAudioBlob(null);
@@ -237,6 +243,7 @@ export default function TextToSpeech() {
       setBrowserAudioUrl(URL.createObjectURL(blob));
       toast({ title: "🎙️ Đã ghi xong giọng đọc!" });
     } catch (e) {
+      setBrowserRecordError(e.message);
       toast({ title: "Không ghi được audio", description: e.message, variant: "destructive" });
     }
     setRecordingBrowser(false);
@@ -810,17 +817,25 @@ export default function TextToSpeech() {
                 {browserRecordingSupported ? (
                   <>
                     <p className="text-[11px] text-slate-400">
-                      Ghi lại giọng đọc này thành file để tải về: trình duyệt sẽ hỏi chọn <b>"Tab này"</b> và
-                      nhớ tick <b>"Chia sẻ âm thanh"</b> (Share tab audio) — chỉ hoạt động trên Chrome/Edge máy tính.
+                      Ghi lại giọng đọc này thành file để tải về: trình duyệt sẽ hỏi chọn tab để chia sẻ —
+                      chọn đúng <b>"Thẻ Chrome" / "Chrome Tab"</b> (không chọn "Toàn màn hình" hay "Cửa sổ") và
+                      nhớ tick <b>"Chia sẻ âm thanh" / "Share tab audio"</b>, nếu không sẽ không có tiếng.
+                      Chỉ hoạt động trên Chrome/Edge máy tính.
                     </p>
                     <button
                       onClick={handleRecordBrowser}
-                      disabled={recordingBrowser || browserStatus !== "idle"}
+                      disabled={recordingBrowser}
                       className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {recordingBrowser ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
                       {recordingBrowser ? (browserRecordStatus || "Đang ghi âm...") : "Ghi âm để tải về"}
                     </button>
+
+                    {browserRecordError && (
+                      <p className="text-[11px] text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-2.5 py-1.5">
+                        {browserRecordError}
+                      </p>
+                    )}
 
                     {browserAudioUrl && (
                       <div className="space-y-2 pt-1">
