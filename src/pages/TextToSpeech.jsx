@@ -318,8 +318,8 @@ export default function TextToSpeech() {
   const hint = PROVIDER_HINTS[provider];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50">
-      <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-violet-100">
+    <div className="min-h-screen bg-slate-50">
+      <header className="sticky top-0 z-30 border-b border-violet-100 bg-white/80 backdrop-blur-xl">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3.5 flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
@@ -341,7 +341,7 @@ export default function TextToSpeech() {
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-5">
         {/* Text input */}
         <div className="rounded-2xl bg-white border border-violet-100 shadow-sm p-4">
           <textarea
@@ -556,7 +556,7 @@ export default function TextToSpeech() {
                     timingMode === "audio" ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  🎧 Đồng bộ theo Audio đã tạo (chính xác)
+                  Đồng bộ theo audio đã tạo
                 </button>
                 <button
                   onClick={() => setTimingMode("wpm")}
@@ -564,7 +564,7 @@ export default function TextToSpeech() {
                     timingMode === "wpm" ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  📖 Theo tốc độ đọc (ước lượng)
+                  Ước lượng theo tốc độ đọc
                 </button>
               </div>
 
@@ -663,7 +663,7 @@ export default function TextToSpeech() {
         {/* Browser TTS — free quick preview, not downloadable */}
         <div className="rounded-2xl bg-white border border-violet-100 shadow-sm p-4">
           <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-3">
-            🔊 Nghe thử nhanh bằng trình duyệt <span className="text-xs font-normal text-slate-400">(miễn phí, không tải về được)</span>
+            Nghe thử nhanh bằng trình duyệt <span className="text-xs font-normal text-slate-400">(miễn phí, không tải về được)</span>
           </h2>
           {!browserSupported ? (
             <p className="text-sm text-slate-400">Trình duyệt này không hỗ trợ đọc văn bản.</p>

@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Search, Plus, Pencil, Trash2, Upload, Download, Sparkles, ListChecks, X } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Upload, Download, Sparkles, ListChecks, X, BookOpenText, MessagesSquare } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { CATEGORY_STYLES, CATEGORY_EMOJI, CATEGORIES } from "@/lib/highlight";
 import { parseGlossaryFile } from "@/lib/importGlossary";
@@ -88,12 +88,12 @@ export default function GlossarySidebar({
   };
 
   return (
-    <aside className="absolute md:static inset-y-0 left-0 z-40 md:z-auto md:w-[280px] w-[85%] max-w-[320px] shrink-0 flex flex-col border-r border-violet-100 bg-white md:bg-white/60 backdrop-blur shadow-lg md:shadow-none">
+    <aside className="absolute md:static inset-y-0 left-0 z-40 md:z-auto md:w-[300px] w-[88%] max-w-[330px] shrink-0 flex flex-col border-r border-slate-200 bg-white/95 backdrop-blur-xl shadow-2xl md:shadow-none">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-violet-100">
+      <div className="px-4 py-4 border-b border-slate-100 bg-white">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5">
-            📖 Từ điển
+            <BookOpenText className="h-4 w-4 text-violet-600" /> Từ điển
             <span className="text-xs font-normal text-slate-400">
               ({terms.length})
             </span>
@@ -175,7 +175,7 @@ export default function GlossarySidebar({
           className="mt-2 w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-violet-700 bg-violet-50 hover:bg-violet-100 border border-violet-100 transition-colors"
           title="Quản lý ma trận xưng hô theo nhân vật"
         >
-          🗣️ Ma Trận Xưng Hô
+          <MessagesSquare className="h-3.5 w-3.5" /> Ma trận xưng hô
           <span className="ml-auto text-[10px] text-violet-400 font-normal">
             {Array.isArray(project?.contextual_pronoun_rules)
               ? project.contextual_pronoun_rules.length
@@ -194,7 +194,7 @@ export default function GlossarySidebar({
 
       {/* Category tabs — wrap instead of scroll-hide so all of them stay
           visible without a hidden horizontal scroll a user has to discover. */}
-      <div className="flex flex-wrap gap-1 px-3 py-2 border-b border-violet-100">
+      <div className="flex flex-wrap gap-1.5 px-3 py-3 border-b border-slate-100 bg-slate-50/60">
         <button
           onClick={() => setActiveCategory("all")}
           className={`shrink-0 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${activeCategory === "all" ? "bg-violet-600 text-white" : "bg-violet-50 text-slate-500 hover:bg-violet-100"}`}
@@ -213,10 +213,10 @@ export default function GlossarySidebar({
       </div>
 
       {/* Term list */}
-      <div className="flex-1 overflow-y-auto cute-scrollbar p-3 space-y-2">
+      <div className="flex-1 overflow-y-auto cute-scrollbar p-3 space-y-2 bg-slate-50/30">
         {filtered.length === 0 ? (
           <div className="text-center py-8 text-slate-400 text-sm">
-            <p className="text-3xl mb-2">📖</p>
+            <BookOpenText className="mx-auto mb-3 h-7 w-7 text-slate-300" />
             <p>Chưa có thuật ngữ nào</p>
             <button
               onClick={onAddTerm}

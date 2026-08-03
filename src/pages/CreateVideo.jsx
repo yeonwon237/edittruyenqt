@@ -230,8 +230,8 @@ export default function CreateVideo() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50">
-      <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-violet-100">
+    <div className="min-h-screen bg-slate-50">
+      <header className="sticky top-0 z-30 border-b border-violet-100 bg-white/80 backdrop-blur-xl">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3.5 flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
@@ -253,9 +253,9 @@ export default function CreateVideo() {
         </div>
       </header>
 
-      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-8 space-y-5">
         <div className="rounded-2xl bg-white border border-violet-200 shadow-sm p-4">
-          <h2 className="text-sm font-bold text-slate-700 mb-1">🖼️ Tạo Ảnh Bìa</h2>
+          <h2 className="text-sm font-bold text-slate-700 mb-1">Tạo ảnh bìa</h2>
           <p className="text-xs text-slate-400 mb-4">
             Điền tên truyện/chương, chọn ảnh nền, rồi tải ảnh bìa 1920×1080 về máy.
           </p>
@@ -302,7 +302,7 @@ export default function CreateVideo() {
                       imageSource === "cloudflare" ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                     }`}
                   >
-                    ☁️ Cloudflare (miễn phí, chất lượng cao)
+                    Cloudflare · Chất lượng cao
                   </button>
                   {hasGeminiImageKey() && (
                     <button
@@ -311,7 +311,7 @@ export default function CreateVideo() {
                         imageSource === "gemini" ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                       }`}
                     >
-                      ✨ Gemini
+                      Gemini
                     </button>
                   )}
                   <button
@@ -320,7 +320,7 @@ export default function CreateVideo() {
                       imageSource === "pollinations" ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                     }`}
                   >
-                    🌸 Pollinations (miễn phí, không cần key)
+                    Pollinations · Không cần key
                   </button>
                 </div>
 
@@ -513,7 +513,7 @@ export default function CreateVideo() {
             className="w-full flex items-center justify-center gap-1.5 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:opacity-90 text-white text-sm font-semibold transition-all disabled:opacity-50"
           >
             {rendering ? <Loader2 className="w-4 h-4 animate-spin" /> : <Film className="w-4 h-4" />}
-            🎬 Tự Động Render Video MP4
+            Tự động render video MP4
           </button>
 
           {rendering && (

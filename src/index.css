@@ -21,8 +21,8 @@
     --violet-900: 76 29 149;
     --violet-950: 46 16 101;
 
-    --background: 264 30% 99%;
-    --foreground: 260 22% 16%;
+    --background: 250 33% 98.5%;
+    --foreground: 245 24% 14%;
     --card: 0 0% 100%;
     --card-foreground: 260 22% 16%;
     --popover: 0 0% 100%;
@@ -37,17 +37,17 @@
     --accent-foreground: 322 55% 28%;
     --destructive: 0 72% 56%;
     --destructive-foreground: 0 0% 98%;
-    --border: 264 18% 91%;
-    --input: 264 18% 91%;
+    --border: 252 20% 90%;
+    --input: 252 20% 87%;
     --ring: 262 72% 52%;
     --chart-1: 262 72% 55%;
     --chart-2: 322 50% 50%;
     --chart-3: 200 65% 48%;
     --chart-4: 30 75% 55%;
     --chart-5: 168 50% 42%;
-    --radius: 0.625rem;
-    --font-heading: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    --font-body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --radius: 0.875rem;
+    --font-heading: "Segoe UI Variable Display", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
+    --font-body: "Segoe UI Variable Text", "Segoe UI", ui-sans-serif, system-ui, sans-serif;
     --font-display: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
     --sidebar-background: 264 25% 98.5%;
@@ -145,6 +145,192 @@
   }
   body {
     @apply bg-background text-foreground font-body antialiased;
+    min-width: 320px;
+    background-image:
+      radial-gradient(circle at 8% -10%, rgb(var(--violet-100) / .65), transparent 28rem),
+      radial-gradient(circle at 92% 0%, rgb(var(--violet-50) / .75), transparent 24rem);
+    background-attachment: fixed;
+  }
+  ::selection {
+    @apply bg-violet-200 text-violet-950;
+  }
+  button, a, input, textarea, select {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:focus-visible, a:focus-visible {
+    @apply outline-none ring-2 ring-violet-500 ring-offset-2 ring-offset-background;
+  }
+  h1, h2, h3 {
+    @apply font-heading;
+  }
+}
+
+@layer components {
+  .auth-shell {
+    display: grid;
+    grid-template-columns: minmax(0, 1.08fr) minmax(440px, .92fr);
+  }
+  .auth-showcase {
+    position: relative;
+    min-height: 100vh;
+    overflow: hidden;
+    padding: clamp(2rem, 4vw, 4.5rem);
+    background:
+      linear-gradient(145deg, rgb(var(--violet-950)) 0%, rgb(var(--violet-800)) 52%, rgb(var(--violet-600)) 100%);
+  }
+  .auth-showcase::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: .12;
+    background-image:
+      linear-gradient(rgb(255 255 255 / .2) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / .2) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(to bottom, black, transparent 80%);
+  }
+  .auth-showcase__glow {
+    position: absolute;
+    border-radius: 999px;
+    filter: blur(2px);
+    opacity: .45;
+  }
+  .auth-showcase__glow--one {
+    width: 26rem;
+    height: 26rem;
+    right: -10rem;
+    top: 10%;
+    background: rgb(255 255 255 / .18);
+  }
+  .auth-showcase__glow--two {
+    width: 18rem;
+    height: 18rem;
+    left: -7rem;
+    bottom: 3%;
+    background: rgb(var(--violet-400) / .35);
+  }
+  .auth-form-area {
+    display: flex;
+    min-height: 100vh;
+    align-items: center;
+    justify-content: center;
+    padding: clamp(2rem, 6vw, 5rem);
+    background: hsl(var(--background) / .92);
+  }
+  .auth-card {
+    @apply rounded-2xl border border-border/80 bg-card p-6 shadow-[0_1px_2px_rgba(15,23,42,.03),0_24px_60px_-32px_rgba(39,24,77,.3)] sm:p-8;
+  }
+  .app-header-action {
+    @apply inline-flex h-9 items-center gap-2 rounded-xl px-3 text-xs font-semibold text-violet-700 transition-all hover:bg-violet-50 active:scale-[.98];
+  }
+  .app-header-action--muted {
+    @apply text-slate-500 hover:bg-slate-100 hover:text-slate-700;
+  }
+  .dashboard-hero {
+    @apply relative overflow-hidden rounded-[2rem] p-6 sm:p-9 lg:p-12;
+    background: linear-gradient(135deg, rgb(var(--violet-950)) 0%, rgb(var(--violet-800)) 55%, rgb(var(--violet-600)) 100%);
+    box-shadow: 0 32px 80px -42px rgb(var(--violet-800) / .7);
+  }
+  .dashboard-hero::before {
+    content: "";
+    @apply pointer-events-none absolute inset-0 opacity-15;
+    background-image: linear-gradient(rgb(255 255 255 / .2) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / .2) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: linear-gradient(120deg, black, transparent 72%);
+  }
+  .dashboard-hero__orb {
+    @apply pointer-events-none absolute -right-20 -top-24 h-96 w-96 rounded-full;
+    background: radial-gradient(circle, rgb(255 255 255 / .2), transparent 65%);
+  }
+  .hero-stat {
+    @apply flex items-center gap-3 rounded-2xl bg-white/[.07] px-4 py-3 text-white/70;
+  }
+  .hero-stat > svg { @apply h-4 w-4 shrink-0 text-white/80; }
+  .hero-stat span { @apply flex flex-col; }
+  .hero-stat strong { @apply text-xs font-semibold text-white/90; }
+  .hero-stat small { @apply mt-0.5 text-[10px] text-white/45; }
+  .feature-card {
+    @apply relative min-h-[245px] overflow-hidden rounded-[1.75rem] border border-white bg-white/90 p-6 text-left shadow-[0_1px_2px_rgba(15,23,42,.04),0_20px_50px_-36px_rgba(39,24,77,.4)] backdrop-blur transition-all duration-300 hover:-translate-y-1 hover:border-violet-200 hover:shadow-[0_28px_65px_-36px_rgb(var(--violet-700)/.5)] sm:p-7;
+  }
+  .feature-card__wash {
+    @apply pointer-events-none absolute -right-20 -top-24 h-72 w-72 rounded-full opacity-70 transition-transform duration-500 group-hover:scale-125;
+  }
+  /* Professional step cards shared by Audio, Video and Subtitle tools. */
+  main > div.rounded-2xl.bg-white {
+    counter-increment: tool-step;
+    border-radius: 1.5rem;
+    border-color: rgb(226 232 240 / .9);
+    background: rgb(255 255 255 / .94);
+    padding: 1.5rem;
+    box-shadow: 0 1px 2px rgb(15 23 42 / .03), 0 20px 50px -38px rgb(15 23 42 / .38);
+  }
+  main.space-y-5 { counter-reset: tool-step; }
+  main.space-y-5 > div.rounded-2xl.bg-white::before {
+    content: "BƯỚC " counter(tool-step, decimal-leading-zero);
+    display: inline-flex;
+    margin-bottom: .75rem;
+    color: rgb(100 116 139);
+    font-size: .625rem;
+    font-weight: 800;
+    letter-spacing: .16em;
+  }
+  main > div.rounded-2xl.bg-white > h2 {
+    font-size: .875rem;
+    letter-spacing: -.01em;
+    color: rgb(30 41 59);
+  }
+  main > div.rounded-2xl.bg-white textarea,
+  main > div.rounded-2xl.bg-white input:not([type="range"]),
+  main > div.rounded-2xl.bg-white select {
+    border-color: rgb(226 232 240);
+    background-color: rgb(248 250 252 / .8);
+  }
+  main > div.rounded-2xl.bg-white textarea:focus,
+  main > div.rounded-2xl.bg-white input:not([type="range"]):focus,
+  main > div.rounded-2xl.bg-white select:focus {
+    background-color: white;
+  }
+
+  /* Shared surface treatment for every feature page without touching behavior. */
+  .min-h-screen.bg-gradient-to-br {
+    background-image:
+      radial-gradient(circle at 8% 0%, rgb(var(--violet-100) / .8), transparent 30rem),
+      radial-gradient(circle at 95% 5%, rgb(224 231 255 / .6), transparent 28rem),
+      linear-gradient(to bottom right, hsl(var(--background)), white, hsl(var(--background)));
+  }
+  header.sticky {
+    box-shadow: 0 1px 0 rgb(255 255 255 / .65), 0 10px 30px -26px rgb(15 23 42 / .35);
+  }
+  header.sticky > div {
+    min-height: 64px;
+  }
+  main > .bg-white,
+  main > section.bg-white,
+  section > .bg-white {
+    box-shadow: 0 1px 2px rgb(15 23 42 / .03), 0 18px 45px -34px rgb(15 23 42 / .28);
+  }
+  textarea, select {
+    transition: border-color .2s ease, box-shadow .2s ease, background-color .2s ease;
+  }
+  textarea:focus, select:focus {
+    border-color: rgb(var(--violet-400));
+    box-shadow: 0 0 0 4px rgb(var(--violet-100) / .75);
+    outline: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .auth-shell { display: block; }
+  .auth-showcase { display: none; }
+  .auth-form-area { padding: 2rem 1.25rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
   }
 }
 

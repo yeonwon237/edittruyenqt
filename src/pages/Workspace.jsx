@@ -38,13 +38,13 @@ import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
-import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon } from "lucide-react";
+import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
-  raw: { emoji: "📖", shortLabel: "Gốc" },
-  qt: { emoji: "✏️", shortLabel: "QT" },
-  edited: { emoji: "✨", shortLabel: "Edit" },
+  raw: { shortLabel: "Bản gốc" },
+  qt: { shortLabel: "QT thô" },
+  edited: { shortLabel: "Bản edit" },
 };
 
 const COLUMN_INDEX = { raw: 0, qt: 1, edited: 2 };
@@ -1157,13 +1157,14 @@ ${sourceText}`;
   // Always-visible restore tab shown in place of a hidden column — the
   // "Cột" dropdown in the toolbar also toggles this, but a tab right where
   // the panel used to be is impossible to miss.
-  const renderRestoreTab = (col, emoji, label) => (
+  const renderRestoreTab = (col, _legacyIcon, label) => (
     <button
+      data-legacy-icon={_legacyIcon}
       onClick={() => handleToggleColumn(col)}
-      className="hidden md:flex flex-col items-center justify-center gap-2 w-9 shrink-0 rounded-2xl bg-white/70 border border-violet-100 text-slate-400 hover:bg-violet-50 hover:text-violet-600 transition-colors py-4"
+      className="hidden md:flex flex-col items-center justify-center gap-2 w-10 shrink-0 rounded-xl bg-white border border-slate-200 text-slate-400 hover:border-violet-300 hover:text-violet-600 transition-colors py-4 shadow-sm"
       title={`Hiện lại cột ${label}`}
     >
-      <span className="text-base">{emoji}</span>
+      <PanelRightOpen className="h-4 w-4" />
       <span
         className="text-[10px] font-medium tracking-wide"
         style={{ writingMode: "vertical-rl" }}
@@ -1699,7 +1700,7 @@ Tên chương đã dịch:`;
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-gradient-to-br from-violet-50 to-indigo-50 flex flex-col">
+    <div className="h-screen overflow-hidden bg-slate-100/80 flex flex-col">
       {/* Header + toolbar stay put — the page itself never scrolls (h-screen
           overflow-hidden below), only the columns and sidebar do, each via
           their own internal overflow-y-auto (see EditorPanel/GlossarySidebar).
@@ -1708,24 +1709,24 @@ Tên chương đã dịch:`;
           to the document instead, so both problems showed up together: the
           header/toolbar scrolled out of view, and columns never got tall
           enough to need their own scrollbar. */}
-      <header className="shrink-0 z-30 bg-white/80 backdrop-blur-md border-b border-violet-100">
-        <div className="flex items-center gap-3 px-4 py-2.5">
+      <header className="shrink-0 z-30 bg-slate-950 text-white border-b border-white/10 shadow-xl">
+        <div className="flex items-center gap-3 px-4 py-3">
           <Link
             to="/stories"
-            className="p-2 rounded-xl hover:bg-violet-50 text-slate-500 transition-colors"
+            className="p-2 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-colors"
             title="Về danh sách truyện"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <Link
             to="/"
-            className="p-2 rounded-xl hover:bg-violet-50 text-slate-500 transition-colors"
+            className="p-2 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-colors"
             title="Về trang chủ"
           >
             <Home className="w-4 h-4" />
           </Link>
           <div className="flex items-center gap-2 min-w-0">
-            <span className="text-2xl shrink-0">{project.cover_emoji || "📚"}</span>
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-violet-300"><BookOpen className="h-4 w-4" /></span>
             <div className="min-w-0">
               {editingTitle ? (
                 <div className="flex items-center gap-1">
@@ -1763,14 +1764,14 @@ Tên chương đã dịch:`;
                     setTitleDraft(project.title || "");
                     setEditingTitle(true);
                   }}
-                  className="text-sm font-bold text-slate-800 leading-tight truncate cursor-pointer hover:text-violet-600 transition-colors flex items-center gap-1 group"
+                  className="text-sm font-bold text-white leading-tight truncate cursor-pointer hover:text-violet-300 transition-colors flex items-center gap-1 group"
                   title="Bấm để đổi tên bộ truyện"
                 >
                   <span className="truncate">{project.title}</span>
                   <Pencil className="w-3 h-3 text-slate-300 group-hover:text-violet-400 shrink-0" />
                 </h1>
               )}
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-white/40">
                 {glossaryTerms.length} thuật ngữ · {chapterList.length} chương
               </p>
             </div>
@@ -1782,7 +1783,7 @@ Tên chương đã dịch:`;
           <select
             value={currentChapter?.id || ""}
             onChange={(e) => switchChapter(e.target.value)}
-            className="text-sm px-3 py-1.5 rounded-xl border border-violet-100 bg-white/70 text-slate-700 focus:outline-none focus:border-violet-400 max-w-[180px]"
+            className="text-sm px-3 py-2 rounded-xl border border-white/10 bg-white/10 text-white focus:outline-none focus:border-violet-400 max-w-[180px] [&>option]:text-slate-900"
           >
             {chapterList.map((ch) => (
               <option key={ch.id} value={ch.id}>
@@ -1792,14 +1793,14 @@ Tên chương đã dịch:`;
           </select>
           <button
             onClick={() => setShowChapterManager(true)}
-            className="p-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
+            className="p-2 rounded-xl bg-white/10 hover:bg-white/15 text-violet-300 transition-colors"
             title="Quản lý chương"
           >
             <ListIcon className="w-4 h-4" />
           </button>
           <button
             onClick={handleCreateChapter}
-            className="p-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
+            className="p-2 rounded-xl bg-violet-500 hover:bg-violet-400 text-white transition-colors shadow-lg"
             title="Tạo chương mới"
           >
             <Plus className="w-4 h-4" />
@@ -1812,11 +1813,11 @@ Tên chương đã dịch:`;
               className="text-xs px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-600 font-medium transition-colors hidden md:flex items-center gap-1"
               title="Chế độ nháp: không tự lưu, bấm để lưu chương này ngay"
             >
-              {saving ? "💾 Đang lưu..." : "📝 Nháp · Lưu"}
+              {saving ? "Đang lưu..." : "Chế độ nháp · Lưu"}
             </button>
           ) : (
             <span className="text-xs text-slate-400 hidden md:block">
-              {saving ? "💾 Đang lưu..." : "✅ Đã lưu"}
+              {saving ? "Đang lưu..." : "Đã lưu"}
             </span>
           )}
 
@@ -1825,19 +1826,19 @@ Tên chương đã dịch:`;
               onClick={() => handleExport("txt")}
               className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-violet-100 text-slate-600 transition-colors"
             >
-              📄 Txt
+              TXT
             </button>
             <button
               onClick={() => handleExport("doc")}
               className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-violet-100 text-slate-600 transition-colors"
             >
-              📝 Doc
+              DOCX
             </button>
             <button
               onClick={() => handleExport("json")}
               className="text-xs px-2.5 py-1.5 rounded-lg bg-white/70 hover:bg-white border border-violet-100 text-slate-600 transition-colors"
             >
-              📋 JSON
+              JSON
             </button>
           </div>
 
@@ -1903,7 +1904,7 @@ Tên chương đã dịch:`;
             />
           </>
         )}
-        <div className="flex-1 flex flex-col gap-2 p-3 min-w-0 min-h-0">
+        <div className="flex-1 flex flex-col gap-3 p-3 min-w-0 min-h-0 md:p-4">
           {currentChapter ? (
             <>
               {visibleColumns.length > 1 && (
@@ -1920,13 +1921,13 @@ Tên chương đã dịch:`;
                             : "bg-white/70 text-slate-500 border border-violet-100"
                         }`}
                       >
-                        {def.emoji} {def.shortLabel}
+                        {def.shortLabel}
                       </button>
                     );
                   })}
                 </div>
               )}
-              <div className="flex flex-1 gap-2 min-h-0 min-w-0">
+              <div className="flex flex-1 gap-3 min-h-0 min-w-0">
                 {!visibleColumns.includes("raw") && renderRestoreTab("raw", "📖", "Gốc")}
                 {visibleColumns.includes("raw") && (
                   <div
@@ -1940,6 +1941,7 @@ Tên chương đã dịch:`;
                       ref={panelRefs[0]}
                       title="Văn bản gốc"
                       emoji="📖"
+                      variant="source"
                       value={currentChapter.raw_original}
                       onChange={(v) =>
                         setCurrentChapter({ ...currentChapter, raw_original: v })
@@ -1970,6 +1972,7 @@ Tên chương đã dịch:`;
                       ref={panelRefs[1]}
                       title="QT thô"
                       emoji="✏️"
+                      variant="draft"
                       value={currentChapter.qt_raw}
                       onChange={(v) =>
                         setCurrentChapter({ ...currentChapter, qt_raw: v })
@@ -2000,6 +2003,7 @@ Tên chương đã dịch:`;
                       ref={panelRefs[2]}
                       title="Bản Edit"
                       emoji="✨"
+                      variant="final"
                       value={currentChapter.edited}
                       onChange={(v) =>
                         setCurrentChapter({ ...currentChapter, edited: v })

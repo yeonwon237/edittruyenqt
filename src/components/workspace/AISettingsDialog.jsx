@@ -7,7 +7,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Save, Trash2, ExternalLink, Loader2, Sparkles, Check, RotateCcw } from "lucide-react";
+import { Save, Trash2, ExternalLink, Loader2, Sparkles, Check, RotateCcw, Bot } from "lucide-react";
 import {
   getProvider,
   saveProvider,
@@ -28,7 +28,6 @@ const PROVIDERS_INFO = {
   gemini: {
     label: "Google Gemini",
     shortLabel: "Gemini",
-    emoji: "✨",
     desc: "Miễn phí, ~500 lượt/ngày — Gemini 3.5 Flash Lite",
     placeholder: "AIza...",
     helpUrl: "https://aistudio.google.com/apikey",
@@ -40,7 +39,6 @@ const PROVIDERS_INFO = {
   openai: {
     label: "OpenAI GPT",
     shortLabel: "GPT",
-    emoji: "🤖",
     desc: "GPT-4o-mini — chất lượng tốt, trả phí",
     placeholder: "sk-...",
     helpUrl: "https://platform.openai.com/api-keys",
@@ -52,7 +50,6 @@ const PROVIDERS_INFO = {
   claude: {
     label: "Anthropic Claude",
     shortLabel: "Claude",
-    emoji: "🧠",
     desc: "Claude Sonnet 4.6 — giỏi biên tập văn học",
     placeholder: "sk-ant-...",
     helpUrl: "https://console.anthropic.com/settings/keys",
@@ -131,7 +128,7 @@ export default function AISettingsDialog({ open, onOpenChange }) {
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto cute-scrollbar">
         <DialogHeader>
           <DialogTitle className="text-violet-700 flex items-center gap-2">
-            🤖 Nhà cung cấp AI
+            <Bot className="h-5 w-5" /> Nhà cung cấp AI
           </DialogTitle>
           <DialogDescription>
             Chọn nhà cung cấp và API Key sẽ dùng khi bấm nút AI Edit trong Workspace này.
@@ -153,7 +150,7 @@ export default function AISettingsDialog({ open, onOpenChange }) {
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-2xl">{p.emoji}</span>
+                  <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${p.accentBg} ${p.accentText}`}><Bot className="h-4 w-4" /></span>
                   {hasKey ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600 font-medium">
                       ✓ có key
@@ -180,7 +177,7 @@ export default function AISettingsDialog({ open, onOpenChange }) {
 
         <div className={`rounded-xl ${info.accentBg} border ${info.accentBorder} p-4`}>
           <p className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-            <span className="text-lg">{info.emoji}</span> API Key — {info.label}
+            <Bot className="h-4 w-4" /> API Key — {info.label}
           </p>
           <input
             type="password"

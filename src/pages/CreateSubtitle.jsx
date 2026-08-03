@@ -88,8 +88,8 @@ export default function CreateSubtitle() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50">
-      <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-violet-100">
+    <div className="min-h-screen bg-slate-50">
+      <header className="sticky top-0 z-30 border-b border-violet-100 bg-white/80 backdrop-blur-xl">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3.5 flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
@@ -107,7 +107,7 @@ export default function CreateSubtitle() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-4">
+      <main className="max-w-3xl mx-auto px-4 sm:px-6 py-8 space-y-5">
         <div className="rounded-2xl bg-white border border-violet-200 shadow-sm p-4">
           <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-1">
             <Captions className="w-4 h-4 text-sky-500" /> Tạo Phụ Đề (.srt / .vtt)
@@ -147,7 +147,7 @@ export default function CreateSubtitle() {
                     timingMode === "audio" ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  🎧 Đồng bộ theo Audio (chính xác)
+                  Đồng bộ theo audio
                 </button>
                 <button
                   onClick={() => setTimingMode("wpm")}
@@ -155,7 +155,7 @@ export default function CreateSubtitle() {
                     timingMode === "wpm" ? "bg-sky-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                   }`}
                 >
-                  📖 Theo tốc độ đọc (ước lượng)
+                  Ước lượng theo tốc độ đọc
                 </button>
               </div>
 

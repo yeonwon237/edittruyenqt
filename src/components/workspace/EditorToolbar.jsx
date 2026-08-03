@@ -13,26 +13,27 @@ import {
   Palette,
   ImagePlus,
   MoreHorizontal,
+  Bot,
 } from "lucide-react";
 
 const COLUMN_OPTIONS = [
-  { key: "raw", label: "📖 Văn bản gốc" },
-  { key: "qt", label: "✏️ QT thô" },
-  { key: "edited", label: "✨ Bản Edit" },
+  { key: "raw", label: "Văn bản gốc" },
+  { key: "qt", label: "QT thô" },
+  { key: "edited", label: "Bản Edit" },
 ];
 
 const PROVIDER_INFO = {
   gemini: {
-    label: "Gemini", emoji: "✨",
-    gradFrom: "from-blue-500", gradTo: "to-cyan-500",
+    label: "Gemini",
+    gradFrom: "from-violet-600", gradTo: "to-violet-700",
   },
   openai: {
-    label: "GPT", emoji: "🤖",
-    gradFrom: "from-emerald-500", gradTo: "to-teal-500",
+    label: "GPT",
+    gradFrom: "from-violet-600", gradTo: "to-violet-700",
   },
   claude: {
-    label: "Claude", emoji: "🧠",
-    gradFrom: "from-amber-500", gradTo: "to-orange-500",
+    label: "Claude",
+    gradFrom: "from-violet-600", gradTo: "to-violet-700",
   },
 };
 
@@ -89,12 +90,12 @@ export default function EditorToolbar({
     // (rendered right after it in Workspace.jsx) painted on top and hid the
     // open dropdown underneath it (confirmed via elementFromPoint). Giving
     // the row itself a z-index promotes the whole row above that sibling.
-    <div className="relative z-50 shrink-0 flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 bg-white/60 backdrop-blur border-b border-violet-100">
+    <div className="relative z-50 shrink-0 flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/90 backdrop-blur-xl border-b border-slate-200 shadow-[0_8px_24px_-24px_rgba(15,23,42,.5)]">
       {/* Column selector */}
       <div ref={colsRef} className="relative shrink-0">
         <button
           onClick={() => setShowCols((s) => !s)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 text-xs font-medium transition-colors"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-700 text-xs font-semibold transition-colors border border-violet-100"
         >
           <Columns3 className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Cột</span>
@@ -138,7 +139,7 @@ export default function EditorToolbar({
       <div ref={moreRef} className="relative shrink-0">
         <button
           onClick={() => setShowMore((s) => !s)}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-600 text-xs font-medium transition-colors"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-600 text-xs font-semibold transition-colors border border-slate-200"
         >
           <MoreHorizontal className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Thêm</span>
@@ -211,7 +212,7 @@ export default function EditorToolbar({
             ? "Tự dịch văn bản gốc → QT thô bằng từ điển Hán-Việt (miễn phí, chạy tại chỗ)"
             : "Tự dịch tự thân hiện chỉ hỗ trợ nguồn tiếng Trung"
         }
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
       >
         {selfTranslating ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -226,7 +227,7 @@ export default function EditorToolbar({
       <button
         onClick={onRuleEdit}
         title="Edit QT thô → Bản Edit bằng rule (miễn phí, chạy tại chỗ, không dùng AI)"
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-700 text-xs font-semibold transition-all shrink-0"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition-all shrink-0"
       >
         <Sparkles className="w-3.5 h-3.5" />
         <span className="hidden sm:inline">Rule Edit</span>
@@ -244,7 +245,7 @@ export default function EditorToolbar({
             {customAIEditing ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
-              <span className="text-sm leading-none">{provider.emoji}</span>
+              <Bot className="h-3.5 w-3.5" />
             )}
             {provider.label}
           </button>

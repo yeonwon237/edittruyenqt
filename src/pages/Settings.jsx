@@ -39,8 +39,8 @@ export default function Settings() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50 pb-16">
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-violet-100">
+    <div className="min-h-screen bg-slate-50 pb-16">
+      <header className="sticky top-0 z-30 border-b border-violet-100 bg-white/80 backdrop-blur-xl">
         <div className="max-w-3xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
@@ -60,9 +60,9 @@ export default function Settings() {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+      <main className="max-w-3xl mx-auto px-4 py-10 space-y-5">
         {user && (
-          <div className="bg-white rounded-2xl border border-violet-100 shadow-sm p-5">
+          <div className="bg-white/90 rounded-3xl border border-white shadow-sm p-6">
             <h2 className="text-sm font-semibold text-slate-700 mb-1">
               Tài khoản
             </h2>
@@ -75,7 +75,7 @@ export default function Settings() {
           </div>
         )}
 
-        <div className="bg-white rounded-2xl border border-violet-100 shadow-sm p-5">
+        <div className="bg-white/90 rounded-3xl border border-white shadow-sm p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold text-slate-700 mb-1">
@@ -90,7 +90,7 @@ export default function Settings() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-violet-100 shadow-sm p-5">
+        <div className="bg-white/90 rounded-3xl border border-white shadow-sm p-6">
           <h2 className="text-sm font-semibold text-slate-700 mb-1">🎨 Giao diện</h2>
           <p className="text-xs text-slate-400 mb-3">
             Đổi màu chủ đạo của web. Áp dụng ngay trên máy này, không ảnh hưởng người khác.
@@ -116,7 +116,7 @@ export default function Settings() {
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-violet-100 shadow-sm p-5">
+        <div className="bg-white/90 rounded-3xl border border-white shadow-sm p-6">
           <p className="text-xs text-slate-400">
             🤖 Cài đặt Nhà cung cấp AI (API Key, model) đã chuyển vào bên trong từng bộ truyện —
             mở một bộ truyện, bấm nút "AI" trên thanh công cụ để cấu hình.

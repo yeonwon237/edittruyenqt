@@ -175,7 +175,7 @@ export default function StoryLibrary() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/85 backdrop-blur-md border-b border-violet-100">
+      <header className="sticky top-0 z-30 border-b border-violet-100 bg-white/80 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex items-center gap-3">
           <button
             onClick={() => navigate("/")}
@@ -197,8 +197,25 @@ export default function StoryLibrary() {
         </div>
       </header>
 
+      <section className="mx-auto max-w-6xl px-4 pt-8 sm:px-6">
+        <div className="relative overflow-hidden rounded-[1.75rem] bg-slate-950 px-6 py-7 text-white shadow-[0_24px_60px_-38px_rgba(15,23,42,.8)] sm:px-8 sm:py-9">
+          <div className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-violet-500/25 blur-2xl" />
+          <div className="relative flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[.18em] text-violet-300">Thư viện cá nhân</p>
+              <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Những câu chuyện của bạn</h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-white/55">Quản lý bản thảo, thuật ngữ và tiến độ biên tập trong từng bộ truyện.</p>
+            </div>
+            <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[.06] px-4 py-3 backdrop-blur">
+              <BookOpen className="h-5 w-5 text-violet-300" />
+              <div><p className="text-lg font-bold leading-none">{projects.length}</p><p className="mt-1 text-[10px] text-white/45">Bộ truyện</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Toolbar */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-6 pb-4 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 pb-5 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
           <input
@@ -247,7 +264,7 @@ export default function StoryLibrary() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") navigate(`/workspace/${proj.id}`);
                 }}
-                className="group text-left rounded-2xl bg-white border border-violet-100 hover:border-violet-300 shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all overflow-hidden cursor-pointer"
+                className="group text-left rounded-3xl bg-white/90 border border-white hover:border-violet-200 shadow-[0_1px_2px_rgba(15,23,42,.04),0_16px_40px_-30px_rgba(39,24,77,.3)] hover:shadow-xl hover:-translate-y-1 transition-all duration-300 overflow-hidden cursor-pointer"
               >
                 <div
                   className={`relative h-24 bg-gradient-to-br ${gradientFor(proj.cover_emoji || "📚")} flex items-center justify-center`}

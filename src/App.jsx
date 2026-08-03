@@ -25,8 +25,11 @@ const AuthenticatedApp = () => {
   // Show loading spinner while checking auth
   if (isLoadingAuth) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center">
-        <div className="w-8 h-8 border-4 border-slate-200 border-t-slate-800 rounded-full animate-spin"></div>
+      <div className="fixed inset-0 flex flex-col items-center justify-center bg-background">
+        <div className="relative flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+          <div className="h-7 w-7 rounded-full border-[3px] border-primary/15 border-t-primary animate-spin" />
+        </div>
+        <p className="mt-4 text-sm font-medium text-muted-foreground">Đang chuẩn bị không gian làm việc…</p>
       </div>
     );
   }
