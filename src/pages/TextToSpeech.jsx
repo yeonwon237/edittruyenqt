@@ -13,12 +13,15 @@ import {
   EyeOff,
   Check,
   Captions,
+  Mic,
 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import {
   supportsBrowserTts,
+  supportsBrowserTtsRecording,
   loadBrowserVoices,
   speakWithBrowser,
+  recordBrowserSpeech,
   pauseBrowser,
   resumeBrowser,
   stopBrowser,
@@ -61,6 +64,7 @@ import {
   downloadSrt,
   downloadVtt,
 } from "@/lib/subtitles";
+import { convertAudioToMp3 } from "@/lib/videoRender";
 
 function formatMinSec(totalSeconds) {
   const s = Math.round(totalSeconds);
@@ -118,6 +122,14 @@ export default function TextToSpeech() {
   const [rate, setRate] = useState(1);
   const [browserStatus, setBrowserStatus] = useState("idle"); // idle | playing | paused
 
+  // Browser TTS recording (tab-capture workaround — see recordBrowserSpeech)
+  const [recordingBrowser, setRecordingBrowser] = useState(false);
+  const [browserRecordStatus, setBrowserRecordStatus] = useState("");
+  const [browserAudioBlob, setBrowserAudioBlob] = useState(null);
+  const [browserAudioUrl, setBrowserAudioUrl] = useState("");
+  const [convertingMp3, setConvertingMp3] = useState(false);
+  const [mp3ConvertProgress, setMp3ConvertProgress] = useState(0);
+
   const computeProviderReady = (p) => ({
     gcp: hasGcpTtsKey(),
     openai: hasOpenAiKey(),
@@ -161,6 +173,7 @@ export default function TextToSpeech() {
   const [subtitleLines, setSubtitleLines] = useState([]);
 
   const browserSupported = supportsBrowserTts();
+  const browserRecordingSupported = supportsBrowserTtsRecording();
 
   useEffect(() => {
     if (!browserSupported) return;
@@ -177,6 +190,12 @@ export default function TextToSpeech() {
       if (audioUrl) URL.revokeObjectURL(audioUrl);
     };
   }, [audioUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (browserAudioUrl) URL.revokeObjectURL(browserAudioUrl);
+    };
+  }, [browserAudioUrl]);
 
   const handlePlayBrowser = () => {
     if (!text.trim()) {
@@ -200,6 +219,65 @@ export default function TextToSpeech() {
   const handleStopBrowser = () => {
     stopBrowser();
     setBrowserStatus("idle");
+  };
+
+  const handleRecordBrowser = async () => {
+    if (!text.trim()) {
+      toast({ title: "Chưa có văn bản để đọc", variant: "destructive" });
+      return;
+    }
+    setRecordingBrowser(true);
+    setBrowserRecordStatus("");
+    try {
+      if (browserAudioUrl) URL.revokeObjectURL(browserAudioUrl);
+      setBrowserAudioBlob(null);
+      setBrowserAudioUrl("");
+      const blob = await recordBrowserSpeech(text, { voiceURI, rate, onStatus: setBrowserRecordStatus });
+      setBrowserAudioBlob(blob);
+      setBrowserAudioUrl(URL.createObjectURL(blob));
+      toast({ title: "🎙️ Đã ghi xong giọng đọc!" });
+    } catch (e) {
+      toast({ title: "Không ghi được audio", description: e.message, variant: "destructive" });
+    }
+    setRecordingBrowser(false);
+    setBrowserRecordStatus("");
+  };
+
+  const handleDownloadBrowserWebm = () => {
+    if (!browserAudioBlob) return;
+    const a = document.createElement("a");
+    a.href = browserAudioUrl;
+    const safeName = (fileName.trim() || `giong-may-${Date.now()}`).replace(/[/\\?%*:|"<>]/g, "-");
+    a.download = `${safeName}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const handleConvertAndDownloadMp3 = async () => {
+    if (!browserAudioBlob) return;
+    setConvertingMp3(true);
+    setMp3ConvertProgress(0);
+    try {
+      const mp3Blob = await convertAudioToMp3(browserAudioBlob, {
+        onProgress: setMp3ConvertProgress,
+        onStatus: setBrowserRecordStatus,
+      });
+      const url = URL.createObjectURL(mp3Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const safeName = (fileName.trim() || `giong-may-${Date.now()}`).replace(/[/\\?%*:|"<>]/g, "-");
+      a.download = `${safeName}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      toast({ title: "🎧 Đã chuyển và tải file .mp3!" });
+    } catch (e) {
+      toast({ title: "Lỗi chuyển đổi mp3", description: e.message, variant: "destructive" });
+    }
+    setConvertingMp3(false);
+    setBrowserRecordStatus("");
   };
 
   const handleChangeProvider = (p) => {
@@ -660,10 +738,10 @@ export default function TextToSpeech() {
           </div>
         </div>
 
-        {/* Browser TTS — free quick preview, not downloadable */}
+        {/* Browser TTS — free, quick preview + downloadable via tab-capture workaround */}
         <div className="rounded-2xl bg-white border border-violet-100 shadow-sm p-4">
           <h2 className="text-sm font-bold text-slate-700 flex items-center gap-1.5 mb-3">
-            Nghe thử nhanh bằng trình duyệt <span className="text-xs font-normal text-slate-400">(miễn phí, không tải về được)</span>
+            Nghe thử nhanh bằng trình duyệt <span className="text-xs font-normal text-slate-400">(miễn phí — có thể ghi âm để tải về)</span>
           </h2>
           {!browserSupported ? (
             <p className="text-sm text-slate-400">Trình duyệt này không hỗ trợ đọc văn bản.</p>
@@ -704,7 +782,8 @@ export default function TextToSpeech() {
                 {browserStatus === "idle" ? (
                   <button
                     onClick={handlePlayBrowser}
-                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold transition-colors"
+                    disabled={recordingBrowser}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <Play className="w-4 h-4" /> Đọc
                   </button>
@@ -724,6 +803,55 @@ export default function TextToSpeech() {
                 >
                   <Square className="w-3.5 h-3.5" /> Dừng
                 </button>
+              </div>
+
+              {/* Recording (tab-capture) — the only way to get a real file out of SpeechSynthesis */}
+              <div className="pt-3 border-t border-violet-50 space-y-2">
+                {browserRecordingSupported ? (
+                  <>
+                    <p className="text-[11px] text-slate-400">
+                      Ghi lại giọng đọc này thành file để tải về: trình duyệt sẽ hỏi chọn <b>"Tab này"</b> và
+                      nhớ tick <b>"Chia sẻ âm thanh"</b> (Share tab audio) — chỉ hoạt động trên Chrome/Edge máy tính.
+                    </p>
+                    <button
+                      onClick={handleRecordBrowser}
+                      disabled={recordingBrowser || browserStatus !== "idle"}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {recordingBrowser ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mic className="w-4 h-4" />}
+                      {recordingBrowser ? (browserRecordStatus || "Đang ghi âm...") : "Ghi âm để tải về"}
+                    </button>
+
+                    {browserAudioUrl && (
+                      <div className="space-y-2 pt-1">
+                        <audio src={browserAudioUrl} controls className="w-full" />
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            onClick={handleDownloadBrowserWebm}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition-colors"
+                          >
+                            <Download className="w-3.5 h-3.5" /> Tải .webm (gốc)
+                          </button>
+                          <button
+                            onClick={handleConvertAndDownloadMp3}
+                            disabled={convertingMp3}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {convertingMp3 ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                            {convertingMp3
+                              ? `${browserRecordStatus || "Đang chuyển đổi"}${mp3ConvertProgress ? ` (${mp3ConvertProgress}%)` : ""}`
+                              : "Chuyển sang .mp3 & Tải"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-[11px] text-slate-400">
+                    Tải giọng đọc máy về file cần trình duyệt hỗ trợ ghi tab (chỉ Chrome/Edge trên máy tính) —
+                    trình duyệt hiện tại không hỗ trợ. Dùng phần "Tạo Audio (AI)" ở trên để có file tải về được.
+                  </p>
+                )}
               </div>
             </div>
           )}

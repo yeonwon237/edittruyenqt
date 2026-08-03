@@ -49,7 +49,7 @@ function describeError(e) {
   return String(e) || "Lỗi không xác định (không có mô tả chi tiết).";
 }
 
-function loadFfmpeg() {
+export function loadFfmpeg() {
   if (ffmpegInstance) return Promise.resolve(ffmpegInstance);
   if (loadPromise) return loadPromise;
   loadPromise = (async () => {
@@ -136,6 +136,49 @@ export async function renderVideoFromAudioAndImage({ imageBlob, audioFile, onPro
     } catch {
       // Best-effort cleanup only — a failure here shouldn't surface as an
       // error to the user since the render itself already succeeded.
+    }
+  }
+}
+
+/**
+ * Transcodes an audio Blob (e.g. the .webm recorded from browser TTS
+ * tab-capture) to .mp3, reusing the same ffmpeg.wasm instance/loader as
+ * video rendering above.
+ * @param {{ onProgress?: (percent: number) => void, onStatus?: (status: string) => void }} opts
+ * @returns {Promise<Blob>}
+ */
+export async function convertAudioToMp3(audioBlob, { onProgress, onStatus } = {}) {
+  onStatus?.("Đang tải công cụ chuyển đổi (lần đầu có thể mất khoảng 1 phút)...");
+  const ffmpeg = await loadFfmpeg();
+
+  const handleProgress = ({ progress }) => {
+    if (typeof progress === "number" && Number.isFinite(progress)) {
+      onProgress?.(Math.max(0, Math.min(100, Math.round(progress * 100))));
+    }
+  };
+  ffmpeg.on("progress", handleProgress);
+
+  try {
+    onStatus?.("Đang chuyển sang .mp3...");
+    await ffmpeg.writeFile("input.audio", await fetchFile(audioBlob));
+    const ret = await ffmpeg.exec(["-i", "input.audio", "-vn", "-b:a", "192k", "output.mp3"]);
+    if (typeof ret === "number" && ret !== 0) {
+      throw new Error(`FFmpeg thoát với mã lỗi ${ret} khi chuyển sang mp3.`);
+    }
+    const data = await ffmpeg.readFile("output.mp3");
+    if (!data || !data.length) {
+      throw new Error("Không tạo được file mp3 (kết quả rỗng).");
+    }
+    return new Blob([data.buffer], { type: "audio/mpeg" });
+  } catch (e) {
+    throw new Error(describeError(e));
+  } finally {
+    ffmpeg.off("progress", handleProgress);
+    try {
+      await ffmpeg.deleteFile("input.audio");
+      await ffmpeg.deleteFile("output.mp3");
+    } catch {
+      // Best-effort cleanup only.
     }
   }
 }

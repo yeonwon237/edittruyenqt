@@ -167,6 +167,102 @@ export function stopBrowser() {
   window.speechSynthesis?.cancel();
 }
 
+export function supportsBrowserTtsRecording() {
+  return typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia && typeof MediaRecorder !== "undefined";
+}
+
+/**
+ * Records the browser's built-in TTS as a downloadable .webm file. There is
+ * no direct API to capture SpeechSynthesis output (it only ever plays to the
+ * speakers), so this works around that by asking the user to share THIS
+ * TAB's audio via getDisplayMedia (screen/tab-capture, Chrome/Edge only)
+ * and recording that captured stream with MediaRecorder while the text is
+ * spoken. The video track that getDisplayMedia forces on us is stopped
+ * immediately — only the audio track is recorded.
+ */
+export function recordBrowserSpeech(text, { voiceURI, rate = 1, onStatus } = {}) {
+  if (!supportsBrowserTts() || !text?.trim()) {
+    return Promise.reject(new Error("Không có văn bản để đọc."));
+  }
+  if (!supportsBrowserTtsRecording()) {
+    return Promise.reject(new Error("Trình duyệt này không hỗ trợ ghi âm tab (chỉ Chrome/Edge trên máy tính)."));
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      fn(arg);
+    };
+
+    onStatus?.('Chọn "Tab này" và tick "Chia sẻ âm thanh" trong hộp thoại vừa mở...');
+    navigator.mediaDevices
+      .getDisplayMedia({ video: true, audio: true })
+      .then((displayStream) => {
+        const audioTracks = displayStream.getAudioTracks();
+        displayStream.getVideoTracks().forEach((t) => t.stop());
+
+        if (audioTracks.length === 0) {
+          displayStream.getTracks().forEach((t) => t.stop());
+          finish(reject, new Error('Không có âm thanh được chia sẻ — nhớ tick "Chia sẻ âm thanh" (Share tab audio) khi chọn tab.'));
+          return;
+        }
+
+        const cleanup = () => audioTracks.forEach((t) => t.stop());
+        const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : "audio/webm";
+        const recorder = new MediaRecorder(new MediaStream(audioTracks), { mimeType });
+        const chunks = [];
+        recorder.ondataavailable = (e) => {
+          if (e.data.size > 0) chunks.push(e.data);
+        };
+        recorder.onstop = () => {
+          cleanup();
+          finish(resolve, new Blob(chunks, { type: "audio/webm" }));
+        };
+        recorder.onerror = (e) => {
+          cleanup();
+          finish(reject, new Error(`Lỗi ghi âm: ${e.error?.message || "không xác định"}`));
+        };
+
+        // The browser's own "Stop sharing" control ends the track directly.
+        audioTracks[0].addEventListener("ended", () => {
+          if (settled) return;
+          stopBrowser();
+          try {
+            recorder.stop();
+          } catch {
+            cleanup();
+            finish(reject, new Error("Đã dừng chia sẻ tab trước khi đọc xong."));
+          }
+        });
+
+        recorder.start();
+        onStatus?.("Đang đọc và ghi âm...");
+        speakWithBrowser(text, {
+          voiceURI,
+          rate,
+          onEnd: () => {
+            // Small delay so the recorder captures the last utterance's tail.
+            setTimeout(() => {
+              try {
+                recorder.stop();
+              } catch (e) {
+                cleanup();
+                finish(reject, e);
+              }
+            }, 300);
+          },
+        });
+      })
+      .catch((e) => {
+        finish(reject, new Error(e?.name === "NotAllowedError" ? "Bạn đã huỷ chia sẻ tab." : (e?.message || "Không mở được hộp thoại chia sẻ tab.")));
+      });
+  });
+}
+
 // ---- Google Cloud Text-to-Speech (audiobook-quality, downloadable) ----
 
 function base64ToBytes(base64) {
