@@ -68,6 +68,24 @@ const snapshotOf = (ch) =>
     edited: ch?.edited || "",
   });
 
+const changedContentFields = (chapter, savedSnapshot) => {
+  const current = {
+    raw_original: chapter?.raw_original || "",
+    qt_raw: chapter?.qt_raw || "",
+    edited: chapter?.edited || "",
+  };
+  if (!savedSnapshot) return current;
+  let saved;
+  try {
+    saved = JSON.parse(savedSnapshot);
+  } catch {
+    return current;
+  }
+  return Object.fromEntries(
+    Object.entries(current).filter(([field, value]) => saved[field] !== value)
+  );
+};
+
 const capCache = (cache) => {
   while (cache.size > CHAPTER_CACHE_LIMIT) {
     const oldestKey = cache.keys().next().value;
@@ -271,14 +289,15 @@ export default function Workspace() {
   const flushSave = async (chapter, force = false) => {
     if (!chapter?.id) return;
     if (draftMode && !force) return;
+    const previousSnapshot = lastSavedRef.current.get(chapter.id);
     const snap = snapshotOf(chapter);
-    if (lastSavedRef.current.get(chapter.id) === snap) return;
+    if (previousSnapshot === snap) return;
+    const changes = changedContentFields(chapter, previousSnapshot);
+    if (Object.keys(changes).length === 0) return;
     try {
-      await Chapter.update(chapter.id, {
-        raw_original: chapter.raw_original || "",
-        qt_raw: chapter.qt_raw || "",
-        edited: chapter.edited || "",
-      });
+      // The browser already owns the current text, so autosave sends only
+      // changed columns and asks Supabase for no full-row response.
+      await Chapter.update(chapter.id, changes, { returning: false });
       lastSavedRef.current.set(chapter.id, snap);
       chapterCacheRef.current.set(chapter.id, chapter);
     } catch (e) {
@@ -1382,7 +1401,13 @@ ${sourceText}`;
     setExportingEdited(true);
     try {
       const full = await fetchAllPages(
-        (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
+        (limit, skip) => Chapter.filterNonEmpty(
+          { project_id: projectId },
+          "edited",
+          "chapter_order",
+          limit,
+          skip
+        ),
         { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
       );
       const editedOnly = full.filter((c) => c.edited?.trim());

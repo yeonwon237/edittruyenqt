@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import {
   BookOpen, Settings as SettingsIcon, LogOut, Volume2, Clapperboard,
-  Captions, ArrowUpRight, Sparkles, Bot, Layers3, ShieldCheck, Zap,
+  Captions, ArrowUpRight, Sparkles, Bot, Layers3, ShieldCheck, Zap, Palette,
 } from "lucide-react";
 import AISettingsDialog from "@/components/workspace/AISettingsDialog";
 
@@ -12,6 +12,7 @@ const FEATURES = [
   { id: "audio", icon: Volume2, title: "Tạo audio", eyebrow: "Chuyển văn bản", desc: "Biến bản edit thành giọng đọc tự nhiên và tạo phụ đề đồng bộ theo nội dung.", to: "/text-to-speech", color: "emerald", number: "02" },
   { id: "video", icon: Clapperboard, title: "Dựng video", eyebrow: "Sản xuất nội dung", desc: "Ghép audio, hình ảnh và hiệu ứng thành video truyện sẵn sàng để xuất bản.", to: "/create-video", color: "amber", number: "03" },
   { id: "subtitle", icon: Captions, title: "Tạo phụ đề", eyebrow: "Căn chỉnh thời gian", desc: "Tách câu, điều chỉnh timeline và xuất tệp phụ đề SRT hoặc VTT chuyên nghiệp.", to: "/create-subtitle", color: "sky", number: "04" },
+  { id: "cover", icon: Palette, title: "Làm bìa truyện", eyebrow: "Studio thiết kế", desc: "Tạo bìa truyện chuyên nghiệp từ ảnh của bạn với chữ nghệ thuật, bố cục linh hoạt và xuất ảnh chất lượng cao.", to: "/cover-designer", color: "rose", number: "05" },
 ];
 
 const TONES = {
@@ -19,6 +20,7 @@ const TONES = {
   emerald: { icon: "bg-emerald-600 text-white", glow: "from-emerald-100/80", text: "text-emerald-600" },
   amber: { icon: "bg-amber-500 text-white", glow: "from-amber-100/80", text: "text-amber-600" },
   sky: { icon: "bg-sky-600 text-white", glow: "from-sky-100/80", text: "text-sky-600" },
+  rose: { icon: "bg-rose-600 text-white", glow: "from-rose-100/80", text: "text-rose-600" },
 };
 
 export default function Home() {

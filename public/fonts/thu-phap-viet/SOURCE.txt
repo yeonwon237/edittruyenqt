@@ -1,0 +1,6 @@
+Nguồn: https://www.thuphapdungpham.com/blogs/tin-tuc/tai-mien-phi-font-chu-thu-phap-viet
+Phạm vi sử dụng trong dự án này: cá nhân, repo riêng tư.
+Không phân phối lại hoặc sử dụng thương mại nếu chưa kiểm tra quyền từ tác giả font.
+
+Bộ tích hợp gồm toàn bộ 53 font có dữ liệu khác nhau từ 76 file trong các gói do người dùng cung cấp ngày 2026-08-04; 23 file trùng hoàn toàn đã được loại bỏ.
+Ngoài ra có font NT Akashii do người dùng cung cấp riêng.

@@ -49,6 +49,20 @@ function makeEntity(table) {
       return data;
     },
 
+    async filterNonEmpty(match = {}, field, sort, limit, skip, fields) {
+      const select = fields ? [...new Set(['id', ...fields])].join(',') : '*';
+      let query = supabase.from(table).select(select);
+      for (const [key, value] of Object.entries(match)) {
+        query = query.eq(key, value);
+      }
+      query = query.not(field, 'is', null).neq(field, '');
+      query = applyOrder(query, sort);
+      query = applyRange(query, limit, skip);
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
+    },
+
     async create(values) {
       const { data, error } = await supabase.from(table).insert(values).select().single();
       if (error) throw error;
@@ -61,8 +75,10 @@ function makeEntity(table) {
       return data;
     },
 
-    async update(id, values) {
-      const { data, error } = await supabase.from(table).update(values).eq('id', id).select().single();
+    async update(id, values, { returning = true } = {}) {
+      let query = supabase.from(table).update(values).eq('id', id);
+      if (returning) query = query.select().single();
+      const { data, error } = await query;
       if (error) throw error;
       return data;
     },
