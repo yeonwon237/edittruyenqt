@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Trợ Lý Sáng Tạo Truyện</title>
+  <rect width="512" height="512" rx="112" fill="#4f38c7"/>
+  <path d="M72 132c62-10 120 6 166 48v202c-45-42-101-59-166-45V132Z" fill="#fff"/>
+  <path d="M440 132c-62-10-120 6-166 48v202c45-42 101-59 166-45V132Z" fill="#fff"/>
+  <path d="M96 168c50-2 91 12 126 42v128c-37-25-79-35-126-27V168Zm320 0c-50-2-91 12-126 42v128c37-25 79-35 126-27V168Z" fill="#ece9ff"/>
+  <path d="M256 154 292 222 256 352 220 222l36-68Z" fill="#4f38c7"/>
+  <circle cx="256" cy="270" r="10" fill="#f2c66d"/>
+  <path d="M256 280v72" stroke="#f2c66d" stroke-width="8" stroke-linecap="round"/>
+  <path d="M78 365c66-14 124-2 178 35 54-37 112-49 178-35-68 2-126 21-178 57-52-36-110-55-178-57Z" fill="#f2c66d"/>
+  <path d="m256 76 10 24 24 10-24 10-10 24-10-24-24-10 24-10 10-24Z" fill="#f2c66d"/>
+</svg>

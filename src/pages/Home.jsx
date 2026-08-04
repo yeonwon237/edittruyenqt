@@ -35,9 +35,7 @@ export default function Home() {
       <header className="sticky top-0 z-30 border-b border-violet-100/80 bg-white/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <button onClick={() => navigate("/")} className="flex min-w-0 items-center gap-3 text-left">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-[0_10px_24px_-10px_rgb(var(--violet-600))]">
-              <Sparkles className="h-5 w-5" />
-            </span>
+            <img src="/brand-mark.svg" alt="" className="h-11 w-11 shrink-0 rounded-2xl shadow-[0_10px_24px_-10px_rgb(var(--violet-600))]" />
             <span className="min-w-0">
               <span className="block truncate text-sm font-bold tracking-tight text-slate-900 sm:text-base">Trợ Lý Sáng Tạo Truyện</span>
               <span className="hidden text-[11px] font-medium text-slate-400 sm:block">Biên tập · Audio · Video · Phụ đề</span>

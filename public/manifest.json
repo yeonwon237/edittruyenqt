@@ -1,7 +1,7 @@
 {
-  "name": "Trợ Lý Dịch Thuật & Edit QT",
-  "short_name": "Edit QT",
-  "description": "Công cụ hỗ trợ edit truyện dịch từ QT/Convert sang tiếng Việt mượt",
+  "name": "Trợ Lý Sáng Tạo Truyện",
+  "short_name": "Sáng Tạo Truyện",
+  "description": "Không gian biên tập và sáng tạo nội dung truyện",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

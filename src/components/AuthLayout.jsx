@@ -1,5 +1,5 @@
 import React from "react";
-import { BookOpenCheck, Check, Sparkles, WandSparkles } from "lucide-react";
+import { Check, Sparkles, WandSparkles } from "lucide-react";
 
 export default function AuthLayout({ icon: Icon, title, subtitle, footer, children }) {
   return (
@@ -9,9 +9,7 @@ export default function AuthLayout({ icon: Icon, title, subtitle, footer, childr
         <div className="auth-showcase__glow auth-showcase__glow--two" />
         <div className="relative z-10 flex h-full flex-col justify-between">
           <div className="inline-flex items-center gap-3 text-white">
-            <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/20 bg-white/10 shadow-lg backdrop-blur">
-              <BookOpenCheck className="h-5 w-5" />
-            </span>
+            <img src="/brand-mark.svg" alt="" className="h-11 w-11 rounded-2xl border border-white/20 shadow-lg" />
             <div>
               <p className="text-sm font-bold tracking-wide">TRỢ LÝ BIÊN TẬP</p>
               <p className="text-xs text-white/60">Không gian sáng tạo truyện</p>
