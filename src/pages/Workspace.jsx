@@ -17,6 +17,7 @@ import ImportChaptersDialog from "@/components/workspace/ImportChaptersDialog";
 import BatchEditDialog from "@/components/workspace/BatchEditDialog";
 import BatchTitleEditDialog from "@/components/workspace/BatchTitleEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
+import QualityCheckDialog from "@/components/workspace/QualityCheckDialog";
 import {
   exportAsTxt,
   exportAsDoc,
@@ -33,12 +34,13 @@ import AISettingsDialog from "@/components/workspace/AISettingsDialog";
 import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
 import { diffTextChanges } from "@/lib/textDiff";
 import { countForeignChars } from "@/lib/highlight";
+import { applyQualitySuggestion, runQualityCheck } from "@/lib/qualityCheck";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
 import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
-import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen } from "lucide-react";
+import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -128,8 +130,12 @@ export default function Workspace() {
   const [showPronoun, setShowPronoun] = useState(false);
   const [clearTarget, setClearTarget] = useState(null); // { field, label } | null
   const [showContextualPronoun, setShowContextualPronoun] = useState(false);
+  const [showQualityCheck, setShowQualityCheck] = useState(false);
+  const [qualityIssues, setQualityIssues] = useState([]);
+  const [qualityUndo, setQualityUndo] = useState(null);
   const [showAISettings, setShowAISettings] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
+  const [chapterDeleteUndo, setChapterDeleteUndo] = useState(null);
   const [showImportChapters, setShowImportChapters] = useState(false);
   const [exportingChapters, setExportingChapters] = useState(false);
   const [exportingEdited, setExportingEdited] = useState(false);
@@ -609,6 +615,89 @@ export default function Workspace() {
       setCurrentChapter({ ...currentChapter, [target]: text });
     }
     toast({ title: `Đã đổi xưng hô: ${rule.name} 👥` });
+  };
+
+  const qualityOptions = () => ({
+    glossaryTerms,
+    pronounRules: project?.contextual_pronoun_rules || [],
+  });
+
+  // Keep the QA badge live even when the dialog has never been opened. A
+  // short debounce avoids rescanning on every keystroke while the user types.
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const text = currentChapter?.edited || "";
+      setQualityIssues(text.trim() ? runQualityCheck(text, qualityOptions()) : []);
+    }, 350);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChapter?.edited, glossaryTerms, project?.contextual_pronoun_rules]);
+
+  const handleOpenQualityCheck = () => {
+    const text = currentChapter?.edited || "";
+    if (!text.trim()) {
+      toast({ title: "Bản Edit đang trống", description: "Chưa có nội dung để kiểm tra QA." });
+      return;
+    }
+    setQualityIssues(runQualityCheck(text, qualityOptions()));
+    setShowQualityCheck(true);
+  };
+
+  const handleApplyQualitySuggestion = (issueList, replacement) => {
+    if (!currentChapter) return;
+    try {
+      const previous = currentChapter.edited || "";
+      const applicable = (Array.isArray(issueList) ? issueList : [issueList])
+        .filter((issue) => previous.slice(issue.start, issue.end) === issue.value)
+        .sort((a, b) => b.start - a.start);
+      if (!applicable.length) throw new Error("Các vị trí đề xuất đã thay đổi. Hãy quét QA lại.");
+      const next = applicable.reduce((text, issue) => applyQualitySuggestion(text, issue, String(replacement || "")), previous);
+      setQualityUndo({ chapterId: currentChapter.id, previous });
+      setCurrentChapter({ ...currentChapter, edited: next });
+      setQualityIssues(runQualityCheck(next, qualityOptions()));
+      toast({ title: `Đã áp dụng ${applicable.length} vị trí QA`, description: "Có thể hoàn tác ngay trong cửa sổ QA." });
+    } catch (error) {
+      toast({ title: "Không thể áp dụng", description: error.message, variant: "destructive" });
+      setQualityIssues(runQualityCheck(currentChapter.edited || "", qualityOptions()));
+    }
+  };
+
+  const handleTranslateQualityIssue = async (group) => {
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return "";
+    }
+    try {
+      const prompt = `Dịch chính xác từ/cụm từ sau sang tiếng Việt dựa trên câu văn đi kèm. Chỉ trả về đúng từ/cụm tiếng Việt dùng để thay thế, không giải thích, không dấu ngoặc, không thêm câu dẫn.\n\nTừ/cụm cần dịch: ${group.value}\nCâu chứa từ: ${group.context}`;
+      const result = await callLLM(prompt);
+      return String(result || "").trim().replace(/^['\"“”]+|['\"“”]+$/g, "");
+    } catch (error) {
+      toast({ title: "Không dịch được từ", description: error.message, variant: "destructive" });
+      return "";
+    }
+  };
+
+  const handleUndoQualitySuggestion = () => {
+    if (!currentChapter || qualityUndo?.chapterId !== currentChapter.id) return;
+    const previous = qualityUndo.previous;
+    setCurrentChapter({ ...currentChapter, edited: previous });
+    setQualityIssues(runQualityCheck(previous, qualityOptions()));
+    setQualityUndo(null);
+    toast({ title: "Đã hoàn tác thay đổi QA" });
+  };
+
+  const handleLocateQualityIssue = (issue) => {
+    setShowQualityCheck(false);
+    setMobileActiveCol("edited");
+    setPanel3Mode("edit");
+    window.setTimeout(() => {
+      const textarea = document.querySelector("[data-etq-panel='final'] [data-etq-role='edit-content']");
+      if (!(textarea instanceof HTMLTextAreaElement)) return;
+      textarea.focus();
+      textarea.setSelectionRange(issue.start, issue.end);
+      const lineHeight = Number.parseFloat(window.getComputedStyle(textarea).lineHeight) || 32;
+      textarea.scrollTop = Math.max(0, (issue.line - 3) * lineHeight);
+    }, 80);
   };
 
   const buildEditPrompt = (sourceText) => {
@@ -1269,6 +1358,10 @@ ${sourceText}`;
 
   const handleDeleteChapter = async (chapterId) => {
     try {
+      if (currentChapter?.id === chapterId) await flushSave(currentChapter, true);
+      const backup = currentChapter?.id === chapterId
+        ? { ...currentChapter }
+        : await Chapter.get(chapterId);
       await Chapter.delete(chapterId);
       const remaining = chapterList.filter((c) => c.id !== chapterId);
       setChapterList(remaining);
@@ -1288,9 +1381,109 @@ ${sourceText}`;
           setCurrentChapter(null);
         }
       }
+      setChapterDeleteUndo([backup]);
       toast({ title: "Đã xóa chương" });
     } catch (e) {
       toast({ title: "Lỗi xóa chương", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const handleDeleteSelectedChapters = async (chapterIds) => {
+    const ids = [...new Set(chapterIds)].filter((id) => chapterList.some((ch) => ch.id === id));
+    if (ids.length === 0) return;
+
+    try {
+      if (currentChapter && ids.includes(currentChapter.id)) {
+        await flushSave(currentChapter, true);
+      }
+      const backups = await Chapter.getMany(ids);
+      const currentIndex = currentChapter
+        ? backups.findIndex((chapter) => chapter.id === currentChapter.id)
+        : -1;
+      if (currentIndex >= 0) backups[currentIndex] = { ...currentChapter };
+      await Chapter.deleteMany(ids);
+      const deletedIds = new Set(ids);
+      const remaining = chapterList.filter((chapter) => !deletedIds.has(chapter.id));
+
+      ids.forEach((id) => {
+        chapterCacheRef.current.delete(id);
+        lastSavedRef.current.delete(id);
+      });
+      setChapterList(remaining);
+
+      if (currentChapter && deletedIds.has(currentChapter.id)) {
+        if (remaining.length > 0) {
+          const nextId = remaining[0].id;
+          let target = chapterCacheRef.current.get(nextId);
+          if (!target) {
+            target = await Chapter.get(nextId);
+            chapterCacheRef.current.set(nextId, target);
+            lastSavedRef.current.set(nextId, snapshotOf(target));
+          }
+          setCurrentChapter(target);
+        } else {
+          setCurrentChapter(null);
+        }
+      }
+
+      setChapterDeleteUndo(backups);
+      toast({ title: `Đã xóa ${ids.length} chương` });
+    } catch (e) {
+      toast({
+        title: "Lỗi xóa nhiều chương",
+        description: e.message,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleUndoChapterDelete = async () => {
+    if (!chapterDeleteUndo?.length) return;
+
+    try {
+      const rows = chapterDeleteUndo.map((chapter) => ({
+        id: chapter.id,
+        project_id: chapter.project_id,
+        title: chapter.title,
+        chapter_order: chapter.chapter_order,
+        raw_original: chapter.raw_original || "",
+        qt_raw: chapter.qt_raw || "",
+        edited: chapter.edited || "",
+      }));
+      const restored = await Chapter.bulkCreate(rows);
+      const restoredById = new Map(restored.map((chapter) => [chapter.id, chapter]));
+
+      restored.forEach((chapter) => {
+        chapterCacheRef.current.set(chapter.id, chapter);
+        lastSavedRef.current.set(chapter.id, snapshotOf(chapter));
+      });
+      capCache(chapterCacheRef.current);
+      setChapterList((previous) => {
+        const previousIds = new Set(previous.map((chapter) => chapter.id));
+        return [
+          ...previous,
+          ...rows
+            .filter((chapter) => !previousIds.has(chapter.id))
+            .map((chapter) => ({
+              id: chapter.id,
+              title: chapter.title,
+              chapter_order: chapter.chapter_order,
+            })),
+        ].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+      });
+
+      if (!currentChapter && restored.length > 0) {
+        setCurrentChapter(restoredById.get(rows[0].id) || restored[0]);
+      }
+      const restoredCount = restored.length;
+      setChapterDeleteUndo(null);
+      toast({ title: `Đã hoàn tác, khôi phục ${restoredCount} chương` });
+    } catch (e) {
+      toast({
+        title: "Không thể hoàn tác xóa chương",
+        description: e.message,
+        variant: "destructive",
+      });
     }
   };
 
@@ -1702,6 +1895,9 @@ Tên chương đã dịch:`;
     : visibleColumns[0] || "edited";
 
   const foreignCharCount = countForeignChars(currentChapter?.edited);
+  const qualityGroupCount = new Set(
+    qualityIssues.map((issue) => `${issue.type}:${issue.value.toLocaleLowerCase("vi")}`)
+  ).size;
 
   if (loading) {
     return (
@@ -2038,11 +2234,20 @@ Tên chương đã dịch:`;
                         setPanel3Mode(panel3Mode === "view" ? "edit" : "view")
                       }
                       flagForeignChars
+                      qualityIssues={qualityIssues}
                       onScroll={() => handlePanelScroll(2)}
                       placeholder="Bản edit hoàn chỉnh sẽ hiện ở đây..."
                       onHide={() => handleToggleColumn("edited")}
                       extra={
                         <>
+                          <button
+                            onClick={handleOpenQualityCheck}
+                            className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors border ${qualityGroupCount > 0 ? "bg-red-50 hover:bg-red-100 text-red-700 border-red-200" : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-100"}`}
+                            title={qualityGroupCount > 0 ? `Phát hiện ${qualityGroupCount} nhóm lỗi nghi vấn — bấm để xem` : "QA đang tự động theo dõi Bản Edit — bấm để quét lại/xem chi tiết"}
+                          >
+                            <ShieldCheck className="h-3.5 w-3.5" />
+                            {qualityGroupCount > 0 ? `QA · ${qualityGroupCount} nhóm lỗi` : "QA · Không thấy lỗi"}
+                          </button>
                           {foreignCharCount > 0 && (
                             <button
                               onClick={() => setPanel3Mode("view")}
@@ -2124,6 +2329,16 @@ Tên chương đã dịch:`;
         checkingPronouns={checkingPronouns}
         pronounCheckDiff={pronounCheckDiff}
       />
+      <QualityCheckDialog
+        open={showQualityCheck}
+        onOpenChange={setShowQualityCheck}
+        issues={qualityIssues}
+        onApply={handleApplyQualitySuggestion}
+        onLocate={handleLocateQualityIssue}
+        onTranslate={handleTranslateQualityIssue}
+        onUndo={handleUndoQualitySuggestion}
+        canUndo={qualityUndo?.chapterId === currentChapter?.id}
+      />
       <AISettingsDialog open={showAISettings} onOpenChange={setShowAISettings} />
       <ChapterManagerDialog
         open={showChapterManager}
@@ -2136,6 +2351,9 @@ Tên chương đã dịch:`;
         }}
         onRename={handleRenameChapter}
         onDelete={handleDeleteChapter}
+        onDeleteSelected={handleDeleteSelectedChapters}
+        onUndoDelete={handleUndoChapterDelete}
+        deleteUndoCount={chapterDeleteUndo?.length || 0}
         onReorder={handleReorderChapter}
         onOpenImport={() => setShowImportChapters(true)}
         onExportAll={handleExportAllChapters}

@@ -32,6 +32,7 @@ import {
   ListChecks,
   Languages,
   MoreHorizontal,
+  Undo2,
 } from "lucide-react";
 
 const EXPORT_FORMATS = [
@@ -70,6 +71,9 @@ export default function ChapterManagerDialog({
   onSelect,
   onRename,
   onDelete,
+  onDeleteSelected,
+  onUndoDelete,
+  deleteUndoCount,
   onReorder,
   onOpenImport,
   onExportAll,
@@ -84,6 +88,7 @@ export default function ChapterManagerDialog({
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
   const [deleteTarget, setDeleteTarget] = useState(null);
+  const [showBatchDeleteConfirm, setShowBatchDeleteConfirm] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
 
@@ -91,6 +96,7 @@ export default function ChapterManagerDialog({
     if (!open) {
       setEditingId(null);
       setDeleteTarget(null);
+      setShowBatchDeleteConfirm(false);
       setSelectMode(false);
       setSelectedIds(new Set());
     }
@@ -126,6 +132,12 @@ export default function ChapterManagerDialog({
       else next.add(id);
       return next;
     });
+  };
+
+  const allSelected = chapters.length > 0 && selectedIds.size === chapters.length;
+
+  const toggleSelectAll = () => {
+    setSelectedIds(allSelected ? new Set() : new Set(chapters.map((ch) => ch.id)));
   };
 
   return (
@@ -207,26 +219,60 @@ export default function ChapterManagerDialog({
             <DialogDescription>
               Kéo thả để sắp xếp lại thứ tự chương. Bấm vào tên để đổi tên.
             </DialogDescription>
-            {selectMode && (
-              <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-violet-50 border border-violet-100">
-                <span className="text-xs text-violet-700 font-medium flex-1">
-                  Đã chọn {selectedIds.size} chương
+            {deleteUndoCount > 0 && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200">
+                <span className="text-xs text-amber-800 flex-1">
+                  Vừa xóa {deleteUndoCount} chương
                 </span>
-                <ExportMenuButton
-                  label="Xuất chương đã chọn"
-                  busyLabel="Đang xuất..."
-                  busy={exportingSelected}
-                  disabled={selectedIds.size === 0}
-                  onPick={(format) => onExportSelected([...selectedIds], format)}
-                  buttonClassName="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl h-7 px-2.5 text-xs"
-                />
-                <button
-                  onClick={toggleSelectMode}
-                  className="p-1 rounded-md hover:bg-violet-100 text-violet-500"
-                  title="Thoát chế độ chọn"
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={onUndoDelete}
+                  className="h-8 rounded-xl border-amber-300 bg-white text-amber-800 hover:bg-amber-100"
                 >
-                  <X className="w-3.5 h-3.5" />
-                </button>
+                  <Undo2 className="w-3.5 h-3.5 mr-1" /> Hoàn tác
+                </Button>
+              </div>
+            )}
+            {selectMode && (
+              <div className="px-3 py-2.5 rounded-xl bg-violet-50 border border-violet-100 space-y-2">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={toggleSelectAll}
+                    className="text-xs text-violet-700 font-semibold hover:text-violet-900 whitespace-nowrap"
+                  >
+                    {allSelected ? "Bỏ chọn tất cả" : "Chọn tất cả"}
+                  </button>
+                  <span className="text-xs text-slate-500 flex-1 text-right">
+                    Đã chọn <strong className="text-violet-700">{selectedIds.size}</strong>/{chapters.length} chương
+                  </span>
+                  <button
+                    onClick={toggleSelectMode}
+                    className="p-1 rounded-md hover:bg-violet-100 text-violet-500"
+                    title="Thoát chế độ chọn"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <ExportMenuButton
+                    label="Xuất đã chọn"
+                    busyLabel="Đang xuất..."
+                    busy={exportingSelected}
+                    disabled={selectedIds.size === 0}
+                    onPick={(format) => onExportSelected([...selectedIds], format)}
+                    buttonClassName="w-full bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl h-8 px-2.5 text-xs"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={selectedIds.size === 0}
+                    onClick={() => setShowBatchDeleteConfirm(true)}
+                    className="w-full border-red-200 bg-white text-red-600 hover:bg-red-50 hover:text-red-700 rounded-xl h-8 px-2.5 text-xs"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 mr-1" /> Xóa đã chọn
+                  </Button>
+                </div>
               </div>
             )}
           </DialogHeader>
@@ -350,6 +396,17 @@ export default function ChapterManagerDialog({
         onConfirm={() => {
           onDelete(deleteTarget.id);
           setDeleteTarget(null);
+        }}
+      />
+      <ConfirmDialog
+        open={showBatchDeleteConfirm}
+        onOpenChange={setShowBatchDeleteConfirm}
+        title={`Xóa ${selectedIds.size} chương đã chọn?`}
+        description="Toàn bộ nội dung của các chương đã chọn sẽ bị xóa vĩnh viễn và không thể hoàn tác."
+        confirmLabel={`Xóa ${selectedIds.size} chương`}
+        onConfirm={() => {
+          onDeleteSelected([...selectedIds]);
+          setShowBatchDeleteConfirm(false);
         }}
       />
     </>

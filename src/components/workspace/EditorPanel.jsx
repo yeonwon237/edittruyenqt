@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef } from "react";
 import { X, FileText, WandSparkles, PenLine, Pencil, Eye } from "lucide-react";
-import { highlightTerms, highlightForeignChars } from "@/lib/highlight";
+import { highlightTerms, highlightForeignChars, highlightQualityIssues } from "@/lib/highlight";
 
 const EditorPanel = forwardRef(function EditorPanel(
   {
@@ -16,11 +16,13 @@ const EditorPanel = forwardRef(function EditorPanel(
     placeholder = "",
     extra,
     flagForeignChars = false,
+    qualityIssues = [],
     onHide,
   },
   ref
 ) {
   const scrollRef = useRef(null);
+  const qaOverlayRef = useRef(null);
   const panelMeta = {
     source: { Icon: FileText, label: "Nguồn", tone: "text-slate-500 bg-slate-100" },
     draft: { Icon: WandSparkles, label: "Chuyển ngữ", tone: "text-blue-600 bg-blue-50" },
@@ -77,7 +79,9 @@ const EditorPanel = forwardRef(function EditorPanel(
             <div data-etq-role="view-content" className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700 min-h-full">
               {value ? (
                 flagForeignChars ? (
-                  highlightForeignChars(highlightTerms(value, terms, onTermClick))
+                  qualityIssues.length
+                    ? highlightQualityIssues(value, qualityIssues)
+                    : highlightForeignChars(highlightTerms(value, terms, onTermClick))
                 ) : (
                   highlightTerms(value, terms, onTermClick)
                 )
@@ -87,16 +91,30 @@ const EditorPanel = forwardRef(function EditorPanel(
             </div>
           </div>
         ) : (
-          <textarea
-            data-etq-role="edit-content"
-            ref={scrollRef}
-            onScroll={onScroll}
-            value={value || ""}
-            onChange={(e) => onChange?.(e.target.value)}
-            className="h-full w-full resize-none overflow-y-auto cute-scrollbar p-5 bg-slate-50/20 text-[15px] leading-8 text-slate-700 focus:outline-none placeholder:text-slate-300 font-body"
-            placeholder={placeholder}
-            spellCheck={false}
-          />
+          <div className="relative h-full w-full overflow-hidden bg-slate-50/20">
+            {qualityIssues.length > 0 && (
+              <pre
+                ref={qaOverlayRef}
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-20 m-0 h-full w-full overflow-y-scroll p-5 text-[15px] leading-8 text-transparent whitespace-pre-wrap break-words font-body [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              >
+                {highlightQualityIssues(value || "", qualityIssues, { overlay: true })}
+              </pre>
+            )}
+            <textarea
+              data-etq-role="edit-content"
+              ref={scrollRef}
+              onScroll={(event) => {
+                if (qaOverlayRef.current) qaOverlayRef.current.scrollTop = event.currentTarget.scrollTop;
+                onScroll?.(event);
+              }}
+              value={value || ""}
+              onChange={(e) => onChange?.(e.target.value)}
+              className="relative z-10 h-full w-full resize-none overflow-y-auto cute-scrollbar p-5 bg-transparent text-[15px] leading-8 text-slate-700 focus:outline-none placeholder:text-slate-300 font-body"
+              placeholder={placeholder}
+              spellCheck={false}
+            />
+          </div>
         )}
       </div>
     </div>

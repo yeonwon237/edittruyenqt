@@ -24,6 +24,13 @@ function makeEntity(table) {
       return data;
     },
 
+    async getMany(ids) {
+      if (!Array.isArray(ids) || ids.length === 0) return [];
+      const { data, error } = await supabase.from(table).select('*').in('id', ids);
+      if (error) throw error;
+      return data;
+    },
+
     async list(sort, limit, skip) {
       let query = supabase.from(table).select('*');
       query = applyOrder(query, sort);
@@ -85,6 +92,12 @@ function makeEntity(table) {
 
     async delete(id) {
       const { error } = await supabase.from(table).delete().eq('id', id);
+      if (error) throw error;
+    },
+
+    async deleteMany(ids) {
+      if (!Array.isArray(ids) || ids.length === 0) return;
+      const { error } = await supabase.from(table).delete().in('id', ids);
       if (error) throw error;
     },
   };

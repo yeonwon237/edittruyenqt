@@ -92,6 +92,39 @@ export function countForeignChars(text) {
   return matches ? matches.reduce((sum, m) => sum + m.length, 0) : 0;
 }
 
+/** UI-only QA decoration. It never mutates the source string, so exports and
+ * saved chapter content remain plain text. Overlapping findings are merged. */
+export function highlightQualityIssues(text, issues, { overlay = false } = {}) {
+  if (!text || !issues?.length) return text;
+  const ranges = issues
+    .filter((issue) => Number.isInteger(issue.start) && Number.isInteger(issue.end) && issue.end > issue.start)
+    .map((issue) => ({ start: issue.start, end: issue.end, labels: [issue.label] }))
+    .sort((a, b) => a.start - b.start || b.end - a.end)
+    .reduce((merged, range) => {
+      const last = merged.at(-1);
+      if (last && range.start < last.end) {
+        last.end = Math.max(last.end, range.end);
+        last.labels.push(...range.labels);
+      } else merged.push(range);
+      return merged;
+    }, []);
+  const result = [];
+  let cursor = 0;
+  ranges.forEach((range, index) => {
+    if (range.start > cursor) result.push(text.slice(cursor, range.start));
+    result.push(React.createElement("span", {
+      key: `qa-${range.start}-${index}`,
+      className: overlay
+        ? "rounded-sm bg-red-200/70 border-b-2 border-red-500"
+        : "rounded-sm bg-red-100 text-inherit underline decoration-red-500 decoration-2 underline-offset-2",
+      title: [...new Set(range.labels)].join(" · ")
+    }, text.slice(range.start, range.end)));
+    cursor = range.end;
+  });
+  if (cursor < text.length) result.push(text.slice(cursor));
+  return result;
+}
+
 export const CATEGORY_STYLES = {
   "Tên người": "bg-rose-100 text-rose-700 border-rose-200",
   "Địa danh": "bg-sky-100 text-sky-700 border-sky-200",

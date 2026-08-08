@@ -1,0 +1,107 @@
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, Languages, Loader2, LocateFixed, RotateCcw, SearchCheck, Sparkles, UserRoundCheck } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { QUALITY_LABELS } from "@/lib/qualityCheck";
+
+const TYPE_META = {
+  cjk: { icon: Languages, tone: "text-red-600 bg-red-50 border-red-100" },
+  english: { icon: Languages, tone: "text-amber-700 bg-amber-50 border-amber-100" },
+  name: { icon: UserRoundCheck, tone: "text-fuchsia-700 bg-fuchsia-50 border-fuchsia-100" },
+  pronoun: { icon: UserRoundCheck, tone: "text-violet-700 bg-violet-50 border-violet-100" }
+};
+
+export default function QualityCheckDialog({ open, onOpenChange, issues, onApply, onLocate, onTranslate, onUndo, canUndo }) {
+  const [filter, setFilter] = useState("all");
+  const [replacements, setReplacements] = useState({});
+  const [ignored, setIgnored] = useState(new Set());
+  const [translating, setTranslating] = useState(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setFilter("all");
+    setIgnored(new Set());
+    setReplacements(Object.fromEntries((issues || []).map((issue) => [issue.id, issue.replacement || ""])));
+  }, [open]);
+
+  useEffect(() => {
+    setReplacements((current) => {
+      const next = { ...current };
+      (issues || []).forEach((issue) => { if (!(issue.id in next)) next[issue.id] = issue.replacement || ""; });
+      return next;
+    });
+  }, [issues]);
+
+  const groups = useMemo(() => {
+    const grouped = new Map();
+    (issues || []).forEach((issue) => {
+      const key = `${issue.type}:${issue.value.toLocaleLowerCase("vi")}`;
+      if (!grouped.has(key)) grouped.set(key, { key, issues: [], ...issue });
+      grouped.get(key).issues.push(issue);
+    });
+    return [...grouped.values()];
+  }, [issues]);
+  const visible = useMemo(() => groups.filter((group) => !ignored.has(group.key) && (filter === "all" || group.type === filter)), [groups, ignored, filter]);
+  const counts = useMemo(() => (issues || []).reduce((acc, issue) => ({ ...acc, [issue.type]: (acc[issue.type] || 0) + 1 }), {}), [issues]);
+
+  const ignore = (key) => setIgnored((current) => new Set([...current, key]));
+
+  const translate = async (group) => {
+    setTranslating(group.key);
+    try {
+      const translated = await onTranslate(group);
+      if (translated) setReplacements((current) => ({ ...current, [group.key]: translated }));
+    } finally {
+      setTranslating(null);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl h-[86vh] overflow-hidden flex flex-col rounded-2xl border-violet-100 p-0">
+        <DialogHeader className="px-5 pt-5 pb-3 border-b border-slate-100">
+          <div className="flex items-start justify-between gap-4 pr-7">
+            <div>
+              <DialogTitle className="flex items-center gap-2 text-slate-800"><SearchCheck className="h-5 w-5 text-violet-600" /> QA bản Edit</DialogTitle>
+              <DialogDescription className="mt-1">Chỉ đưa ra đề xuất. Văn bản không thay đổi cho đến khi bạn bấm Áp dụng.</DialogDescription>
+            </div>
+            {canUndo && <button onClick={onUndo} className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><RotateCcw className="h-3.5 w-3.5" /> Hoàn tác QA</button>}
+          </div>
+          <div className="flex flex-wrap gap-1.5 pt-3">
+            {["all", "cjk", "english", "name", "pronoun"].map((type) => {
+              const count = type === "all" ? (issues || []).length : counts[type] || 0;
+              return <button key={type} onClick={() => setFilter(type)} className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${filter === type ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{type === "all" ? "Tất cả" : QUALITY_LABELS[type]} · {count}</button>;
+            })}
+          </div>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto cute-scrollbar p-4 space-y-3 bg-slate-50/60">
+          {visible.length === 0 ? (
+            <div className="h-full min-h-48 grid place-items-center text-center"><div><CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" /><p className="mt-3 text-sm font-semibold text-slate-700">Không còn mục nào trong nhóm này</p><p className="mt-1 text-xs text-slate-400">QA chỉ cảnh báo theo quy tắc, không thể thay thế việc đọc duyệt cuối.</p></div></div>
+          ) : visible.map((group) => {
+            const meta = TYPE_META[group.type] || TYPE_META.english;
+            const Icon = meta.icon;
+            return (
+              <article key={group.key} className="rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border ${meta.tone}`}><Icon className="h-4 w-4" /></span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-800">{group.label}</strong><span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{group.issues.length > 1 ? `${group.issues.length} lần` : `Dòng ${group.line}`}</span></div>
+                    <div className="mt-1.5 space-y-1.5">{group.issues.slice(0, 3).map((issue) => <p key={issue.id} className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs leading-relaxed text-slate-600"><span className="mr-1 text-[10px] text-slate-400">Dòng {issue.line}</span><mark className="rounded bg-amber-100 px-0.5 text-amber-900">{issue.value}</mark> · {issue.context}</p>)}{group.issues.length > 3 && <p className="px-1 text-[10px] text-slate-400">…và {group.issues.length - 3} vị trí khác</p>}</div>
+                    {group.detail && <p className="mt-1.5 flex gap-1 text-[11px] leading-relaxed text-slate-500"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />{group.detail}</p>}
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button onClick={() => onLocate(group.issues[0])} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><LocateFixed className="h-3.5 w-3.5" /> Đi tới</button>
+                      {(group.type === "cjk" || group.type === "english") && <button disabled={translating === group.key} onClick={() => translate(group)} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700 hover:bg-violet-100 disabled:opacity-50">{translating === group.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Dịch bằng AI</button>}
+                      <input value={replacements[group.key] ?? group.replacement ?? ""} onChange={(event) => setReplacements((current) => ({ ...current, [group.key]: event.target.value }))} placeholder="Nhập nội dung thay thế…" className="min-w-40 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:border-violet-400" />
+                      <button disabled={!String(replacements[group.key] ?? group.replacement ?? "").trim()} onClick={() => onApply(group.issues, replacements[group.key] ?? group.replacement)} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40">{group.issues.length > 1 ? `Áp dụng cả ${group.issues.length}` : "Áp dụng"}</button>
+                      <button onClick={() => ignore(group.key)} className="rounded-lg px-2.5 py-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600">Bỏ qua</button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
