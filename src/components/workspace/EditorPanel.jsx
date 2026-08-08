@@ -39,7 +39,7 @@ const EditorPanel = forwardRef(function EditorPanel(
   }));
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 rounded-[1.25rem] bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.04),0_16px_40px_-34px_rgba(15,23,42,.35)] overflow-hidden">
+    <div data-etq-panel={variant} className="flex-1 flex flex-col min-w-0 rounded-[1.25rem] bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.04),0_16px_40px_-34px_rgba(15,23,42,.35)] overflow-hidden">
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-white">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${panelMeta.tone}`}><PanelIcon className="h-4 w-4" /></span>
@@ -49,6 +49,7 @@ const EditorPanel = forwardRef(function EditorPanel(
           {extra}
           {onToggleMode && (
             <button
+              data-etq-role="toggle-mode"
               onClick={onToggleMode}
               className="text-xs px-2 py-1 rounded-lg bg-white/70 hover:bg-white text-slate-500 hover:text-violet-600 transition-colors border border-violet-100"
             >
@@ -73,7 +74,7 @@ const EditorPanel = forwardRef(function EditorPanel(
             onScroll={onScroll}
             className="h-full overflow-y-auto cute-scrollbar p-5 panel-scroll bg-slate-50/20"
           >
-            <div className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700 min-h-full">
+            <div data-etq-role="view-content" className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700 min-h-full">
               {value ? (
                 flagForeignChars ? (
                   highlightForeignChars(highlightTerms(value, terms, onTermClick))
@@ -87,6 +88,7 @@ const EditorPanel = forwardRef(function EditorPanel(
           </div>
         ) : (
           <textarea
+            data-etq-role="edit-content"
             ref={scrollRef}
             onScroll={onScroll}
             value={value || ""}
