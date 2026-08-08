@@ -4,15 +4,63 @@
 // tools: greedy longest-match segmentation, glossary override first, then
 // dictionary phrase/particle lookup, then per-character Hán-Việt reading.
 //
-// Two dictionary layers:
-// - Hand-curated overrides in ./hanvietData.js (pronouns, grammar particles,
-//   "false friend" compounds) — always wins on key collision.
-// - A large community-built Chinese→Vietnamese phrase dataset (VietPhrase,
-//   used for years by the Vietnamese fan-translation "QT/convert" scene),
-//   filtered down to 1-3 character entries and bundled as separate JSON
-//   chunks. Loaded lazily on first use (dynamic import) so it never slows
-//   down normal app loading — only paid for by someone who actually clicks
-//   "Tự dịch".
+// Four dictionary layers, in priority order (first match wins):
+// 1. Hand-curated overrides in ./hanvietData.js (pronouns, grammar particles,
+//    "false friend" compounds) — always wins on key collision.
+// 2. A large community-built Chinese→Vietnamese phrase dataset (VietPhrase,
+//    used for years by the Vietnamese fan-translation "QT/convert" scene),
+//    filtered down to 1-3 character entries and bundled as separate JSON
+//    chunks.
+// 3. `../data/cvdict-extra.json` — words/phrases (2-4 char) found in CVDICT
+//    (https://github.com/ph0ngp/CVDICT, CC BY-SA 4.0, a Vietnamese-translated
+//    port of CC-CEDICT) that VietPhrase has no entry for at all. Only ever
+//    fills gaps — never overrides an existing VietPhrase/curated entry — so
+//    it can't make an already-working translation worse, only turn some
+//    "unknown character" fallbacks into a real word.
+// 4. `../data/hanviet-chars-extra.json` — ~1190 extra single-character
+//    Hán-Việt readings for characters missing from layers 1-2, sourced from
+//    hanviet-pinyin-words/hanviet-pinyin-wordlist
+//    (https://github.com/ph0ngp/hanviet-pinyin-words, MIT) — see the
+//    "traditional vs simplified" note below layers 4/5 share. Only
+//    characters with exactly one distinct reading across every pinyin that
+//    dictionary lists for them are included — a polyphonic character with
+//    genuinely different readings per pronunciation is skipped rather than
+//    guessed, since this app has no pinyin input to disambiguate with
+//    (falls back to "unknown char", same as before, rather than risk a
+//    wrong reading in ordinary prose).
+// All four layers are bundled as separate JSON/JS modules, loaded lazily on
+// first use (dynamic import) so none of this slows down normal app loading —
+// only paid for by someone who actually clicks "Tự dịch".
+//
+// On top of the four dictionary layers, a personal-name heuristic (see
+// tryReadNameSpan below) catches Chinese personal names that have no
+// Glossary entry yet: a known surname character followed by 1-2 more
+// characters gets rendered as a capitalized Hán-Việt name ("Lục Vị Hi")
+// instead of being read as ordinary dictionary words — it only fires where
+// the dictionary genuinely has no better answer, so it never overrides a
+// Glossary entry or an already-correct dictionary match. It reads each
+// syllable from a 5th layer, `../data/hanviet-formal-readings.json` (~10k
+// entries, same hanviet-pinyin-words/-wordlist source as layer 4, falling
+// back to the regular `chars` table for anything missing from it) rather
+// than the general single-char fallback table above, because the two want
+// different things from the same character: layers 1-4 deliberately favor
+// whichever reading is most useful in *ordinary prose* (e.g. 未 → "không",
+// its practical/grammatical sense — "not yet"), while a name wants the
+// *formal Sino-Vietnamese sound reading* regardless of meaning (未 → "vị"),
+// since that's the actual convention for rendering a Chinese name in
+// Vietnamese. Reusing the prose-tuned table here was tried first and got
+// real names wrong (e.g. 陆未晞 → "Lục Không Hi" instead of "Lục Vị Hi") —
+// this dedicated table is why it's now "Lục Vị Hi".
+//
+// Traditional vs simplified, for layers 4 and 5: hanviet-pinyin-words/
+// -wordlist's own data only covers traditional-character forms (its README
+// says so explicitly), but this app's source text is simplified Chinese.
+// Both JSON files here are pre-converted to simplified keys at build time
+// (see the generating script's use of a simplified→traditional map derived
+// from CVDICT's own trad/simp column pair) — anyone regenerating either
+// file must redo that conversion, not import the upstream data as-is, or
+// every surname/character that differs between the two scripts (张/張,
+// 陆/陸, 谢/謝, 苏/蘇...) will silently fail to match.
 import { HANVIET_CHARS, HANVIET_WORDS, PUNCT_MAP } from "./hanvietData";
 
 function isCjk(ch) {
@@ -43,15 +91,18 @@ function loadDictionary() {
     dictPromise = Promise.all([
       import("../data/vietphrase-chars.json"),
       import("../data/vietphrase-words.json"),
-    ]).then(([charsMod, wordsMod]) => {
-      const chars = { ...charsMod.default, ...HANVIET_CHARS };
-      const words = { ...wordsMod.default, ...HANVIET_WORDS };
+      import("../data/cvdict-extra.json"),
+      import("../data/hanviet-chars-extra.json"),
+      import("../data/hanviet-formal-readings.json"),
+    ]).then(([charsMod, wordsMod, cvdictExtraMod, charsExtraMod, formalMod]) => {
+      const chars = { ...charsExtraMod.default, ...charsMod.default, ...HANVIET_CHARS };
+      const words = { ...cvdictExtraMod.default, ...wordsMod.default, ...HANVIET_WORDS };
       let maxWordLen = 1;
       // eslint-disable-next-line no-restricted-syntax
       for (const k in words) {
         if (k.length > maxWordLen) maxWordLen = k.length;
       }
-      return { chars, words, maxWordLen };
+      return { chars, words, maxWordLen, formalChars: formalMod.default };
     });
   }
   return dictPromise;
@@ -154,6 +205,96 @@ function reorderModifierClauses(sourceText) {
   return out;
 }
 
+// --- Personal-name heuristic (surname + 1-2 following characters) ---
+// Chinese personal names are conventionally rendered in Vietnamese as the
+// capitalized Hán-Việt reading of each character ("Lục Vị Hi", not "lục
+// không hi") — see the "Common Chinese surnames" note in hanvietData.js.
+// The normal greedy dictionary match has no concept of "this might be a
+// name", though: it happily lets an ordinary WORDS-level entry (a grammar/
+// function word) swallow a character that's actually sitting inside an
+// unrecognized name. Real example that motivated this (a chapter with no
+// Glossary entries yet): 陆未晞 used to come out "lục không hi", because 未
+// independently matches WORDS as a negation word ("không") even though
+// here it's the 2nd syllable of a 3-syllable name, not doing negation duty.
+//
+// This only ever fires as a *last resort*, gated so it can't touch anything
+// the dictionary already handles correctly:
+// - SURNAME_CHARS is checked only once the normal WORDS/glossary scan has
+//   already failed to match anything of length >= 2 starting at that exact
+//   position — so a real recognized word/phrase that happens to start with
+//   a surname character (e.g. "陆地" = "lục địa", a real WORDS entry) is
+//   matched by the normal greedy path first and this heuristic is never
+//   even consulted for it.
+// - Once triggered, it claims the next 1-2 characters *only* as long as
+//   they likewise have no length>=2 WORDS/glossary match starting there, AND
+//   no length==1 WORDS entry of their own either (unlike the surname
+//   character itself, checked below) — a given-name character is almost
+//   always a content/poetic word with no standalone dictionary entry, so a
+//   character that DOES have one (是, 的, 了, 在...) is almost certainly a
+//   real function/content word starting a new clause, not a continuation of
+//   the name, and is left for the next loop iteration instead. This was
+//   found live: without it, "龙是中国文化" (dragon is Chinese culture) — 龙
+//   being a rare-but-real surname with no length>=2 match right after it —
+//   grouped "是" into a fake 2-syllable name "Long Là" instead of leaving
+//   the copula alone.
+// - A single surname character with nothing plausible after it (already
+//   has, or leads into, real dictionary coverage) is left completely alone
+//   — this never overrides the Glossary, and never touches a name that
+//   already has a Glossary entry (a Glossary hit is itself a length>=2
+//   match, so the gate above blocks this heuristic from ever running on it).
+// Best-effort by nature: this is a heuristic over a fixed surname list, not
+// real named-entity recognition — it will still miss names that don't start
+// with a listed surname character, and (rarely) may mis-group ordinary text
+// that happens to look like [surname char][1-2 more untranslated chars]
+// with nothing else nearby. Adding the name to the project's Glossary is
+// still the reliable fix — this only helps *before* that's been done.
+const SURNAME_CHARS = new Set([
+  "丁", "羽", "莲", "陈", "李", "张", "刘", "杨", "赵", "周", "吴", "徐", "马",
+  "朱", "胡", "郑", "谢", "何", "苏", "韩", "陆", "郭", "孙", "黄", "林", "梁",
+  "宋", "唐", "冯", "邓", "许", "傅", "沈", "曾", "彭", "吕", "卢", "蒋", "蔡",
+  "贾", "魏", "薛", "叶", "阎", "余", "潘", "杜", "戴", "邹", "郝", "孔", "崔",
+  "康", "邱", "秦", "顾", "侯", "邵", "孟", "段", "尹", "黎", "乔", "贺", "赖",
+  "龚", "萧", "梅", "牛", "董", "任", "姜", "范", "方", "姚", "谭", "廖", "熊",
+  "汪", "田", "史", "龙", "江", "石", "万", "文", "高", "武", "常", "东", "钱",
+  "汤", "白", "金",
+]);
+const MAX_NAME_SPAN = 3; // surname + up to 2 given-name characters
+
+function hasWordMatchAt(sourceText, pos, glossaryMap, WORDS, maxWordLen) {
+  const maxLen = Math.min(maxWordLen, sourceText.length - pos);
+  for (let len = maxLen; len >= 2; len -= 1) {
+    const candidate = sourceText.slice(pos, pos + len);
+    if (glossaryMap.has(candidate)) return true;
+    if (Object.prototype.hasOwnProperty.call(WORDS, candidate)) return true;
+  }
+  return false;
+}
+
+function tryReadNameSpan(sourceText, pos, CHARS, FORMAL_CHARS, glossaryMap, WORDS, maxWordLen) {
+  const ch = sourceText[pos];
+  if (!SURNAME_CHARS.has(ch)) return null;
+  const surnameReading = FORMAL_CHARS[ch] || CHARS[ch];
+  if (!surnameReading) return null;
+  if (hasWordMatchAt(sourceText, pos, glossaryMap, WORDS, maxWordLen)) return null;
+
+  const syllables = [surnameReading];
+  const n = sourceText.length;
+  let i = pos + 1;
+  while (syllables.length < MAX_NAME_SPAN && i < n && isCjk(sourceText[i])) {
+    const nextCh = sourceText[i];
+    if (hasWordMatchAt(sourceText, i, glossaryMap, WORDS, maxWordLen)) break;
+    if (glossaryMap.has(nextCh) || Object.prototype.hasOwnProperty.call(WORDS, nextCh)) break;
+    const reading = FORMAL_CHARS[nextCh] || CHARS[nextCh];
+    if (!reading) break;
+    syllables.push(reading);
+    i += 1;
+  }
+  if (syllables.length < 2) return null; // a lone surname char isn't worth a special case
+
+  const text = syllables.map((s) => s.charAt(0).toUpperCase() + s.slice(1)).join(" ");
+  return { text, consumed: i - pos };
+}
+
 /**
  * Translate Chinese source text into a rough Vietnamese draft.
  * @param {string} sourceText
@@ -165,7 +306,7 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
 
   sourceText = reorderModifierClauses(sourceText);
 
-  const { chars: CHARS, words: WORDS, maxWordLen: builtinMaxLen } = await loadDictionary();
+  const { chars: CHARS, words: WORDS, maxWordLen: builtinMaxLen, formalChars: FORMAL_CHARS } = await loadDictionary();
 
   const glossaryMap = buildGlossaryMap(glossaryTerms);
   let maxGlossaryLen = 1;
@@ -224,6 +365,19 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
       }
       pushWord(sourceText.slice(i, j));
       i = j;
+      continue;
+    }
+
+    // Personal-name heuristic: only ever a last resort (see comment on
+    // tryReadNameSpan) — tried before the greedy match below because it
+    // needs to claim multiple characters as one atomic unit, which the
+    // greedy loop's per-position matching can't express.
+    const nameSpan = tryReadNameSpan(sourceText, i, CHARS, FORMAL_CHARS, glossaryMap, WORDS, maxWordLen);
+    if (nameSpan) {
+      pushWord(nameSpan.text);
+      cjkTotal += nameSpan.consumed;
+      cjkMatched += nameSpan.consumed;
+      i += nameSpan.consumed;
       continue;
     }
 

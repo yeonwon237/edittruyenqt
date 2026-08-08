@@ -195,6 +195,126 @@ export function reorderThoiDiemClauses(text) {
   return out;
 }
 
+// --- Dictionary-derived literal-reading corrections ---
+// Same underlying idea as normalizeCoDiem/normalizeKhongCam above (a naive
+// char-by-char Hán-Việt reading of a Chinese word/idiom, left untranslated
+// by whatever QT/convert tool produced the source text, reads as nonsense
+// or misleads), but generated from this app's own Hán-Việt dictionary
+// (hanviet.js/hanvietData.js + the CVDICT/hanviet-pinyin-words data merged
+// into it — see src/data/cvdict-extra.json and hanviet-chars-extra.json)
+// rather than hand-derived one at a time from a diffed corpus.
+//
+// **Different provenance from the 4 rules above, deliberately kept smaller
+// and more conservative**: each entry here is included only because its
+// literal reading is a token sequence with essentially no plausible
+// alternate meaning as real Vietnamese (either a 4+ character idiom, whose
+// literal per-character reading is syntactic nonsense no one would ever
+// write on purpose - "sóng quyệt vân quỷ", "mắt trừng khẩu ngốc" - or a
+// short mechanical duplication/trailing-particle artifact - "không có có",
+// "cuối cùng tại"). Candidates whose literal reading happens to double as a
+// real, independently-valid Vietnamese word or phrase with a *different*
+// meaning were deliberately left out even though the dictionary technically
+// flagged them as "different from the curated translation" - e.g. 大家's
+// literal reading "đại gia" is dropped because that's also the very common
+// real word for "wealthy person/tycoon", 不用's "không dùng" is dropped
+// because it's valid Vietnamese for "don't use" (a different meaning from
+// the intended "don't need"), 十分's "thập phân" is dropped because that's
+// the real word for "decimal". Applying this pass to those would risk
+// silently corrupting already-correct text - the exact failure mode this
+// file's own top-of-file rule ("checked against the full corpus before
+// being added") exists to prevent, and unlike the 4 rules above, these were
+// screened by hand against plausibility rather than against a real
+// diffed corpus (no such corpus was available when this table was built).
+// If a future session gets access to real QT-thô/Bản-Edit chapter pairs,
+// re-deriving/expanding this table against that corpus (the same way the
+// rules above were built) would be higher-confidence than adding more
+// dictionary-cross-reference entries by hand.
+const WORD_CHAR_RE_ESCAPE = /[.*+?^${}()|[\]\\]/g;
+function escapeRegExp(s) {
+  return s.replace(WORD_CHAR_RE_ESCAPE, "\\$&");
+}
+
+const DICTIONARY_CORRECTIONS = [
+  ["không có có", "không có"],
+  ["cuối cùng tại", "cuối cùng"],
+  ["dần dần dần dần", "dần dần"],
+  ["đang tại", "đang"],
+  ["đào hoa không thiểu", "vận đào hoa không ít"],
+  ["từ gia phu nhân", "phu nhân nhà mình"],
+  ["cái kia một vãn thượng", "đêm hôm đó"],
+  ["sóng quyệt vân quỷ", "biến ảo khôn lường"],
+  ["một kiến chuông tình", "vừa gặp đã yêu"],
+  ["thiên lật địa che", "trời long đất lở"],
+  ["vô có thể nại hà", "đành bó tay"],
+  ["không do từ chủ", "không tự chủ được"],
+  ["tâm hoa phẫn nộ phóng", "mừng như mở cờ trong bụng"],
+  ["hoảng nhưng đại ngộ", "chợt bừng tỉnh hiểu ra"],
+  ["đại ăn một kinh", "giật mình kinh hãi"],
+  ["mắt trừng khẩu ngốc", "trợn mắt há hốc mồm"],
+  ["khốc tiếu không được", "dở khóc dở cười"],
+  ["diện diện đối với dò xét", "nhìn nhau ngơ ngác"],
+  ["không tri chỗ xử chí", "luống cuống không biết làm sao"],
+  ["một nói không phát", "không nói một lời"],
+  ["tâm không tại yên", "tâm trí để đâu đâu"],
+  ["toàn thần quan rót", "dồn hết tâm trí"],
+  ["toàn lực dùng phó", "dốc hết toàn lực"],
+  ["thiên quân một phát", "nghìn cân treo sợi tóc"],
+  ["một khuôn đúc một dạng", "giống hệt nhau"],
+  ["vô địa từ dung", "xấu hổ không biết chui vào đâu"],
+  ["không hàn mà lật", "rùng mình ớn lạnh"],
+  ["tâm kinh nhục nhảy", "giật mình thon thót"],
+  ["nhãn tật thủ khoái", "nhanh mắt nhanh tay"],
+  ["thủ bề bộn cước loạn", "tay chân rối bời"],
+  ["như vô kỳ sự tình", "thản nhiên như không có chuyện gì"],
+  ["để ý chỗ làm nhưng", "lẽ dĩ nhiên"],
+  ["không ai tên kỳ diệu", "chẳng hiểu vì sao"],
+  ["không giả tư tác", "không cần suy nghĩ"],
+  ["đột như kỳ lai", "đột nhiên ập đến"],
+  ["xử chí thủ không cùng", "trở tay không kịp"],
+  ["thâm không có thể trắc", "thâm sâu khó lường"],
+  ["xa không có thể cùng", "xa vời khó với tới"],
+  ["bách không cùng đợi", "nóng lòng không đợi được"],
+  ["tình không từ cấm", "không kìm được lòng mình"],
+  ["chịu đựng vô có thể chịu đựng", "nhẫn không nổi nữa"],
+  ["vô bên cạnh vô tế", "mênh mông vô tận"],
+  ["đỉnh thiên lập địa", "đội trời đạp đất"],
+  ["sinh tử du quan", "quan hệ đến sinh tử"],
+  ["thế không có thể ngăn cản", "thế không thể cản"],
+  ["lực kéo điên cuồng lan", "xoay chuyển cục diện"],
+  ["một dạ thiên kim", "một lời hứa đáng nghìn vàng"],
+  ["thiên nhưỡng chi đừng", "khác một trời một vực"],
+  ["cùng chúng không cùng", "khác hẳn mọi người"],
+  ["xuất hồ ý liệu", "ngoài dự đoán"],
+  ["một như đã vãng", "vẫn như trước nay"],
+  ["vô độc có ngẫu", "không chỉ một mà còn có"],
+  ["ân tướng cừu báo", "lấy oán trả ơn"],
+  ["cắn răng cắt răng", "nghiến răng nghiến lợi"],
+  ["nước mắt chảy đầy diện", "nước mắt đầm đìa"],
+  ["phẫn nộ hỏa trung thiêu", "lửa giận bốc lên"],
+];
+
+// Longest-phrase-first so a shorter entry can never shadow/truncate a
+// longer one that starts with the same words.
+const SORTED_CORRECTIONS = [...DICTIONARY_CORRECTIONS].sort((a, b) => b[0].length - a[0].length);
+const CORRECTION_MAP = new Map(SORTED_CORRECTIONS.map(([literal, fix]) => [literal, fix]));
+const DICTIONARY_CORRECTION_RE = new RegExp(
+  `(?<![${WORD_CHAR}])(${SORTED_CORRECTIONS.map(([literal]) => escapeRegExp(literal)).join("|")})(?![${WORD_CHAR}])`,
+  "giu"
+);
+
+function capitalizeLike(sample, replacement) {
+  if (!replacement) return replacement;
+  return /^\p{Lu}/u.test(sample) ? replacement[0].toUpperCase() + replacement.slice(1) : replacement;
+}
+
+export function applyDictionaryCorrections(text) {
+  if (!text) return text;
+  return text.replace(DICTIONARY_CORRECTION_RE, (match) => {
+    const fix = CORRECTION_MAP.get(match.toLowerCase());
+    return fix === undefined ? match : capitalizeLike(match, fix);
+  });
+}
+
 /**
  * Rule-based smoothing pipeline: QT thô (rough, already-Vietnamese) -> a
  * cleaner draft, no AI involved. More passes get added here as more
@@ -209,5 +329,6 @@ export function applyRuleEdit(qtRawText) {
   text = normalizeCoDiem(text);
   text = normalizeKhongCam(text);
   text = reorderThoiDiemClauses(text);
+  text = applyDictionaryCorrections(text);
   return text;
 }
