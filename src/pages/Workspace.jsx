@@ -662,13 +662,21 @@ export default function Workspace() {
     }
   };
 
-  const handleTranslateQualityIssue = async (group) => {
+  const handleTranslateQualityIssue = async (group, selection) => {
     if (!hasCustomAI()) {
       toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
       return "";
     }
     try {
-      const prompt = `Dịch chính xác từ/cụm từ sau sang tiếng Việt dựa trên câu văn đi kèm. Chỉ trả về đúng từ/cụm tiếng Việt dùng để thay thế, không giải thích, không dấu ngoặc, không thêm câu dẫn.\n\nTừ/cụm cần dịch: ${group.value}\nCâu chứa từ: ${group.context}`;
+      const selectedText = selection?.text || group.value;
+      const relativeStart = Number.isInteger(selection?.start)
+        ? selection.start
+        : group.contextTargetStart;
+      const relativeEnd = Number.isInteger(selection?.end)
+        ? selection.end
+        : group.contextTargetEnd;
+      const markedContext = `${group.context.slice(0, relativeStart)}【${group.context.slice(relativeStart, relativeEnd)}】${group.context.slice(relativeEnd)}`;
+      const prompt = `Câu tiếng Việt dưới đây còn sót chữ Hán/Anh. Phần người dùng muốn dịch lại được đánh dấu bằng 【】.\n\nHãy dịch hoặc biên tập CHỈ phần trong 【】 thành một cụm tiếng Việt tự nhiên, đúng nghĩa trong toàn câu. Không dịch từng chữ theo nghĩa từ điển nếu làm câu vô nghĩa. Có thể dùng âm Hán–Việt khi đó là thành ngữ, tên gọi hoặc cách ghép tự nhiên. Phần ngoài 【】 chỉ là ngữ cảnh và phải được giữ nguyên.\n\nChỉ trả về nội dung thay thế cho phần trong 【】, không giải thích, không dấu ngoặc và không câu dẫn.\n\nPhần đã chọn: ${selectedText}\nCâu có đánh dấu: ${markedContext}`;
       const result = await callLLM(prompt);
       return String(result || "").trim().replace(/^['\"“”]+|['\"“”]+$/g, "");
     } catch (error) {

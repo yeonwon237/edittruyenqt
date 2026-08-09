@@ -52,9 +52,34 @@ function contextAt(text, start, end) {
   const lineStart = text.lastIndexOf("\n", start - 1) + 1;
   const nextBreak = text.indexOf("\n", end);
   const lineEnd = nextBreak === -1 ? text.length : nextBreak;
-  const line = text.slice(lineStart, lineEnd).trim();
+  const rawLine = text.slice(lineStart, lineEnd);
+  const leading = rawLine.length - rawLine.trimStart().length;
+  const trailing = rawLine.length - rawLine.trimEnd().length;
+  const trimmedStart = lineStart + leading;
+  const trimmedEnd = lineEnd - trailing;
+  const maxContext = 360;
+  let contextStart = trimmedStart;
+  let contextEnd = trimmedEnd;
+  if (contextEnd - contextStart > maxContext) {
+    contextStart = Math.max(trimmedStart, start - 170);
+    contextEnd = Math.min(trimmedEnd, contextStart + maxContext);
+    if (contextEnd < end) {
+      contextEnd = Math.min(trimmedEnd, end + 170);
+      contextStart = Math.max(trimmedStart, contextEnd - maxContext);
+    }
+  }
+  const line = text.slice(contextStart, contextEnd);
   const lineNumber = text.slice(0, start).split("\n").length;
-  return { context: line.length > 220 ? `${line.slice(0, 217)}…` : line, line: lineNumber };
+  return {
+    context: line,
+    contextStart,
+    contextEnd,
+    contextTargetStart: start - contextStart,
+    contextTargetEnd: end - contextStart,
+    contextClippedBefore: contextStart > trimmedStart,
+    contextClippedAfter: contextEnd < trimmedEnd,
+    line: lineNumber,
+  };
 }
 
 function makeIssue(text, data) {
