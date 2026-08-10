@@ -4,6 +4,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { QUALITY_LABELS } from "@/lib/qualityCheck";
 
 const TYPE_META = {
+  glossary: { icon: SearchCheck, tone: "text-blue-700 bg-blue-50 border-blue-100" },
   cjk: { icon: Languages, tone: "text-red-600 bg-red-50 border-red-100" },
   english: { icon: Languages, tone: "text-amber-700 bg-amber-50 border-amber-100" },
   name: { icon: UserRoundCheck, tone: "text-fuchsia-700 bg-fuchsia-50 border-fuchsia-100" },
@@ -93,7 +94,7 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
             {canUndo && <button onClick={onUndo} className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><RotateCcw className="h-3.5 w-3.5" /> Hoàn tác QA</button>}
           </div>
           <div className="flex flex-wrap gap-1.5 pt-3">
-            {["all", "cjk", "english", "name", "pronoun"].map((type) => {
+            {["all", "glossary", "cjk", "english", "name", "pronoun"].map((type) => {
               const count = type === "all" ? (issues || []).length : counts[type] || 0;
               return <button key={type} onClick={() => setFilter(type)} className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${filter === type ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{type === "all" ? "Tất cả" : QUALITY_LABELS[type]} · {count}</button>;
             })}

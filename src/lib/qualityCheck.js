@@ -110,6 +110,52 @@ function glossaryAliases(terms) {
   return values;
 }
 
+function scanGlossaryRules(text, terms) {
+  const occupied = [];
+  const seenRules = new Set();
+  const validTerms = (terms || [])
+    .map((term) => ({
+      source: String(term.source_term || "").trim(),
+      target: String(term.translation || "").trim(),
+      category: term.category || "Khác",
+    }))
+    .filter(({ source, target }) => source && target && source !== target)
+    .sort((a, b) => b.source.length - a.source.length);
+
+  const issues = [];
+  validTerms.forEach(({ source, target, category }) => {
+    const ruleKey = source.toLocaleLowerCase("vi");
+    if (seenRules.has(ruleKey)) return;
+    seenRules.add(ruleKey);
+
+    const startsWithWord = /^[\p{L}\p{N}]/u.test(source);
+    const endsWithWord = /[\p{L}\p{N}]$/u.test(source);
+    const pattern = `${startsWithWord ? "(?<![\\p{L}\\p{N}])" : ""}${escapeRegex(source)}${endsWithWord ? "(?![\\p{L}\\p{N}])" : ""}`;
+    const regex = new RegExp(pattern, "giu");
+    const capitalizationOnly = source.toLocaleLowerCase("vi") === target.toLocaleLowerCase("vi");
+
+    for (const match of text.matchAll(regex)) {
+      const value = match[0];
+      const start = match.index;
+      const end = start + value.length;
+      if (capitalizationOnly && value === target) continue;
+      if (occupied.some(([from, to]) => start < to && end > from)) continue;
+      occupied.push([start, end]);
+      issues.push(makeIssue(text, {
+        type: "glossary",
+        severity: "high",
+        label: "Chưa theo quy tắc Glossary",
+        value,
+        replacement: target,
+        detail: `${category}: Glossary quy định “${source}” → “${target}”`,
+        start,
+        end,
+      }));
+    }
+  });
+  return issues;
+}
+
 function scanCjk(text, terms) {
   const translations = new Map((terms || []).map((term) => [term.source_term, term.translation]));
   return [...text.matchAll(CJK_RUN_REGEX)].map((match) => makeIssue(text, {
@@ -237,12 +283,20 @@ function scanPronouns(text, rules) {
 
 export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [] } = {}) {
   const source = String(text || "");
-  return [
+  const issues = [
+    ...scanGlossaryRules(source, glossaryTerms),
     ...scanCjk(source, glossaryTerms),
     ...scanEnglish(source, glossaryTerms),
     ...scanNames(source, glossaryTerms),
     ...scanPronouns(source, pronounRules)
-  ].sort((a, b) => a.start - b.start || a.type.localeCompare(b.type));
+  ];
+  const occupied = new Set();
+  return issues.filter((issue) => {
+    const key = `${issue.start}:${issue.end}`;
+    if (occupied.has(key)) return false;
+    occupied.add(key);
+    return true;
+  }).sort((a, b) => a.start - b.start || a.type.localeCompare(b.type));
 }
 
 export function applyQualitySuggestion(text, issue, replacement) {
@@ -254,5 +308,5 @@ export function applyQualitySuggestion(text, issue, replacement) {
 }
 
 export const QUALITY_LABELS = {
-  cjk: "Hán/Trung", english: "Tiếng Anh", name: "Tên riêng", pronoun: "Xưng hô"
+  glossary: "Glossary", cjk: "Hán/Trung", english: "Tiếng Anh", name: "Tên riêng", pronoun: "Xưng hô"
 };
