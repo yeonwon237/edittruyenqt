@@ -110,7 +110,69 @@ function glossaryAliases(terms) {
   return values;
 }
 
-function scanGlossaryRules(text, terms) {
+function splitSuggestions(value) {
+  return String(value || "").split(/[,;|/]/).map((part) => part.trim()).filter(Boolean);
+}
+
+function quoteAt(text, position) {
+  const regex = /[“"]([^”"]+)[”"]/gu;
+  for (const match of text.matchAll(regex)) {
+    const start = match.index + 1;
+    const end = start + match[1].length;
+    if (position >= start && position < end) return { text: match[1], start, end };
+  }
+  return null;
+}
+
+function matrixSuggestionAt(text, start, end, rules) {
+  const quote = quoteAt(text, start);
+  const validRules = (rules || []).filter((rule) =>
+    rule?.speaker?.trim() && rule?.self_word?.trim() && rule?.target_word?.trim()
+  );
+  const allSuggestions = [...new Set(validRules.flatMap((rule) => [rule.self_word.trim(), rule.target_word.trim()]))];
+  if (!quote || !validRules.length) return { suggestions: allSuggestions, detail: "Không xác định được câu thoại hoặc người nói; hãy chọn thủ công." };
+
+  const nearbyStart = Math.max(0, quote.start - 120);
+  const nearbyEnd = Math.min(text.length, quote.end + 120);
+  const nearby = text.slice(nearbyStart, nearbyEnd);
+  const speakers = [...new Set(validRules.map((rule) => rule.speaker.trim()))];
+  const speaker = speakers.find((name) => {
+    const escaped = escapeRegex(name);
+    const beforePattern = new RegExp(`${escaped}[^“”"]{0,70}(?:${SPEECH_VERBS})[^“”"]{0,25}[“"]`, "iu");
+    const afterPattern = new RegExp(`[”"][^“”"]{0,35}${escaped}[^“”"]{0,35}(?:${SPEECH_VERBS})`, "iu");
+    return beforePattern.test(nearby) || afterPattern.test(nearby);
+  });
+  if (!speaker) return { suggestions: allSuggestions, detail: "Chưa nhận ra người nói trong câu này; hãy chọn thủ công." };
+
+  const speakerRules = validRules.filter((rule) => rule.speaker.trim() === speaker);
+  const specificRule = speakerRules.find((rule) => {
+    const listener = rule.listener?.trim();
+    return listener && listener !== "*" && nearby.includes(listener);
+  });
+  const defaultRule = speakerRules.find((rule) => !rule.listener?.trim() || rule.listener.trim() === "*");
+  const rule = specificRule || defaultRule || (speakerRules.length === 1 ? speakerRules[0] : null);
+  const speakerSuggestions = [...new Set(speakerRules.flatMap((item) => [item.self_word.trim(), item.target_word.trim()]))];
+  if (!rule) return { suggestions: speakerSuggestions, detail: `Đã nhận ra ${speaker} nhưng chưa xác định được người nghe.` };
+
+  const relativeStart = start - quote.start;
+  const before = quote.text.slice(0, relativeStart);
+  const after = quote.text.slice(relativeStart + (end - start));
+  const selfWordBefore = new RegExp(`(?:^|[^\\p{L}])${escapeRegex(rule.self_word.trim())}(?=$|[^\\p{L}])`, "iu").test(before);
+  const targetCue = /(?:với|cho|gọi|hỏi|bảo|nhờ|giúp|cứu|đợi|chờ|tìm|theo|của|đến|về|nhìn|thấy|yêu|ghét)\s*$/iu.test(before);
+  const startsStatement = !before.trim() && !/^\s*[,!:?]/u.test(after);
+  const vocative = (!before.trim() && /^\s*[,!:?]/u.test(after)) || targetCue;
+  const role = startsStatement && !vocative ? "self" : (vocative || selfWordBefore ? "target" : "unknown");
+  const listenerLabel = rule.listener?.trim() && rule.listener.trim() !== "*" ? rule.listener.trim() : "mọi người";
+  if (role === "self") {
+    return { replacement: rule.self_word.trim(), suggestions: speakerSuggestions, detail: `${speaker} đang tự xưng khi nói với ${listenerLabel}.` };
+  }
+  if (role === "target") {
+    return { replacement: rule.target_word.trim(), suggestions: speakerSuggestions, detail: `${speaker} đang gọi người nghe (${listenerLabel}).` };
+  }
+  return { suggestions: speakerSuggestions, detail: `Đã nhận ra người nói là ${speaker}, nhưng vai trò của từ này chưa chắc chắn.` };
+}
+
+function scanGlossaryRules(text, terms, pronounRules) {
   const occupied = [];
   const seenRules = new Set();
   const validTerms = (terms || [])
@@ -118,12 +180,13 @@ function scanGlossaryRules(text, terms) {
       source: String(term.source_term || "").trim(),
       target: String(term.translation || "").trim(),
       category: term.category || "Khác",
+      customFields: term.custom_fields || {},
     }))
     .filter(({ source, target }) => source && target && source !== target)
     .sort((a, b) => b.source.length - a.source.length);
 
   const issues = [];
-  validTerms.forEach(({ source, target, category }) => {
+  validTerms.forEach(({ source, target, category, customFields }) => {
     const ruleKey = source.toLocaleLowerCase("vi");
     if (seenRules.has(ruleKey)) return;
     seenRules.add(ruleKey);
@@ -141,13 +204,21 @@ function scanGlossaryRules(text, terms) {
       if (capitalizationOnly && value === target) continue;
       if (occupied.some(([from, to]) => start < to && end > from)) continue;
       occupied.push([start, end]);
+      const contextual = customFields.__qa_mode === "contextual" || (customFields.__qa_mode !== "strict" && category === "Xưng hô");
+      const configuredSuggestions = [target, ...splitSuggestions(customFields.__qa_alternatives)];
+      const matrix = contextual ? matrixSuggestionAt(text, start, end, pronounRules) : null;
+      const suggestions = [...new Set([...configuredSuggestions, ...(matrix?.suggestions || [])])];
       issues.push(makeIssue(text, {
         type: "glossary",
         severity: "high",
         label: "Chưa theo quy tắc Glossary",
         value,
-        replacement: target,
-        detail: `${category}: Glossary quy định “${source}” → “${target}”`,
+        replacement: matrix?.replacement || target,
+        suggestions,
+        contextual,
+        detail: contextual
+          ? `${category}: “${source}” cần xét theo ngữ cảnh. ${matrix?.detail || ""}`.trim()
+          : `${category}: Glossary quy định “${source}” → “${target}”`,
         start,
         end,
       }));
@@ -284,7 +355,7 @@ function scanPronouns(text, rules) {
 export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [] } = {}) {
   const source = String(text || "");
   const issues = [
-    ...scanGlossaryRules(source, glossaryTerms),
+    ...scanGlossaryRules(source, glossaryTerms, pronounRules),
     ...scanCjk(source, glossaryTerms),
     ...scanEnglish(source, glossaryTerms),
     ...scanNames(source, glossaryTerms),

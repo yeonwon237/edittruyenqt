@@ -82,6 +82,10 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
     onApply(group.issues, replacements[group.key] ?? group.replacement);
   };
 
+  const applyOne = (issue) => {
+    onApply([issue], replacements[issue.id] ?? issue.replacement);
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl h-[86vh] overflow-hidden flex flex-col rounded-2xl border-violet-100 p-0">
@@ -108,7 +112,8 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
             const meta = TYPE_META[group.type] || TYPE_META.english;
             const Icon = meta.icon;
             const selection = selectedRange(group);
-            const contextual = group.type === "cjk" || group.type === "english";
+            const aiSelectable = group.type === "cjk" || group.type === "english";
+            const perOccurrence = group.issues.some((issue) => issue.contextual);
             const preview = selection.active && String(replacements[group.key] || "").trim()
               ? `${group.context.slice(0, selection.start)}${replacements[group.key]}${group.context.slice(selection.end)}`
               : "";
@@ -118,9 +123,27 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
                   <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-lg border ${meta.tone}`}><Icon className="h-4 w-4" /></span>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2"><strong className="text-sm text-slate-800">{group.label}</strong><span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">{group.issues.length > 1 ? `${group.issues.length} lần` : `Dòng ${group.line}`}</span></div>
-                    <div className="mt-1.5 space-y-1.5">{group.issues.slice(0, 3).map((issue) => <p key={issue.id} className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs leading-relaxed text-slate-600"><span className="mr-1 text-[10px] text-slate-400">Dòng {issue.line}</span><mark className="rounded bg-amber-100 px-0.5 text-amber-900">{issue.value}</mark> · {issue.context}</p>)}{group.issues.length > 3 && <p className="px-1 text-[10px] text-slate-400">…và {group.issues.length - 3} vị trí khác</p>}</div>
-                    {group.detail && <p className="mt-1.5 flex gap-1 text-[11px] leading-relaxed text-slate-500"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />{group.detail}</p>}
-                    {contextual && (
+                    {!perOccurrence && <div className="mt-1.5 space-y-1.5">{group.issues.slice(0, 3).map((issue) => <p key={issue.id} className="rounded-lg bg-slate-50 px-2.5 py-2 text-xs leading-relaxed text-slate-600"><span className="mr-1 text-[10px] text-slate-400">Dòng {issue.line}</span><mark className="rounded bg-amber-100 px-0.5 text-amber-900">{issue.value}</mark> · {issue.context}</p>)}{group.issues.length > 3 && <p className="px-1 text-[10px] text-slate-400">…và {group.issues.length - 3} vị trí khác</p>}</div>}
+                    {!perOccurrence && group.detail && <p className="mt-1.5 flex gap-1 text-[11px] leading-relaxed text-slate-500"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-500" />{group.detail}</p>}
+                    {perOccurrence && (
+                      <div className="mt-2.5 space-y-2 max-h-80 overflow-y-auto cute-scrollbar pr-1">
+                        {group.issues.map((issue) => (
+                          <div key={issue.id} className="rounded-xl border border-blue-100 bg-blue-50/40 p-2.5">
+                            <p className="text-xs leading-relaxed text-slate-600"><span className="mr-1 text-[10px] text-slate-400">Dòng {issue.line}</span>{issue.context}</p>
+                            <p className="mt-1 text-[10px] text-blue-700">{issue.detail}</p>
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              {(issue.suggestions || []).map((suggestion) => (
+                                <button key={suggestion} onClick={() => setReplacements((current) => ({ ...current, [issue.id]: suggestion }))} className={`rounded-lg border px-2 py-1 text-[11px] ${String(replacements[issue.id] ?? issue.replacement) === suggestion ? "border-blue-400 bg-blue-600 text-white" : "border-blue-100 bg-white text-blue-700 hover:bg-blue-50"}`}>{suggestion}</button>
+                              ))}
+                              <input value={replacements[issue.id] ?? issue.replacement ?? ""} onChange={(event) => setReplacements((current) => ({ ...current, [issue.id]: event.target.value }))} placeholder="Cách thay…" className="min-w-28 flex-1 rounded-lg border border-slate-200 px-2 py-1 text-xs outline-none focus:border-blue-400" />
+                              <button onClick={() => onLocate(issue)} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-500">Đi tới</button>
+                              <button disabled={!String(replacements[issue.id] ?? issue.replacement ?? "").trim()} onClick={() => applyOne(issue)} className="rounded-lg bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-white disabled:opacity-40">Áp dụng chỗ này</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {aiSelectable && (
                       <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/50 p-2.5">
                         <p className="mb-1.5 text-[11px] font-medium text-violet-700">Bôi chọn cụm cần AI dịch lại trong câu dưới đây</p>
                         <textarea
@@ -148,9 +171,9 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
                     )}
                     <div className="mt-3 flex flex-wrap items-center gap-2">
                       <button onClick={() => onLocate(group.issues[0])} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><LocateFixed className="h-3.5 w-3.5" /> Đi tới</button>
-                      {contextual && <button disabled={translating === group.key} onClick={() => translate(group)} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700 hover:bg-violet-100 disabled:opacity-50">{translating === group.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Gợi ý đoạn đã chọn</button>}
-                      <input value={replacements[group.key] ?? group.replacement ?? ""} onChange={(event) => setReplacements((current) => ({ ...current, [group.key]: event.target.value }))} placeholder="Nhập nội dung thay thế…" className="min-w-40 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:border-violet-400" />
-                      <button disabled={!String(replacements[group.key] ?? group.replacement ?? "").trim()} onClick={() => applyGroup(group)} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40">{selection.active ? "Áp dụng đoạn này" : group.issues.length > 1 ? `Áp dụng cả ${group.issues.length}` : "Áp dụng"}</button>
+                      {aiSelectable && <button disabled={translating === group.key} onClick={() => translate(group)} className="inline-flex items-center gap-1 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700 hover:bg-violet-100 disabled:opacity-50">{translating === group.key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Gợi ý đoạn đã chọn</button>}
+                      {!perOccurrence && <input value={replacements[group.key] ?? group.replacement ?? ""} onChange={(event) => setReplacements((current) => ({ ...current, [group.key]: event.target.value }))} placeholder="Nhập nội dung thay thế…" className="min-w-40 flex-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs outline-none focus:border-violet-400" />}
+                      {!perOccurrence && <button disabled={!String(replacements[group.key] ?? group.replacement ?? "").trim()} onClick={() => applyGroup(group)} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-40">{selection.active ? "Áp dụng đoạn này" : group.issues.length > 1 ? `Áp dụng cả ${group.issues.length}` : "Áp dụng"}</button>}
                       <button onClick={() => ignore(group.key)} className="rounded-lg px-2.5 py-1.5 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-600">Bỏ qua</button>
                     </div>
                   </div>

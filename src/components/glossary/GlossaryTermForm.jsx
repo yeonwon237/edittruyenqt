@@ -117,6 +117,38 @@ export default function GlossaryTermForm({
             />
           </div>
 
+          <div className="rounded-xl border border-blue-100 bg-blue-50/40 p-3 space-y-2.5">
+            <div>
+              <label className="text-xs font-medium text-blue-700 mb-1 block">Cách QA kiểm tra</label>
+              <select
+                value={form.custom_fields.__qa_mode || (form.category === "Xưng hô" ? "contextual" : "strict")}
+                onChange={(e) => setForm({
+                  ...form,
+                  custom_fields: { ...form.custom_fields, __qa_mode: e.target.value },
+                })}
+                className="w-full px-3 py-2 text-sm rounded-xl border border-blue-100 bg-white focus:outline-none focus:border-blue-400"
+              >
+                <option value="strict">Thay bắt buộc — có thể áp dụng tất cả</option>
+                <option value="contextual">Theo ngữ cảnh — xét từng vị trí</option>
+              </select>
+            </div>
+            {(form.custom_fields.__qa_mode === "contextual" || (!form.custom_fields.__qa_mode && form.category === "Xưng hô")) && (
+              <div>
+                <label className="text-xs font-medium text-blue-700 mb-1 block">Các cách thay khác</label>
+                <input
+                  value={form.custom_fields.__qa_alternatives || ""}
+                  onChange={(e) => setForm({
+                    ...form,
+                    custom_fields: { ...form.custom_fields, __qa_alternatives: e.target.value },
+                  })}
+                  placeholder="VD: Ta | muội | nàng"
+                  className="w-full px-3 py-2 text-sm rounded-xl border border-blue-100 bg-white focus:outline-none focus:border-blue-400"
+                />
+                <p className="mt-1 text-[10px] text-slate-400">QA sẽ kết hợp danh sách này với Ma trận xưng hô.</p>
+              </div>
+            )}
+          </div>
+
           <div>
             <label className="text-xs font-medium text-slate-500 mb-1 block">
               Bản dịch
