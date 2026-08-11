@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/api/supabaseClient";
 import { Project, Chapter, GlossaryTerm, PromptPreset } from "@/api/entities";
@@ -19,6 +19,7 @@ import BatchTitleEditDialog from "@/components/workspace/BatchTitleEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import QualityCheckDialog from "@/components/workspace/QualityCheckDialog";
 import BulkColumnMoveDialog from "@/components/workspace/BulkColumnMoveDialog";
+import WorkflowProgress from "@/components/workspace/WorkflowProgress";
 import {
   exportAsTxt,
   exportAsDoc,
@@ -96,6 +97,16 @@ const capCache = (cache) => {
   }
 };
 
+const quickHash = (value) => {
+  const text = String(value || "");
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+};
+
 export default function Workspace() {
   const { projectId } = useParams();
   const navigate = useNavigate();
@@ -106,6 +117,8 @@ export default function Workspace() {
   // content (raw_original/qt_raw/edited) is fetched on demand per chapter.
   const [chapterList, setChapterList] = useState([]);
   const [currentChapter, setCurrentChapter] = useState(null);
+  const [editedChapterIds, setEditedChapterIds] = useState(new Set());
+  const [refreshingProgress, setRefreshingProgress] = useState(false);
   const [glossaryTerms, setGlossaryTerms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [visibleColumns, setVisibleColumns] = useState(["raw", "qt", "edited"]);
@@ -114,6 +127,7 @@ export default function Workspace() {
   const [draftMode] = useState(isDraftMode());
   const [checkingPronouns, setCheckingPronouns] = useState(false);
   const [pronounCheckDiff, setPronounCheckDiff] = useState(null);
+  const [pronounCheckPreview, setPronounCheckPreview] = useState(null);
   const [selfTranslating, setSelfTranslating] = useState(false);
   const [showSidebar, setShowSidebar] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
@@ -205,6 +219,29 @@ export default function Workspace() {
     // eslint-disable-next-line
   }, [projectId]);
 
+  const loadEditedProgress = async (showToast = false) => {
+    setRefreshingProgress(true);
+    try {
+      const edited = await fetchAllPages(
+        (limit, skip) => Chapter.filterNonEmpty(
+          { project_id: projectId },
+          "edited",
+          "chapter_order",
+          limit,
+          skip,
+          ["chapter_order"]
+        ),
+        { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
+      );
+      setEditedChapterIds(new Set(edited.map((chapter) => chapter.id)));
+      if (showToast) toast({ title: "Đã làm mới tiến độ" });
+    } catch (error) {
+      if (showToast) toast({ title: "Không tải được tiến độ", description: error.message, variant: "destructive" });
+    } finally {
+      setRefreshingProgress(false);
+    }
+  };
+
   const loadProjectData = async () => {
     setLoading(true);
     try {
@@ -228,11 +265,12 @@ export default function Workspace() {
             "chapter_order",
             limit,
             skip,
-            ["title", "chapter_order"]
+            ["title", "chapter_order", "updated_date"]
           ),
         { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
       );
       setChapterList(lightChapters);
+      await loadEditedProgress();
       if (lightChapters.length === CHAPTER_FETCH_CAP) {
         toast({
           title: "Dự án có rất nhiều chương",
@@ -310,6 +348,11 @@ export default function Workspace() {
       await Chapter.update(chapter.id, changes, { returning: false });
       lastSavedRef.current.set(chapter.id, snap);
       chapterCacheRef.current.set(chapter.id, chapter);
+      if (Object.prototype.hasOwnProperty.call(changes, "edited")) {
+        setChapterList((list) => list.map((meta) =>
+          meta.id === chapter.id ? { ...meta, updated_date: new Date().toISOString() } : meta
+        ));
+      }
     } catch (e) {
       console.error(e);
     }
@@ -371,6 +414,7 @@ export default function Workspace() {
           chapterCacheRef.current.set(chapter.id, updated);
           capCache(chapterCacheRef.current);
           if (currentChapter?.id === chapter.id) setCurrentChapter(updated);
+          setEditedChapterIds((current) => new Set(current).add(chapter.id));
           return { chapterId: chapter.id, title: updated.title, saved: true };
         }
 
@@ -405,6 +449,16 @@ export default function Workspace() {
     currentChapter?.qt_raw,
     currentChapter?.edited,
   ]);
+
+  useEffect(() => {
+    if (!currentChapter?.id) return;
+    setEditedChapterIds((current) => {
+      const next = new Set(current);
+      if (currentChapter.edited?.trim()) next.add(currentChapter.id);
+      else next.delete(currentChapter.id);
+      return next;
+    });
+  }, [currentChapter?.id, currentChapter?.edited]);
 
   const switchChapter = async (chapterId) => {
     if (!chapterId || chapterId === currentChapter?.id) return;
@@ -650,7 +704,14 @@ export default function Workspace() {
   };
 
   const handleUpdateStyleToggles = (toggles) => {
-    handleUpdateProject({ style_toggles: toggles }).catch(() => {});
+    handleUpdateProject({
+      style_toggles: {
+        ...toggles,
+        ...(project?.style_toggles?.workflow_progress
+          ? { workflow_progress: project.style_toggles.workflow_progress }
+          : {}),
+      },
+    }).catch(() => {});
   };
 
   // Batch replace (word-boundary aware, optional)
@@ -1018,6 +1079,7 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
     const prevEdited = sourceText;
     setCheckingPronouns(true);
     setPronounCheckDiff(null);
+    setPronounCheckPreview(null);
     try {
       const callFn = (prompt) => callLLM(prompt);
       const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
@@ -1037,19 +1099,40 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
       // and context are relative to the whole chapter regardless of how many
       // chunks it took — this is exactly what answers "sửa ở đâu, mấy chỗ".
       const diff = diffTextChanges(prevEdited, fixedText);
-      setCurrentChapter((prev) =>
-        prev && prev.id === chapterId ? { ...prev, edited: fixedText } : prev
-      );
-      setAiUndo({ chapterId, previous: prevEdited });
       setPronounCheckDiff(diff);
+      setPronounCheckPreview(diff.length ? { chapterId, original: prevEdited, proposed: fixedText } : null);
       toast({
-        title: diff.length ? `Đã sửa ${diff.length} chỗ xưng hô ✅` : "Không tìm thấy chỗ nào cần sửa",
-        description: diff.length ? "Xem chi tiết bên dưới. Không đúng ý thì bấm Hoàn tác." : undefined,
+        title: diff.length ? `AI đề xuất sửa ${diff.length} chỗ xưng hô` : "Không tìm thấy chỗ nào cần sửa",
+        description: diff.length ? "Bản Edit chưa thay đổi. Hãy xem và bấm Áp dụng nếu đồng ý." : undefined,
       });
     } catch (e) {
       toast({ title: "Lỗi kiểm tra xưng hô", description: e.message, variant: "destructive" });
     }
     setCheckingPronouns(false);
+  };
+
+  const handleApplyPronounCheck = () => {
+    if (!pronounCheckPreview || !currentChapter) return;
+    if (currentChapter.id !== pronounCheckPreview.chapterId) {
+      toast({ title: "Đề xuất thuộc chương khác", description: "Hãy quay lại đúng chương đã kiểm tra rồi áp dụng.", variant: "destructive" });
+      return;
+    }
+    if ((currentChapter.edited || "") !== pronounCheckPreview.original) {
+      toast({ title: "Bản Edit đã thay đổi", description: "Hãy chạy kiểm tra lại để tránh ghi đè nội dung bạn vừa sửa.", variant: "destructive" });
+      return;
+    }
+    const previous = pronounCheckPreview.original;
+    setCurrentChapter((chapter) => ({ ...chapter, edited: pronounCheckPreview.proposed }));
+    setAiUndo({ chapterId: currentChapter.id, previous });
+    setPronounCheckPreview(null);
+    setPronounCheckDiff(null);
+    toast({ title: "Đã áp dụng đề xuất xưng hô ✅", description: "Bạn vẫn có thể hoàn tác bằng nút Hoàn tác AI." });
+  };
+
+  const handleDiscardPronounCheck = () => {
+    setPronounCheckPreview(null);
+    setPronounCheckDiff(null);
+    toast({ title: "Đã bỏ đề xuất", description: "Bản Edit không bị thay đổi." });
   };
 
   // Self-translate (built-in Hán-Việt dictionary engine — free, client-side,
@@ -1904,6 +1987,7 @@ ${sourceText}`;
         const finalText = applyHardRules(editedText);
 
         await Chapter.update(meta.id, { edited: finalText });
+        setEditedChapterIds((current) => new Set(current).add(meta.id));
         const updatedChapter = { ...chapter, edited: finalText };
         chapterCacheRef.current.set(meta.id, updatedChapter);
         lastSavedRef.current.set(meta.id, snapshotOf(updatedChapter));
@@ -2076,6 +2160,79 @@ Tên chương đã dịch:`;
   const activeMobile = visibleColumns.includes(mobileActiveCol)
     ? mobileActiveCol
     : visibleColumns[0] || "edited";
+
+  const qualityRulesHash = useMemo(() => quickHash(JSON.stringify({
+    glossary: glossaryTerms.map((term) => [term.source_term, term.translation, term.category, term.custom_fields]),
+    pronouns: project?.contextual_pronoun_rules || [],
+  })), [glossaryTerms, project?.contextual_pronoun_rules]);
+  const qaRecords = project?.style_toggles?.workflow_progress?.qa || {};
+  const qaStatusOf = (meta) => {
+    const record = qaRecords[meta.id];
+    if (!record) return "pending";
+    if (record.rulesHash !== qualityRulesHash) return "stale";
+    if (currentChapter?.id === meta.id) {
+      return record.contentHash === quickHash(currentChapter.edited || "") ? "done" : "stale";
+    }
+    const updatedAt = Date.parse(meta.updated_date || 0);
+    return updatedAt && updatedAt > Date.parse(record.checkedAt || 0) ? "stale" : "done";
+  };
+  const qaCount = chapterList.filter((chapter) => qaStatusOf(chapter) === "done").length;
+  const editedCount = chapterList.filter((chapter) => editedChapterIds.has(chapter.id)).length;
+  const qaNeedsRecheck = chapterList.filter((chapter) => qaRecords[chapter.id] && qaStatusOf(chapter) === "stale").length;
+  const contiguousThrough = (predicate) => {
+    let last = null;
+    for (const chapter of chapterList) {
+      if (!predicate(chapter)) break;
+      last = chapter;
+    }
+    return last?.title || "";
+  };
+  const editedThrough = contiguousThrough((chapter) => editedChapterIds.has(chapter.id));
+  const qaThrough = contiguousThrough((chapter) => qaStatusOf(chapter) === "done");
+  const currentMeta = chapterList.find((chapter) => chapter.id === currentChapter?.id);
+  const currentQaStatus = currentMeta ? qaStatusOf(currentMeta) : "pending";
+
+  const handleMarkQaDone = async () => {
+    if (!currentChapter?.id || !currentChapter.edited?.trim()) {
+      toast({ title: "Bản Edit đang trống", description: "Chỉ có thể đánh dấu QA sau khi chương đã có Bản Edit.", variant: "destructive" });
+      return;
+    }
+    const checkedAt = new Date().toISOString();
+    const nextQa = {
+      ...qaRecords,
+      [currentChapter.id]: {
+        checkedAt,
+        contentHash: quickHash(currentChapter.edited),
+        rulesHash: qualityRulesHash,
+        issueCount: qualityGroupCount,
+      },
+    };
+    await handleUpdateProject({
+      style_toggles: {
+        ...(project?.style_toggles || {}),
+        workflow_progress: {
+          ...(project?.style_toggles?.workflow_progress || {}),
+          qa: nextQa,
+        },
+      },
+    });
+    toast({
+      title: "Đã đánh dấu kiểm QA",
+      description: qualityGroupCount ? `Chương còn ${qualityGroupCount} nhóm nghi vấn bạn đã xem và chấp nhận.` : "Chương không còn lỗi QA nghi vấn.",
+    });
+  };
+
+  const goToNextEdit = () => {
+    const target = chapterList.find((chapter) => !editedChapterIds.has(chapter.id));
+    if (target) switchChapter(target.id);
+    else toast({ title: "Đã Edit đủ tất cả chương 🎉" });
+  };
+
+  const goToNextQa = () => {
+    const target = chapterList.find((chapter) => editedChapterIds.has(chapter.id) && qaStatusOf(chapter) !== "done");
+    if (target) switchChapter(target.id);
+    else toast({ title: "Không còn chương đã Edit nào cần QA 🎉" });
+  };
 
   const foreignCharCount = countForeignChars(currentChapter?.edited);
   const qualityGroupCount = new Set(
@@ -2277,6 +2434,21 @@ Tên chương đã dịch:`;
         onOpenTranslationSettings={() => setShowTranslationSettings(true)}
         activePresetName={activePreset?.name}
         onOpenImageTranslate={() => setShowImageTranslate(true)}
+      />
+
+      <WorkflowProgress
+        total={chapterList.length}
+        editedCount={editedCount}
+        qaCount={qaCount}
+        qaNeedsRecheck={qaNeedsRecheck}
+        editedThrough={editedThrough}
+        qaThrough={qaThrough}
+        currentQaStatus={currentQaStatus}
+        onMarkQa={handleMarkQaDone}
+        onNextEdit={goToNextEdit}
+        onNextQa={goToNextQa}
+        onRefresh={() => loadEditedProgress(true)}
+        refreshing={refreshingProgress}
       />
 
       {/* Main content */}
@@ -2511,6 +2683,9 @@ Tên chương đã dịch:`;
         onCheckPronouns={handleCheckPronouns}
         checkingPronouns={checkingPronouns}
         pronounCheckDiff={pronounCheckDiff}
+        hasPronounCheckPreview={Boolean(pronounCheckPreview)}
+        onApplyPronounCheck={handleApplyPronounCheck}
+        onDiscardPronounCheck={handleDiscardPronounCheck}
       />
       <QualityCheckDialog
         open={showQualityCheck}

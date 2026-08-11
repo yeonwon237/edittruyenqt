@@ -50,10 +50,13 @@ export function buildPronounMatrixPrompt(rules) {
       const { defaults, specifics } = bySpeaker[name];
       const lines = [];
       lines.push(`◆ NHÂN VẬT "${name}":`);
+      if (defaults.length && specifics.length) {
+        lines.push("   ! ƯU TIÊN quy tắc người nghe CỤ THỂ; chỉ dùng MẶC ĐỊNH khi không khớp người cụ thể nào.");
+      }
       if (defaults.length) {
         defaults.forEach((d) => {
           lines.push(
-            `   • Mặc định (khi nói với TẤT CẢ MỌI NGƯỜI): xưng "${d.self}" — gọi đối phương "${d.target}"${d.note ? ` (ghi chú: ${d.note})` : ""}`
+            `   • Mặc định (khi nói với MỌI NGƯỜI KHÁC không có quy tắc riêng): xưng "${d.self}" — gọi đối phương "${d.target}"${d.note ? ` (ghi chú: ${d.note})` : ""}`
           );
         });
       }
@@ -75,6 +78,6 @@ export function ruleSummary(rule) {
   if (!rule) return "";
   const self = rule.self_word?.trim() || "?";
   const target = rule.target_word?.trim() || "?";
-  const who = isDefaultRule(rule) ? "mọi người" : rule.listener.trim();
+  const who = isDefaultRule(rule) ? "mọi người khác (mặc định)" : rule.listener.trim();
   return `${rule.speaker?.trim()} → ${who}: xưng "${self}" — gọi "${target}"`;
 }

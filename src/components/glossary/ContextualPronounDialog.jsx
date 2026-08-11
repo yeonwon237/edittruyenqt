@@ -28,6 +28,9 @@ export default function ContextualPronounDialog({
   onCheckPronouns,
   checkingPronouns,
   pronounCheckDiff,
+  hasPronounCheckPreview,
+  onApplyPronounCheck,
+  onDiscardPronounCheck,
 }) {
   const { toast } = useToast();
   const [rules, setRules] = useState([]);
@@ -113,6 +116,21 @@ export default function ContextualPronounDialog({
       toast({ title: "Vui lòng nhập người nghe hoặc chọn mặc định", variant: "destructive" });
       return;
     }
+    if (isDefault) {
+      const duplicateDefault = rules.findIndex((rule, index) =>
+        index !== editingIndex &&
+        rule.speaker?.trim().toLocaleLowerCase("vi") === speaker.toLocaleLowerCase("vi") &&
+        (!rule.listener?.trim() || rule.listener.trim() === "*")
+      );
+      if (duplicateDefault >= 0) {
+        toast({
+          title: `${speaker} đã có quy tắc “Mọi người khác”`,
+          description: "Mỗi nhân vật chỉ có một quy tắc mặc định. Hãy sửa quy tắc đang có.",
+          variant: "destructive",
+        });
+        return;
+      }
+    }
     const newRule = { speaker, listener, self_word: selfWord, target_word: targetWord, note: form.note.trim() };
 
     const next =
@@ -173,7 +191,7 @@ export default function ContextualPronounDialog({
           <DialogDescription>
             Thiết lập cách xưng hô theo từng cặp Nhân vật nói ↔ Người nghe. AI Gemini sẽ
             tự nhận diện người nói — người nghe trong từng câu thoại để áp dụng đúng đại từ.
-            Người nghe để trống / chọn "Mặc định" nghĩa là quy tắc chung cho mọi người.
+            Chọn “Mọi người khác” để tạo quy tắc dự phòng; quy tắc người nghe cụ thể luôn được ưu tiên.
           </DialogDescription>
         </DialogHeader>
 
@@ -182,37 +200,78 @@ export default function ContextualPronounDialog({
             onClick={onCheckPronouns}
             disabled={checkingPronouns}
             className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-50 to-pink-50 hover:from-violet-100 hover:to-pink-100 text-violet-700 text-xs font-medium border border-violet-100 transition-colors disabled:opacity-50"
-            title="Chạy 1 lượt AI riêng, CHỈ soát lại đại từ xưng hô trong Bản Edit theo đúng bảng quy tắc bên dưới — không đụng gì khác. Dùng khi bản edit đã có xưng hô sai lẻ tẻ mà nút Đổi đại từ (tìm/thay chữ) không phân biệt được ngữ cảnh."
+            title="AI chỉ tạo danh sách đề xuất. Bản Edit chỉ thay đổi sau khi bạn xem và bấm Áp dụng đề xuất."
           >
             {checkingPronouns ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
             ) : (
               <Sparkles className="w-3.5 h-3.5" />
             )}
-            {checkingPronouns ? "Đang kiểm tra Bản Edit..." : "Kiểm tra & sửa xưng hô sai trong Bản Edit (AI)"}
+            {checkingPronouns ? "Đang kiểm tra Bản Edit..." : "Kiểm tra xưng hô bằng AI (chỉ đề xuất)"}
           </button>
         )}
 
         {pronounCheckDiff && pronounCheckDiff.length > 0 && (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 max-h-48 overflow-y-auto cute-scrollbar space-y-1.5">
-            <p className="text-xs font-semibold text-emerald-700 mb-1">
-              Đã sửa {pronounCheckDiff.length} chỗ:
+          <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+            <p className="text-xs font-semibold text-amber-800">
+              AI đề xuất {pronounCheckDiff.length} thay đổi — Bản Edit chưa bị sửa:
             </p>
-            {pronounCheckDiff.map((c, i) => (
-              <p key={i} className="text-xs text-slate-600 leading-relaxed">
-                <span className="text-slate-400">Dòng {c.line}: </span>
-                {c.before && <span className="text-slate-400">…{c.before} </span>}
-                <span className="line-through text-red-400">{c.removed}</span>
-                {" → "}
-                <span className="text-emerald-600 font-medium">{c.added}</span>
-                {c.after && <span className="text-slate-400"> {c.after}…</span>}
-              </p>
-            ))}
+            <div className="max-h-48 overflow-y-auto cute-scrollbar space-y-1.5 rounded-lg bg-white/70 p-2">
+              {pronounCheckDiff.map((c, i) => (
+                <p key={i} className="text-xs text-slate-600 leading-relaxed">
+                  <span className="text-slate-400">Dòng {c.line}: </span>
+                  {c.before && <span className="text-slate-400">…{c.before} </span>}
+                  <span className="line-through text-red-400">{c.removed}</span>
+                  {" → "}
+                  <span className="text-emerald-600 font-medium">{c.added}</span>
+                  {c.after && <span className="text-slate-400"> {c.after}…</span>}
+                </p>
+              ))}
+            </div>
+            {hasPronounCheckPreview && (
+              <div className="flex justify-end gap-2 pt-1">
+                <button type="button" onClick={onDiscardPronounCheck} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">
+                  Bỏ đề xuất
+                </button>
+                <button type="button" onClick={onApplyPronounCheck} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">
+                  Áp dụng đề xuất
+                </button>
+              </div>
+            )}
           </div>
         )}
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-3 rounded-xl border border-violet-100 bg-violet-50/40 p-3">
+          <div>
+            <p className="mb-1.5 text-xs font-medium text-violet-700">Áp dụng khi nói với *</p>
+            <div className="grid grid-cols-2 gap-2 rounded-xl border border-violet-100 bg-white p-1">
+              <button
+                type="button"
+                onClick={() => setIsDefault(false)}
+                className={`rounded-lg px-3 py-2 text-left transition-colors ${
+                  !isDefault ? "bg-violet-600 text-white shadow-sm" : "text-slate-600 hover:bg-violet-50"
+                }`}
+              >
+                <span className="block text-xs font-semibold">Một người cụ thể</span>
+                <span className={`block text-[10px] ${!isDefault ? "text-violet-100" : "text-slate-400"}`}>
+                  Ví dụ: năm người vợ dùng Ta – nàng
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDefault(true)}
+                className={`rounded-lg px-3 py-2 text-left transition-colors ${
+                  isDefault ? "bg-violet-600 text-white shadow-sm" : "text-slate-600 hover:bg-violet-50"
+                }`}
+              >
+                <span className="block text-xs font-semibold">Mọi người khác (mặc định)</span>
+                <span className={`block text-[10px] ${isDefault ? "text-violet-100" : "text-slate-400"}`}>
+                  Chỉ dùng khi không khớp người cụ thể
+                </span>
+              </button>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-violet-700">Người nói (Nhân vật) *</label>
@@ -231,7 +290,7 @@ export default function ContextualPronounDialog({
                 value={form.listener}
                 disabled={isDefault}
                 onChange={(e) => setForm({ ...form, listener: e.target.value })}
-                placeholder={isDefault ? "Mặc định cho mọi người" : "VD: Diệp Khinh Thần"}
+                placeholder={isDefault ? "Mọi người khác (tự động)" : "VD: Diệp Khinh Thần"}
                 className="mt-1 w-full px-2.5 py-1.5 text-sm rounded-lg border border-violet-100 bg-white focus:outline-none focus:border-violet-300 disabled:opacity-60"
               />
               <datalist id="pronoun-char-names">
@@ -270,16 +329,10 @@ export default function ContextualPronounDialog({
             />
           </div>
 
-          <label className="flex items-center gap-2 text-xs text-slate-600 select-none cursor-pointer">
-            <input
-              type="checkbox"
-              checked={isDefault}
-              onChange={(e) => setIsDefault(e.target.checked)}
-              className="accent-violet-600"
-            />
-            Quy tắc MẶC ĐỊNH (áp dụng cho mọi đối thoại với tất cả mọi người).
-            Bỏ tick nếu chỉ dùng với một nhân vật cụ thể.
-          </label>
+          <p className="rounded-lg bg-white px-2.5 py-2 text-[11px] leading-relaxed text-slate-500">
+            Quy tắc cho người cụ thể luôn được ưu tiên. “Mọi người khác” chỉ là phương án dự phòng
+            khi QA/AI không tìm thấy người nghe nào khớp quy tắc cụ thể.
+          </p>
 
           <div className="flex gap-2 pt-1">
             <button
@@ -372,7 +425,7 @@ export default function ContextualPronounDialog({
                   )}
                   {(!r.listener || r.listener === "*") ? (
                     <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-600">
-                      Mặc định
+                      Mọi người khác · Mặc định
                     </span>
                   ) : (
                     <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-600">
