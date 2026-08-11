@@ -107,6 +107,14 @@ const quickHash = (value) => {
   return (hash >>> 0).toString(36);
 };
 
+const stableSerialize = (value) => {
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableSerialize(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+};
+
 export default function Workspace() {
   const { projectId } = useParams();
   const navigate = useNavigate();
@@ -119,6 +127,7 @@ export default function Workspace() {
   const [currentChapter, setCurrentChapter] = useState(null);
   const [editedChapterIds, setEditedChapterIds] = useState(new Set());
   const [refreshingProgress, setRefreshingProgress] = useState(false);
+  const [markingQa, setMarkingQa] = useState(false);
   const [glossaryTerms, setGlossaryTerms] = useState([]);
   const [loading, setLoading] = useState(true);
   const [visibleColumns, setVisibleColumns] = useState(["raw", "qt", "edited"]);
@@ -2161,20 +2170,32 @@ Tên chương đã dịch:`;
     ? mobileActiveCol
     : visibleColumns[0] || "edited";
 
-  const qualityRulesHash = useMemo(() => quickHash(JSON.stringify({
+  const legacyQualityRulesHash = useMemo(() => quickHash(JSON.stringify({
     glossary: glossaryTerms.map((term) => [term.source_term, term.translation, term.category, term.custom_fields]),
+    pronouns: project?.contextual_pronoun_rules || [],
+  })), [glossaryTerms, project?.contextual_pronoun_rules]);
+  const qualityRulesHash = useMemo(() => quickHash(stableSerialize({
+    glossary: glossaryTerms
+      .map((term) => [term.id, term.source_term, term.translation, term.category, term.custom_fields])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
     pronouns: project?.contextual_pronoun_rules || [],
   })), [glossaryTerms, project?.contextual_pronoun_rules]);
   const qaRecords = project?.style_toggles?.workflow_progress?.qa || {};
   const qaStatusOf = (meta) => {
     const record = qaRecords[meta.id];
     if (!record) return "pending";
-    if (record.rulesHash !== qualityRulesHash) return "stale";
+    if (record.rulesHash !== qualityRulesHash && record.rulesHash !== legacyQualityRulesHash) return "stale";
     if (currentChapter?.id === meta.id) {
       return record.contentHash === quickHash(currentChapter.edited || "") ? "done" : "stale";
     }
     const updatedAt = Date.parse(meta.updated_date || 0);
-    return updatedAt && updatedAt > Date.parse(record.checkedAt || 0) ? "stale" : "done";
+    if (!updatedAt) return "done";
+    if (record.chapterUpdatedAt) {
+      return updatedAt > Date.parse(record.chapterUpdatedAt) + 1000 ? "stale" : "done";
+    }
+    // Backward compatibility for records made before the server-version fix:
+    // tolerate clock skew between the user's device and Supabase.
+    return updatedAt > Date.parse(record.checkedAt || 0) + 5 * 60 * 1000 ? "stale" : "done";
   };
   const qaCount = chapterList.filter((chapter) => qaStatusOf(chapter) === "done").length;
   const editedCount = chapterList.filter((chapter) => editedChapterIds.has(chapter.id)).length;
@@ -2197,29 +2218,45 @@ Tên chương đã dịch:`;
       toast({ title: "Bản Edit đang trống", description: "Chỉ có thể đánh dấu QA sau khi chương đã có Bản Edit.", variant: "destructive" });
       return;
     }
-    const checkedAt = new Date().toISOString();
-    const nextQa = {
-      ...qaRecords,
-      [currentChapter.id]: {
-        checkedAt,
-        contentHash: quickHash(currentChapter.edited),
-        rulesHash: qualityRulesHash,
-        issueCount: qualityGroupCount,
-      },
-    };
-    await handleUpdateProject({
-      style_toggles: {
-        ...(project?.style_toggles || {}),
-        workflow_progress: {
-          ...(project?.style_toggles?.workflow_progress || {}),
-          qa: nextQa,
+    const chapterAtClick = { ...currentChapter };
+    setMarkingQa(true);
+    try {
+      await flushSave(chapterAtClick, true);
+      const savedChapter = await Chapter.get(chapterAtClick.id);
+      if ((savedChapter.edited || "") !== (chapterAtClick.edited || "")) {
+        throw new Error("Bản Edit chưa lưu xong. Hãy đợi trạng thái Đã lưu rồi thử lại.");
+      }
+      const nextQa = {
+        ...qaRecords,
+        [chapterAtClick.id]: {
+          checkedAt: new Date().toISOString(),
+          chapterUpdatedAt: savedChapter.updated_date,
+          contentHash: quickHash(savedChapter.edited),
+          rulesHash: qualityRulesHash,
+          issueCount: qualityGroupCount,
         },
-      },
-    });
-    toast({
-      title: "Đã đánh dấu kiểm QA",
-      description: qualityGroupCount ? `Chương còn ${qualityGroupCount} nhóm nghi vấn bạn đã xem và chấp nhận.` : "Chương không còn lỗi QA nghi vấn.",
-    });
+      };
+      await handleUpdateProject({
+        style_toggles: {
+          ...(project?.style_toggles || {}),
+          workflow_progress: {
+            ...(project?.style_toggles?.workflow_progress || {}),
+            qa: nextQa,
+          },
+        },
+      });
+      setChapterList((list) => list.map((meta) =>
+        meta.id === savedChapter.id ? { ...meta, updated_date: savedChapter.updated_date } : meta
+      ));
+      toast({
+        title: "Đã lưu tiến độ QA",
+        description: qualityGroupCount ? `Chương còn ${qualityGroupCount} nhóm nghi vấn bạn đã xem và chấp nhận.` : "Chương không còn lỗi QA nghi vấn.",
+      });
+    } catch (error) {
+      toast({ title: "Chưa lưu được tiến độ QA", description: error.message, variant: "destructive" });
+    } finally {
+      setMarkingQa(false);
+    }
   };
 
   const goToNextEdit = () => {
@@ -2444,6 +2481,7 @@ Tên chương đã dịch:`;
         editedThrough={editedThrough}
         qaThrough={qaThrough}
         currentQaStatus={currentQaStatus}
+        markingQa={markingQa}
         onMarkQa={handleMarkQaDone}
         onNextEdit={goToNextEdit}
         onNextQa={goToNextQa}

@@ -17,6 +17,7 @@ export default function WorkflowProgress({
   editedThrough,
   qaThrough,
   currentQaStatus,
+  markingQa,
   onMarkQa,
   onNextEdit,
   onNextQa,
@@ -46,9 +47,9 @@ export default function WorkflowProgress({
           {qaNeedsRecheck > 0 && <span className="rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700">{qaNeedsRecheck} cần kiểm lại</span>}
           <button onClick={onNextEdit} className="inline-flex items-center gap-1 rounded-lg border border-violet-100 bg-violet-50 px-2 py-1 text-[10px] font-medium text-violet-700 hover:bg-violet-100">Edit tiếp <ChevronRight className="h-3 w-3" /></button>
           <button onClick={onNextQa} className="inline-flex items-center gap-1 rounded-lg border border-emerald-100 bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 hover:bg-emerald-100">QA tiếp <ChevronRight className="h-3 w-3" /></button>
-          <button onClick={onMarkQa} disabled={currentQaStatus === "done"} className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold ${currentQaStatus === "done" ? "bg-emerald-100 text-emerald-700" : "bg-slate-800 text-white hover:bg-slate-700"}`}>
+          <button onClick={onMarkQa} disabled={currentQaStatus === "done" || markingQa} className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[10px] font-semibold disabled:cursor-wait disabled:opacity-70 ${currentQaStatus === "done" ? "bg-emerald-100 text-emerald-700" : "bg-slate-800 text-white hover:bg-slate-700"}`}>
             {currentQaStatus === "done" ? <CheckCircle2 className="h-3 w-3" /> : <ShieldCheck className="h-3 w-3" />}
-            {currentQaStatus === "done" ? "Đã kiểm QA" : currentQaStatus === "stale" ? "Xác nhận kiểm lại" : "Đánh dấu đã QA"}
+            {markingQa ? "Đang lưu QA…" : currentQaStatus === "done" ? "Đã kiểm QA" : currentQaStatus === "stale" ? "Xác nhận kiểm lại" : "Đánh dấu đã QA"}
           </button>
           <button onClick={onRefresh} disabled={refreshing} title="Làm mới tiến độ" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"><RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /></button>
         </div>
