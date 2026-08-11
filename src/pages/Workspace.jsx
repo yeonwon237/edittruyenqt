@@ -315,6 +315,78 @@ export default function Workspace() {
     }
   };
 
+  // A deliberately small bridge for the personal Chrome extension. It only
+  // exposes chapter metadata, reads source text and writes the `edited`
+  // column. Existing workspace controls and editor behavior stay untouched.
+  useEffect(() => {
+    const respond = (detail) =>
+      window.dispatchEvent(new CustomEvent("ETQ_BATCH_RESPONSE", { detail }));
+
+    const onBatchRequest = (event) => {
+      const request = event.detail || {};
+      if (!request.id) return;
+      (async () => {
+        if (request.action === "list") {
+          return {
+            projectId,
+            chapters: chapterList.map((meta, index) => {
+              return {
+                id: meta.id,
+                index: index + 1,
+                title: meta.title || `Chương ${index + 1}`,
+                chapterOrder: meta.chapter_order ?? index,
+              };
+            }),
+          };
+        }
+
+        const meta = chapterList.find((chapter) => chapter.id === request.chapterId);
+        if (!meta) throw new Error("Chương không thuộc dự án đang mở.");
+        if (currentChapter?.id === meta.id) await flushSave(currentChapter, true);
+        const chapter = currentChapter?.id === meta.id
+          ? { ...currentChapter }
+          : await Chapter.get(meta.id);
+        if (chapter.project_id !== projectId) throw new Error("Không có quyền truy cập chương này.");
+
+        if (request.action === "read") {
+          const text = String(chapter.qt_raw || chapter.raw_original || "").trim();
+          if (!text) throw new Error("Chương không có Bản QT hoặc Bản gốc để gửi.");
+          return {
+            chapterId: chapter.id,
+            title: chapter.title || meta.title,
+            text,
+            hasEdited: Boolean(String(chapter.edited || "").trim()),
+          };
+        }
+
+        if (request.action === "write") {
+          const text = String(request.text || "").trim();
+          if (!text) throw new Error("Gemini trả về nội dung rỗng.");
+          if (chapter.edited?.trim() && request.overwrite !== true) {
+            throw new Error("Bản edit đã có nội dung; extension chưa được phép ghi đè.");
+          }
+          const updated = { ...chapter, edited: text };
+          await Chapter.update(chapter.id, { edited: text }, { returning: false });
+          lastSavedRef.current.set(chapter.id, snapshotOf(updated));
+          chapterCacheRef.current.set(chapter.id, updated);
+          capCache(chapterCacheRef.current);
+          if (currentChapter?.id === chapter.id) setCurrentChapter(updated);
+          return { chapterId: chapter.id, title: updated.title, saved: true };
+        }
+
+        throw new Error("Thao tác hàng loạt không hợp lệ.");
+      })()
+        .then((result) => respond({ id: request.id, ok: true, ...result }))
+        .catch((error) => respond({ id: request.id, ok: false, error: error.message || String(error) }));
+    };
+
+    window.addEventListener("ETQ_BATCH_REQUEST", onBatchRequest);
+    return () => window.removeEventListener("ETQ_BATCH_REQUEST", onBatchRequest);
+    // Rebind when active chapter/list changes so the bridge always sees the
+    // same data as the workspace without introducing global mutable state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, chapterList, currentChapter]);
+
   // Auto-save chapter (debounced, deduped against last-saved snapshot)
   useEffect(() => {
     if (!currentChapter?.id || draftMode) return;
