@@ -18,6 +18,7 @@ import BatchEditDialog from "@/components/workspace/BatchEditDialog";
 import BatchTitleEditDialog from "@/components/workspace/BatchTitleEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import QualityCheckDialog from "@/components/workspace/QualityCheckDialog";
+import BulkColumnMoveDialog from "@/components/workspace/BulkColumnMoveDialog";
 import {
   exportAsTxt,
   exportAsDoc,
@@ -135,6 +136,9 @@ export default function Workspace() {
   const [qualityUndo, setQualityUndo] = useState(null);
   const [showAISettings, setShowAISettings] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
+  const [showColumnMove, setShowColumnMove] = useState(false);
+  const [movingColumns, setMovingColumns] = useState(false);
+  const [columnMoveUndo, setColumnMoveUndo] = useState(null);
   const [chapterDeleteUndo, setChapterDeleteUndo] = useState(null);
   const [showImportChapters, setShowImportChapters] = useState(false);
   const [exportingChapters, setExportingChapters] = useState(false);
@@ -1562,6 +1566,105 @@ ${sourceText}`;
     }
   };
 
+  const chapterUpsertRow = (chapter) => ({
+    id: chapter.id,
+    project_id: chapter.project_id,
+    title: chapter.title,
+    chapter_order: chapter.chapter_order,
+    raw_original: chapter.raw_original || "",
+    qt_raw: chapter.qt_raw || "",
+    edited: chapter.edited || "",
+  });
+
+  const handleBulkColumnMove = async ({ source, target, operation }) => {
+    if (!source || !target || source === target) return null;
+    setMovingColumns(true);
+    let backups = [];
+    let updated = [];
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      const chapters = await fetchAllPages(
+        (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
+        { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
+      );
+      const emptySource = chapters.filter((chapter) => !String(chapter[source] || "").trim()).length;
+      const targetOccupied = chapters.filter((chapter) => String(chapter[source] || "").trim() && String(chapter[target] || "").trim()).length;
+      const candidates = chapters.filter((chapter) => String(chapter[source] || "").trim() && !String(chapter[target] || "").trim());
+      if (!candidates.length) {
+        toast({ title: "Không có chương nào cần chuyển", description: "Cột nguồn trống hoặc cột đích đã có dữ liệu." });
+        return { changed: 0, emptySource, targetOccupied };
+      }
+
+      backups = candidates.map(chapterUpsertRow);
+      const changedRows = candidates.map((chapter) => chapterUpsertRow({
+        ...chapter,
+        [target]: chapter[source],
+        [source]: operation === "move" ? "" : chapter[source],
+      }));
+      for (let index = 0; index < changedRows.length; index += 200) {
+        const batch = changedRows.slice(index, index + 200);
+        // eslint-disable-next-line no-await-in-loop
+        updated = updated.concat(await Chapter.bulkUpsert(batch));
+      }
+      updated.forEach((chapter) => {
+        chapterCacheRef.current.set(chapter.id, chapter);
+        lastSavedRef.current.set(chapter.id, snapshotOf(chapter));
+      });
+      capCache(chapterCacheRef.current);
+      const active = updated.find((chapter) => chapter.id === currentChapter?.id);
+      if (active) setCurrentChapter(active);
+      setColumnMoveUndo(backups);
+      toast({ title: `Đã ${operation === "move" ? "di chuyển" : "sao chép"} ${updated.length} chương`, description: targetOccupied ? `Đã bỏ qua ${targetOccupied} chương vì cột đích có dữ liệu.` : "Không ghi đè dữ liệu cũ." });
+      return { changed: updated.length, emptySource, targetOccupied };
+    } catch (error) {
+      if (updated.length) {
+        const updatedIds = new Set(updated.map((chapter) => chapter.id));
+        setColumnMoveUndo(backups.filter((chapter) => updatedIds.has(chapter.id)));
+        updated.forEach((chapter) => {
+          chapterCacheRef.current.set(chapter.id, chapter);
+          lastSavedRef.current.set(chapter.id, snapshotOf(chapter));
+        });
+        const active = updated.find((chapter) => chapter.id === currentChapter?.id);
+        if (active) setCurrentChapter(active);
+      }
+      toast({
+        title: updated.length ? `Đã chuyển ${updated.length} chương rồi gặp lỗi` : "Lỗi chuyển dữ liệu giữa các cột",
+        description: updated.length ? `${error.message}. Bạn có thể dùng nút Hoàn tác cho phần đã chuyển.` : error.message,
+        variant: "destructive",
+      });
+      return null;
+    } finally {
+      setMovingColumns(false);
+    }
+  };
+
+  const handleUndoColumnMove = async () => {
+    if (!columnMoveUndo?.length) return;
+    setMovingColumns(true);
+    try {
+      let restored = [];
+      for (let index = 0; index < columnMoveUndo.length; index += 200) {
+        const batch = columnMoveUndo.slice(index, index + 200);
+        // eslint-disable-next-line no-await-in-loop
+        restored = restored.concat(await Chapter.bulkUpsert(batch));
+      }
+      restored.forEach((chapter) => {
+        chapterCacheRef.current.set(chapter.id, chapter);
+        lastSavedRef.current.set(chapter.id, snapshotOf(chapter));
+      });
+      capCache(chapterCacheRef.current);
+      const active = restored.find((chapter) => chapter.id === currentChapter?.id);
+      if (active) setCurrentChapter(active);
+      const count = restored.length;
+      setColumnMoveUndo(null);
+      toast({ title: `Đã hoàn tác chuyển cột cho ${count} chương` });
+    } catch (error) {
+      toast({ title: "Không thể hoàn tác chuyển cột", description: error.message, variant: "destructive" });
+    } finally {
+      setMovingColumns(false);
+    }
+  };
+
   // Full-content export of every chapter in the project (Chương/Title/Nội
   // dung columns — round-trips with the "Tải file có cột" import mode).
   // This is the one place worth paying full-content egress for: the user
@@ -2372,6 +2475,16 @@ Tên chương đã dịch:`;
         exportingSelected={exportingSelected}
         onBatchEdit={() => setShowBatchEdit(true)}
         onBatchTitleEdit={() => setShowBatchTitleEdit(true)}
+        onOpenColumnMove={() => setShowColumnMove(true)}
+      />
+      <BulkColumnMoveDialog
+        open={showColumnMove}
+        onOpenChange={setShowColumnMove}
+        totalChapters={chapterList.length}
+        onRun={handleBulkColumnMove}
+        running={movingColumns}
+        undoCount={columnMoveUndo?.length || 0}
+        onUndo={handleUndoColumnMove}
       />
       <ImportChaptersDialog
         open={showImportChapters}

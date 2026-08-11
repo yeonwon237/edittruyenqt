@@ -33,6 +33,7 @@ import {
   Languages,
   MoreHorizontal,
   Undo2,
+  ArrowRightLeft,
 } from "lucide-react";
 
 const EXPORT_FORMATS = [
@@ -84,6 +85,7 @@ export default function ChapterManagerDialog({
   exportingSelected,
   onBatchEdit,
   onBatchTitleEdit,
+  onOpenColumnMove,
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -175,6 +177,9 @@ export default function ChapterManagerDialog({
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={onOpenImport}>
                       <Upload className="w-3.5 h-3.5" /> Nhập hàng loạt
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={onOpenColumnMove} disabled={chapters.length === 0}>
+                      <ArrowRightLeft className="w-3.5 h-3.5" /> Chuyển dữ liệu giữa các cột
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={onBatchEdit} disabled={chapters.length === 0}>
                       <Sparkles className="w-3.5 h-3.5" /> Edit AI hàng loạt (nội dung)

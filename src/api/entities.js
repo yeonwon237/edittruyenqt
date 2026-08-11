@@ -82,6 +82,13 @@ function makeEntity(table) {
       return data;
     },
 
+    async bulkUpsert(rows) {
+      if (!Array.isArray(rows) || rows.length === 0) return [];
+      const { data, error } = await supabase.from(table).upsert(rows, { onConflict: 'id' }).select();
+      if (error) throw error;
+      return data;
+    },
+
     async update(id, values, { returning = true } = {}) {
       let query = supabase.from(table).update(values).eq('id', id);
       if (returning) query = query.select().single();
