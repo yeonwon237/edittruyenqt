@@ -9,7 +9,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Upload, FileSpreadsheet, Loader2 } from "lucide-react";
-import { parseChaptersFile } from "@/lib/importChapters";
+import {
+  CHAPTER_HEADING_PRESETS,
+  parseChaptersFile,
+  splitByHeadingRegex,
+} from "@/lib/importChapters";
 import {
   extractTextFromDocx,
   extractTextFromPdf,
@@ -18,36 +22,6 @@ import {
   EPUB_CHAPTER_REGEX_SOURCE,
 } from "@/lib/documentImport";
 import { useToast } from "@/components/ui/use-toast";
-
-const CHUONG_KEYWORD = String.fromCharCode(0x43, 0x68, 0x01b0, 0x01a1, 0x6e, 0x67); // "Chương"
-
-const PRESETS = {
-  vi: { label: "Chương 1, Chương 2, ...", source: `^\\s*${CHUONG_KEYWORD}\\s+\\d+[^\\n]*` },
-  en: { label: "Chapter 1, Chapter 2, ...", source: "^\\s*Chapter\\s+\\d+[^\\n]*" },
-  custom: { label: "Tùy chỉnh (regex)", source: "" },
-};
-
-function splitByHeadingRegex(text, source) {
-  let regex;
-  try {
-    regex = new RegExp(source, "gim");
-  } catch {
-    return null;
-  }
-  const matches = [...text.matchAll(regex)];
-  if (matches.length === 0) {
-    return [{ title: "Chương 1", content: text.trim() }].filter((c) => c.content);
-  }
-  const chapters = [];
-  for (let i = 0; i < matches.length; i++) {
-    const heading = matches[i][0].trim();
-    const contentStart = matches[i].index + matches[i][0].length;
-    const contentEnd = i + 1 < matches.length ? matches[i + 1].index : text.length;
-    const content = text.slice(contentStart, contentEnd).trim();
-    chapters.push({ title: heading || `Chương ${i + 1}`, content });
-  }
-  return chapters;
-}
 
 export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
   const { toast } = useToast();
@@ -64,7 +38,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
   const fileInputRef = useRef(null);
   const txtFileInputRef = useRef(null);
 
-  const pattern = presetKey === "custom" ? customPattern : PRESETS[presetKey].source;
+  const pattern = presetKey === "custom" ? customPattern : CHAPTER_HEADING_PRESETS[presetKey].source;
 
   const pasteParsed = useMemo(() => {
     if (!text.trim() || !pattern) return [];
@@ -250,7 +224,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
                   onChange={(e) => setPresetKey(e.target.value)}
                   className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
                 >
-                  {Object.entries(PRESETS).map(([k, p]) => (
+                  {Object.entries(CHAPTER_HEADING_PRESETS).map(([k, p]) => (
                     <option key={k} value={k}>{p.label}</option>
                   ))}
                 </select>

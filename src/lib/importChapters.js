@@ -1,4 +1,57 @@
-import { splitLine, findColumnIndex } from "./csvUtils";
+import { splitLine, findColumnIndex } from "./csvUtils.js";
+
+const CHUONG_KEYWORD = String.fromCharCode(0x43, 0x68, 0x01b0, 0x01a1, 0x6e, 0x67); // "Chương"
+
+export const CHAPTER_HEADING_PRESETS = {
+  vi: {
+    label: "Chương 1… hoặc 551. Chương 548…",
+    source: `^\\s*(?:\\d+\\s*[.)、:–—-]\\s*)?${CHUONG_KEYWORD}\\s+\\d+[^\\n]*`,
+  },
+  en: {
+    label: "Chapter 1… hoặc 551. Chapter 548…",
+    source: "^\\s*(?:\\d+\\s*[.)、:–—-]\\s*)?Chapter\\s+\\d+[^\\n]*",
+  },
+  custom: { label: "Tùy chỉnh (regex)", source: "" },
+};
+
+const EXPORT_INDEX_PREFIX = new RegExp(
+  `^\\s*\\d+\\s*[.)、:–—-]\\s*(?=(?:${CHUONG_KEYWORD}|Chapter)\\s+\\d+)`,
+  "iu"
+);
+const DECORATIVE_DIVIDER = /^\s*={5,}\s*$/;
+
+function cleanChapterContent(content) {
+  const lines = String(content || "").split(/\r?\n/);
+  while (lines.length && (!lines[0].trim() || DECORATIVE_DIVIDER.test(lines[0]))) lines.shift();
+  while (lines.length && (!lines.at(-1).trim() || DECORATIVE_DIVIDER.test(lines.at(-1)))) lines.pop();
+  return lines.join("\n").trim();
+}
+
+function cleanChapterTitle(heading) {
+  return String(heading || "").trim().replace(EXPORT_INDEX_PREFIX, "").trim();
+}
+
+export function splitByHeadingRegex(text, source) {
+  let regex;
+  try {
+    regex = new RegExp(source, "gim");
+  } catch {
+    return null;
+  }
+  const matches = [...String(text || "").matchAll(regex)];
+  if (matches.length === 0) {
+    return [{ title: "Chương 1", content: String(text || "").trim() }].filter((chapter) => chapter.content);
+  }
+  const chapters = [];
+  for (let i = 0; i < matches.length; i++) {
+    const heading = cleanChapterTitle(matches[i][0]);
+    const contentStart = matches[i].index + matches[i][0].length;
+    const contentEnd = i + 1 < matches.length ? matches[i + 1].index : String(text || "").length;
+    const content = cleanChapterContent(String(text || "").slice(contentStart, contentEnd));
+    chapters.push({ title: heading || `Chương ${i + 1}`, content });
+  }
+  return chapters;
+}
 
 // Parses a structured CSV/TSV file with explicit columns — order, title,
 // content — as opposed to ImportChaptersDialog's "paste one big blob and
