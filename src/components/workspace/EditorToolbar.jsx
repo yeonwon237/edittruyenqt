@@ -14,6 +14,9 @@ import {
   ImagePlus,
   MoreHorizontal,
   Bot,
+  Database,
+  ArrowRightLeft,
+  Eraser,
 } from "lucide-react";
 
 const COLUMN_OPTIONS = [
@@ -57,16 +60,21 @@ export default function EditorToolbar({
   activePresetName,
   onOpenImageTranslate,
   onRuleEdit,
+  onOpenColumnMove,
+  onOpenQtCleanup,
 }) {
   const [showCols, setShowCols] = useState(false);
   const [showMore, setShowMore] = useState(false);
+  const [showDataTools, setShowDataTools] = useState(false);
   const colsRef = useRef(null);
   const moreRef = useRef(null);
+  const dataToolsRef = useRef(null);
 
   useEffect(() => {
     const onDocClick = (e) => {
       if (colsRef.current && !colsRef.current.contains(e.target)) setShowCols(false);
       if (moreRef.current && !moreRef.current.contains(e.target)) setShowMore(false);
+      if (dataToolsRef.current && !dataToolsRef.current.contains(e.target)) setShowDataTools(false);
     };
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
@@ -199,6 +207,16 @@ export default function EditorToolbar({
             </button>
           </div>
         )}
+      </div>
+
+      <div ref={dataToolsRef} className="relative shrink-0">
+        <button onClick={() => setShowDataTools((value) => !value)} className="flex items-center gap-1.5 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100" title="Công cụ xử lý dữ liệu toàn truyện">
+          <Database className="h-3.5 w-3.5" /><span className="hidden sm:inline">Công cụ dữ liệu</span>
+        </button>
+        {showDataTools && <div className="absolute left-0 top-full z-40 mt-1 w-64 rounded-xl border border-violet-100 bg-white p-1.5 shadow-xl">
+          <button onClick={() => { onOpenColumnMove(); setShowDataTools(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition-colors hover:bg-violet-50"><ArrowRightLeft className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Chuyển dữ liệu giữa các cột</button>
+          <button onClick={() => { onOpenQtCleanup(); setShowDataTools(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-slate-700 transition-colors hover:bg-violet-50"><Eraser className="h-3.5 w-3.5 shrink-0 text-amber-600" /> Dọn dấu chia Phần trong QT</button>
+        </div>}
       </div>
 
       <div className="flex-1" />

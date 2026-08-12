@@ -20,6 +20,7 @@ import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import QualityCheckDialog from "@/components/workspace/QualityCheckDialog";
 import BulkColumnMoveDialog from "@/components/workspace/BulkColumnMoveDialog";
 import WorkflowProgress from "@/components/workspace/WorkflowProgress";
+import QtCleanupDialog from "@/components/workspace/QtCleanupDialog";
 import {
   exportAsTxt,
   exportAsDoc,
@@ -40,6 +41,7 @@ import { applyQualitySuggestion, runQualityCheck } from "@/lib/qualityCheck";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
 import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
+import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
 import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck } from "lucide-react";
@@ -162,6 +164,9 @@ export default function Workspace() {
   const [showColumnMove, setShowColumnMove] = useState(false);
   const [movingColumns, setMovingColumns] = useState(false);
   const [columnMoveUndo, setColumnMoveUndo] = useState(null);
+  const [showQtCleanup, setShowQtCleanup] = useState(false);
+  const [qtCleanupRunning, setQtCleanupRunning] = useState(false);
+  const [qtCleanupUndo, setQtCleanupUndo] = useState(null);
   const [chapterDeleteUndo, setChapterDeleteUndo] = useState(null);
   const [showImportChapters, setShowImportChapters] = useState(false);
   const [exportingChapters, setExportingChapters] = useState(false);
@@ -1663,6 +1668,67 @@ ${sourceText}`;
     }
   };
 
+  const scanQtPartMarkers = async () => {
+    setQtCleanupRunning(true);
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      const chapters = [];
+      for (let offset = 0; offset < chapterList.length; offset += 200) {
+        // eslint-disable-next-line no-await-in-loop
+        const rows = await Chapter.getMany(chapterList.slice(offset, offset + 200).map((chapter) => chapter.id));
+        rows.forEach((chapter) => {
+          const cleaned = cleanToolPartMarkers(chapter.qt_raw);
+          if (cleaned.changed) chapters.push({ id:chapter.id, title:chapter.title, removed:cleaned.removed, before:chapter.qt_raw || "", after:cleaned.text });
+        });
+      }
+      chapters.sort((a,b) => (chapterList.findIndex((item)=>item.id===a.id) - chapterList.findIndex((item)=>item.id===b.id)));
+      return { chapters, totalBlocks:chapters.reduce((sum,item)=>sum+item.removed,0) };
+    } catch (error) {
+      toast({ title:"Lỗi quét QT", description:error.message, variant:"destructive" });
+      return { chapters:[], totalBlocks:0 };
+    } finally { setQtCleanupRunning(false); }
+  };
+
+  const applyQtPartCleanup = async (scan) => {
+    if (!scan?.chapters?.length) return null;
+    setQtCleanupRunning(true);
+    try {
+      const rows = scan.chapters.map((item) => ({ id:item.id, qt_raw:item.after }));
+      await Chapter.bulkUpsert(rows);
+      setQtCleanupUndo(scan.chapters.map((item) => ({ id:item.id, qt_raw:item.before })));
+      rows.forEach((row) => {
+        const cached = chapterCacheRef.current.get(row.id);
+        if (cached) {
+          const updated = { ...cached, qt_raw:row.qt_raw };
+          chapterCacheRef.current.set(row.id,updated);
+          lastSavedRef.current.set(row.id,snapshotOf(updated));
+        }
+      });
+      if (currentChapter && rows.some((row)=>row.id===currentChapter.id)) {
+        const next = { ...currentChapter, qt_raw:rows.find((row)=>row.id===currentChapter.id).qt_raw };
+        setCurrentChapter(next); lastSavedRef.current.set(next.id,snapshotOf(next));
+      }
+      toast({ title:`Đã xóa ${scan.totalBlocks} dấu chia Phần`, description:`Đã làm sạch ${rows.length} chương QT.` });
+      return { changed:rows.length };
+    } catch (error) { toast({title:"Không thể dọn QT",description:error.message,variant:"destructive"}); return null; }
+    finally { setQtCleanupRunning(false); }
+  };
+
+  const undoQtPartCleanup = async () => {
+    if (!qtCleanupUndo?.length) return;
+    setQtCleanupRunning(true);
+    try {
+      await Chapter.bulkUpsert(qtCleanupUndo);
+      qtCleanupUndo.forEach((row) => {
+        const cached=chapterCacheRef.current.get(row.id);
+        if(cached){const updated={...cached,qt_raw:row.qt_raw};chapterCacheRef.current.set(row.id,updated);lastSavedRef.current.set(row.id,snapshotOf(updated));}
+      });
+      if(currentChapter){const row=qtCleanupUndo.find((item)=>item.id===currentChapter.id);if(row){const next={...currentChapter,qt_raw:row.qt_raw};setCurrentChapter(next);lastSavedRef.current.set(next.id,snapshotOf(next));}}
+      const count=qtCleanupUndo.length; setQtCleanupUndo(null); toast({title:`Đã hoàn tác ${count} chương QT`});
+    } catch(error){toast({title:"Không thể hoàn tác",description:error.message,variant:"destructive"});}
+    finally{setQtCleanupRunning(false);}
+  };
+
   // Sparse reorder: only the moved chapter's order value changes (midpoint
   // between its new neighbours), so reordering costs exactly one write no
   // matter how many chapters the project has.
@@ -2471,6 +2537,8 @@ Tên chương đã dịch:`;
         onOpenTranslationSettings={() => setShowTranslationSettings(true)}
         activePresetName={activePreset?.name}
         onOpenImageTranslate={() => setShowImageTranslate(true)}
+        onOpenColumnMove={() => setShowColumnMove(true)}
+        onOpenQtCleanup={() => setShowQtCleanup(true)}
       />
 
       <WorkflowProgress
@@ -2760,7 +2828,6 @@ Tên chương đã dịch:`;
         exportingSelected={exportingSelected}
         onBatchEdit={() => setShowBatchEdit(true)}
         onBatchTitleEdit={() => setShowBatchTitleEdit(true)}
-        onOpenColumnMove={() => setShowColumnMove(true)}
       />
       <BulkColumnMoveDialog
         open={showColumnMove}
@@ -2770,6 +2837,16 @@ Tên chương đã dịch:`;
         running={movingColumns}
         undoCount={columnMoveUndo?.length || 0}
         onUndo={handleUndoColumnMove}
+      />
+      <QtCleanupDialog
+        open={showQtCleanup}
+        onOpenChange={setShowQtCleanup}
+        totalChapters={chapterList.length}
+        onScan={scanQtPartMarkers}
+        onApply={applyQtPartCleanup}
+        onUndo={undoQtPartCleanup}
+        undoCount={qtCleanupUndo?.length || 0}
+        running={qtCleanupRunning}
       />
       <ImportChaptersDialog
         open={showImportChapters}
