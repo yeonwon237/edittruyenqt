@@ -7,7 +7,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2 } from "lucide-react";
+import { Loader2, Plus, RotateCcw, Search, Trash2 } from "lucide-react";
 
 export default function BatchReplaceDialog({
   open,
@@ -15,37 +15,61 @@ export default function BatchReplaceDialog({
   project,
   onUpdateProject,
   onApply,
+  onPreview,
+  onUndo,
+  canUndo = false,
+  busy = false,
 }) {
   const [rules, setRules] = useState([]);
   const [target, setTarget] = useState("edited");
   const [wholeWord, setWholeWord] = useState(false);
+  const [scope, setScope] = useState("chapter");
+  const [preview, setPreview] = useState(null);
+  const [scanning, setScanning] = useState(false);
 
   useEffect(() => {
     if (open) {
       setRules(project?.batch_rules || [{ find: "", replace: "" }]);
       setTarget("edited");
       setWholeWord(false);
+      setScope("chapter");
+      setPreview(null);
     }
   }, [open, project]);
 
   const updateRule = (i, field, value) => {
+    setPreview(null);
     setRules((prev) =>
       prev.map((r, idx) => (idx === i ? { ...r, [field]: value } : r))
     );
   };
 
   const addRule = () => {
+    setPreview(null);
     setRules((prev) => [...prev, { find: "", replace: "" }]);
   };
 
   const removeRule = (i) => {
+    setPreview(null);
     setRules((prev) => prev.filter((_, idx) => idx !== i));
   };
 
   const handleApply = async () => {
+    const validRules = rules.filter((rule) => String(rule.find || "").length > 0);
+    if (!validRules.length) return;
+    if (scope === "story" && !preview) {
+      setScanning(true);
+      try {
+        setPreview(await onPreview(validRules, target, wholeWord));
+      } finally {
+        setScanning(false);
+      }
+      return;
+    }
     await onUpdateProject({ batch_rules: rules });
-    onApply(rules, target, wholeWord);
-    onOpenChange(false);
+    await onApply(validRules, target, wholeWord, scope);
+    if (scope === "chapter") onOpenChange(false);
+    else setPreview(null);
   };
 
   return (
@@ -59,8 +83,8 @@ export default function BatchReplaceDialog({
 
         <div className="space-y-3 py-2 max-h-[50vh] overflow-y-auto cute-scrollbar">
           <p className="text-xs text-slate-500">
-            Lập danh sách các từ QT thô/sượng cần sửa mượt. Bấm "Áp dụng" để tự
-            động thay thế toàn bộ chương.
+            Lập danh sách lỗi cần sửa, chọn một chương hoặc toàn bộ truyện. Với
+            toàn truyện, hệ thống luôn quét và cho xem trước trước khi sửa.
           </p>
 
           {rules.length === 0 && (
@@ -102,11 +126,22 @@ export default function BatchReplaceDialog({
 
           <div className="pt-2 border-t border-violet-100 space-y-2">
             <label className="text-xs font-medium text-slate-500 mb-1 block">
+              Phạm vi kiểm tra
+            </label>
+            <select
+              value={scope}
+              onChange={(e) => { setScope(e.target.value); setPreview(null); }}
+              className="px-3 py-1.5 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
+            >
+              <option value="chapter">Chương đang mở</option>
+              <option value="story">Toàn bộ truyện</option>
+            </select>
+            <label className="text-xs font-medium text-slate-500 mb-1 block">
               Áp dụng vào cột
             </label>
             <select
               value={target}
-              onChange={(e) => setTarget(e.target.value)}
+              onChange={(e) => { setTarget(e.target.value); setPreview(null); }}
               className="px-3 py-1.5 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
             >
               <option value="edited">Cột 3: Bản Edit</option>
@@ -117,23 +152,49 @@ export default function BatchReplaceDialog({
               <input
                 type="checkbox"
                 checked={wholeWord}
-                onChange={(e) => setWholeWord(e.target.checked)}
+                onChange={(e) => { setWholeWord(e.target.checked); setPreview(null); }}
                 className="accent-amber-500"
               />
               Chỉ khớp nguyên từ (tránh thay nhầm bên trong từ khác)
             </label>
           </div>
+
+          {scope === "story" && preview && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-slate-600">
+              <p className="font-semibold text-amber-700">
+                Tìm thấy {preview.totalMatches} vị trí trong {preview.chapters.length} chương
+              </p>
+              {preview.chapters.length > 0 ? (
+                <div className="mt-2 max-h-36 space-y-1 overflow-y-auto cute-scrollbar">
+                  {preview.chapters.map((chapter) => (
+                    <div key={chapter.id} className="flex justify-between gap-3">
+                      <span className="truncate">{chapter.chapter_order}. {chapter.title}</span>
+                      <b className="shrink-0">{chapter.count} lỗi</b>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="mt-1">Không có chương nào cần thay đổi.</p>}
+              <p className="mt-2 text-[10px] text-slate-400">Đây chỉ là kết quả quét. Chưa có nội dung nào bị sửa.</p>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
+          {canUndo && (
+            <Button variant="outline" disabled={busy} onClick={onUndo} className="mr-auto">
+              <RotateCcw className="mr-1.5 h-4 w-4" /> Hoàn tác toàn truyện
+            </Button>
+          )}
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Hủy
           </Button>
           <Button
             onClick={handleApply}
+            disabled={busy || scanning || (scope === "story" && preview?.totalMatches === 0)}
             className="bg-gradient-to-r from-amber-400 to-orange-500 hover:from-amber-500 hover:to-orange-600 text-white border-0"
           >
-            Áp dụng vào chương
+            {(busy || scanning) ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : scope === "story" && !preview ? <Search className="mr-1.5 h-4 w-4" /> : null}
+            {scope === "chapter" ? "Áp dụng vào chương" : preview ? "Áp dụng toàn truyện" : "Quét toàn truyện"}
           </Button>
         </DialogFooter>
       </DialogContent>

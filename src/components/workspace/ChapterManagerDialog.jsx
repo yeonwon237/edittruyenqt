@@ -84,6 +84,7 @@ export default function ChapterManagerDialog({
   exportingSelected,
   onBatchEdit,
   onBatchTitleEdit,
+  qaIssuesByChapter = {},
 }) {
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState("");
@@ -347,6 +348,11 @@ export default function ChapterManagerDialog({
                                   >
                                     {ch.title}
                                   </button>
+                                  {qaIssuesByChapter[ch.id] > 0 && (
+                                    <button onClick={() => onSelect(ch.id)} title={`${qaIssuesByChapter[ch.id]} lỗi/nghi vấn QA — bấm để tới chương`} className="shrink-0 rounded-full bg-red-100 px-2 py-1 text-[10px] font-bold text-red-700 hover:bg-red-200">
+                                      QA {qaIssuesByChapter[ch.id]}
+                                    </button>
+                                  )}
                                   {!selectMode && (
                                     <>
                                       <button

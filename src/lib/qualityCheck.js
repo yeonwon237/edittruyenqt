@@ -352,14 +352,38 @@ function scanPronouns(text, rules) {
   return issues;
 }
 
-export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [] } = {}) {
+const ANCIENT_SUSPICIOUS_WORDS = [
+  "anh", "em", "chị", "cậu", "tớ", "mình", "bạn", "ông xã", "bà xã",
+  "chồng yêu", "vợ yêu", "ok", "okay", "online", "deadline"
+];
+
+function scanConfiguredWords(text, qaSettings) {
+  const ancient = qaSettings?.era === "ancient" ? ANCIENT_SUSPICIOUS_WORDS.map((find) => ({ find, source:"Bối cảnh cổ đại" })) : [];
+  const custom = (qaSettings?.forbiddenWords || []).map((item) => typeof item === "string" ? { find:item, source:"Từ cấm QA" } : { ...item, source:"Từ cấm QA" });
+  const issues = [];
+  [...ancient, ...custom].filter((rule) => String(rule.find || "").trim()).forEach((rule) => {
+    const find = String(rule.find).trim();
+    const regex = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(find)}(?![\\p{L}\\p{N}])`, "giu");
+    for (const match of text.matchAll(regex)) {
+      issues.push(makeIssue(text, {
+        type:"style", severity:"review", label: rule.source === "Bối cảnh cổ đại" ? "Xưng hô/từ hiện đại cần xem lại" : "Từ cấm cần xem lại",
+        value:match[0], replacement:String(rule.replace || ""), suggestions:rule.replace ? [String(rule.replace)] : [],
+        detail:`${rule.source}: chỉ cảnh báo để duyệt theo ngữ cảnh, không tự sửa.`, start:match.index, end:match.index + match[0].length
+      }));
+    }
+  });
+  return issues;
+}
+
+export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], qaSettings = {} } = {}) {
   const source = String(text || "");
   const issues = [
     ...scanGlossaryRules(source, glossaryTerms, pronounRules),
     ...scanCjk(source, glossaryTerms),
     ...scanEnglish(source, glossaryTerms),
     ...scanNames(source, glossaryTerms),
-    ...scanPronouns(source, pronounRules)
+    ...scanPronouns(source, pronounRules),
+    ...scanConfiguredWords(source, qaSettings)
   ];
   const occupied = new Set();
   return issues.filter((issue) => {
@@ -379,5 +403,5 @@ export function applyQualitySuggestion(text, issue, replacement) {
 }
 
 export const QUALITY_LABELS = {
-  glossary: "Glossary", cjk: "Hán/Trung", english: "Tiếng Anh", name: "Tên riêng", pronoun: "Xưng hô"
+  glossary: "Glossary", cjk: "Hán/Trung", english: "Tiếng Anh", name: "Tên riêng", pronoun: "Xưng hô", style:"Thể loại/Từ cấm"
 };

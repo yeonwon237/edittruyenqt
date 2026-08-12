@@ -18,6 +18,7 @@ import BatchEditDialog from "@/components/workspace/BatchEditDialog";
 import BatchTitleEditDialog from "@/components/workspace/BatchTitleEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import QualityCheckDialog from "@/components/workspace/QualityCheckDialog";
+import StoryQaDialog from "@/components/workspace/StoryQaDialog";
 import BulkColumnMoveDialog from "@/components/workspace/BulkColumnMoveDialog";
 import WorkflowProgress from "@/components/workspace/WorkflowProgress";
 import QtCleanupDialog from "@/components/workspace/QtCleanupDialog";
@@ -153,10 +154,15 @@ export default function Workspace() {
   const [editingTerm, setEditingTerm] = useState(null);
   const [prefillTerm, setPrefillTerm] = useState("");
   const [showBatchReplace, setShowBatchReplace] = useState(false);
+  const [batchReplaceRunning, setBatchReplaceRunning] = useState(false);
+  const [batchReplaceUndo, setBatchReplaceUndo] = useState(null);
   const [showPronoun, setShowPronoun] = useState(false);
   const [clearTarget, setClearTarget] = useState(null); // { field, label } | null
   const [showContextualPronoun, setShowContextualPronoun] = useState(false);
   const [showQualityCheck, setShowQualityCheck] = useState(false);
+  const [showStoryQa, setShowStoryQa] = useState(false);
+  const [storyQaRunning, setStoryQaRunning] = useState(false);
+  const [storyQaReport, setStoryQaReport] = useState(null);
   const [qualityIssues, setQualityIssues] = useState([]);
   const [qualityUndo, setQualityUndo] = useState(null);
   const [showAISettings, setShowAISettings] = useState(false);
@@ -729,9 +735,70 @@ export default function Workspace() {
   };
 
   // Batch replace (word-boundary aware, optional)
-  const handleApplyBatchRules = (rules, target, wholeWord) => {
+  const loadAllProjectChapters = () => fetchAllPages(
+    (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
+    { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
+  );
+
+  const handlePreviewBatchRules = async (rules, target, wholeWord) => {
+    setBatchReplaceRunning(true);
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      const chapters = await loadAllProjectChapters();
+      const matches = chapters.map((chapter) => ({
+        id: chapter.id,
+        title: chapter.title,
+        chapter_order: chapter.chapter_order,
+        count: applyReplacements(chapter[target] || "", rules, { wholeWord }).count,
+      })).filter((chapter) => chapter.count > 0);
+      return { chapters: matches, totalMatches: matches.reduce((sum, chapter) => sum + chapter.count, 0) };
+    } catch (error) {
+      toast({ title: "Không quét được toàn truyện", description: error.message, variant: "destructive" });
+      return { chapters: [], totalMatches: 0 };
+    } finally {
+      setBatchReplaceRunning(false);
+    }
+  };
+
+  const handleApplyBatchRules = async (rules, target, wholeWord, scope = "chapter") => {
     if (!currentChapter) {
       toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
+      return;
+    }
+    if (scope === "story") {
+      setBatchReplaceRunning(true);
+      let updated = [];
+      try {
+        await flushSave(currentChapter, true);
+        const chapters = await loadAllProjectChapters();
+        const candidates = chapters.map((chapter) => {
+          const result = applyReplacements(chapter[target] || "", rules, { wholeWord });
+          return { chapter, ...result };
+        }).filter((item) => item.count > 0);
+        if (!candidates.length) {
+          toast({ title: "Không còn vị trí nào cần thay" });
+          return;
+        }
+        setBatchReplaceUndo({ target, rows:candidates.map(({ chapter }) => chapterUpsertRow(chapter)) });
+        const changedRows = candidates.map(({ chapter, text }) => chapterUpsertRow({ ...chapter, [target]:text }));
+        for (let index = 0; index < changedRows.length; index += 200) {
+          // eslint-disable-next-line no-await-in-loop
+          updated = updated.concat(await Chapter.bulkUpsert(changedRows.slice(index, index + 200)));
+        }
+        updated.forEach((chapter) => {
+          chapterCacheRef.current.set(chapter.id, chapter);
+          lastSavedRef.current.set(chapter.id, snapshotOf(chapter));
+        });
+        capCache(chapterCacheRef.current);
+        const active = updated.find((chapter) => chapter.id === currentChapter.id);
+        if (active) setCurrentChapter(active);
+        const total = candidates.reduce((sum, item) => sum + item.count, 0);
+        toast({ title: `Đã sửa ${candidates.length} chương`, description: `${total} vị trí đã được thay thế. Có thể hoàn tác trong cửa sổ này.` });
+      } catch (error) {
+        toast({ title: updated.length ? `Đã sửa ${updated.length} chương rồi gặp lỗi` : "Không thể thay thế toàn truyện", description:error.message, variant:"destructive" });
+      } finally {
+        setBatchReplaceRunning(false);
+      }
       return;
     }
     const { text, count } = applyReplacements(currentChapter[target] || "", rules, { wholeWord });
@@ -740,6 +807,30 @@ export default function Workspace() {
       title: "Đã thay thế hàng loạt! 🔄",
       description: `${count} lần thay thế`,
     });
+  };
+
+  const handleUndoBatchRules = async () => {
+    if (!batchReplaceUndo?.rows?.length) return;
+    setBatchReplaceRunning(true);
+    try {
+      let restored = [];
+      for (let index = 0; index < batchReplaceUndo.rows.length; index += 200) {
+        // eslint-disable-next-line no-await-in-loop
+        restored = restored.concat(await Chapter.bulkUpsert(batchReplaceUndo.rows.slice(index, index + 200)));
+      }
+      restored.forEach((chapter) => {
+        chapterCacheRef.current.set(chapter.id, chapter);
+        lastSavedRef.current.set(chapter.id, snapshotOf(chapter));
+      });
+      const active = restored.find((chapter) => chapter.id === currentChapter?.id);
+      if (active) setCurrentChapter(active);
+      setBatchReplaceUndo(null);
+      toast({ title: `Đã hoàn tác ${restored.length} chương` });
+    } catch (error) {
+      toast({ title:"Không thể hoàn tác", description:error.message, variant:"destructive" });
+    } finally {
+      setBatchReplaceRunning(false);
+    }
   };
 
   // Pronoun switch (word-boundary aware, optional)
@@ -771,7 +862,69 @@ export default function Workspace() {
   const qualityOptions = () => ({
     glossaryTerms,
     pronounRules: project?.contextual_pronoun_rules || [],
+    qaSettings: project?.style_toggles?.qa_settings || {},
   });
+
+  const handleSaveQaSettings = async (qaSettings) => {
+    await handleUpdateProject({ style_toggles:{ ...(project?.style_toggles || {}), qa_settings:qaSettings } });
+  };
+
+  const handleScanStoryQa = async (qaSettings) => {
+    setStoryQaRunning(true);
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      const chapters = await loadAllProjectChapters();
+      const options = { glossaryTerms, pronounRules:project?.contextual_pronoun_rules || [], qaSettings };
+      const issueGroups = new Map();
+      const results = chapters.map((chapter) => {
+        const issues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        issues.forEach((issue) => {
+          const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct"].join("\u0001");
+          const group = issueGroups.get(key) || { key, type:issue.type, label:issue.label, value:issue.value, replacement:issue.replacement || "", contextual:Boolean(issue.contextual), count:0, chapterIds:new Set(), samples:[] };
+          group.count += 1; group.chapterIds.add(chapter.id);
+          if (group.samples.length < 6) group.samples.push({ chapterId:chapter.id, chapterTitle:chapter.title, chapter_order:chapter.chapter_order, line:issue.line, context:issue.context });
+          issueGroups.set(key, group);
+        });
+        const groups = [...new Set(issues.map((issue) => issue.label))];
+        return { id:chapter.id, title:chapter.title, chapter_order:chapter.chapter_order, count:issues.length, summary:groups.slice(0,3).join(" · ") };
+      }).filter((chapter) => chapter.count > 0);
+      const groups = [...issueGroups.values()].map((group) => ({ ...group, chapterCount:group.chapterIds.size, chapterIds:[...group.chapterIds] })).sort((a,b)=>b.count-a.count || a.label.localeCompare(b.label));
+      const report = { scannedAt:new Date().toISOString(), chapters:results, groups, issueCount:results.reduce((sum,chapter)=>sum+chapter.count,0) };
+      setStoryQaReport(report);
+      localStorage.setItem(`etq-story-qa:${projectId}`, JSON.stringify(report));
+      toast({ title:`Đã quét QA ${chapters.length} chương`, description:`Còn ${report.issueCount} lỗi/nghi vấn trong ${results.length} chương.` });
+    } catch (error) {
+      toast({ title:"Không quét được QA toàn truyện", description:error.message, variant:"destructive" });
+    } finally { setStoryQaRunning(false); }
+  };
+
+  const handleStoryQaBulkReplace = async (group, replacement, qaSettings) => {
+    const next = String(replacement || "").trim();
+    if (!next || !group?.value) return;
+    await handleApplyBatchRules([{ find:group.value, replace:next }], "edited", true, "story");
+    await handleScanStoryQa(qaSettings);
+  };
+
+  useEffect(() => {
+    try { setStoryQaReport(JSON.parse(localStorage.getItem(`etq-story-qa:${projectId}`) || "null")); }
+    catch { setStoryQaReport(null); }
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!storyQaReport || !currentChapter?.id) return;
+    const issues = String(currentChapter.edited || "").trim() ? runQualityCheck(currentChapter.edited, qualityOptions()) : [];
+    const summary = [...new Set(issues.map((issue) => issue.label))].slice(0,3).join(" · ");
+    const old = storyQaReport.chapters.find((chapter) => chapter.id === currentChapter.id);
+    if ((old?.count || 0) === issues.length && (old?.summary || "") === summary) return;
+    const meta = chapterList.find((chapter) => chapter.id === currentChapter.id) || currentChapter;
+    const chapters = storyQaReport.chapters.filter((chapter) => chapter.id !== currentChapter.id);
+    if (issues.length) chapters.push({ id:currentChapter.id, title:meta.title, chapter_order:meta.chapter_order, count:issues.length, summary });
+    chapters.sort((a,b)=>(a.chapter_order ?? 0)-(b.chapter_order ?? 0));
+    const next = { ...storyQaReport, chapters, issueCount:chapters.reduce((sum,chapter)=>sum+chapter.count,0), groupsStale:true };
+    setStoryQaReport(next);
+    localStorage.setItem(`etq-story-qa:${projectId}`, JSON.stringify(next));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChapter?.edited]);
 
   // Keep the QA badge live even when the dialog has never been opened. A
   // short debounce avoids rescanning on every keystroke while the user types.
@@ -2252,7 +2405,8 @@ Tên chương đã dịch:`;
       .map((term) => [term.id, term.source_term, term.translation, term.category, term.custom_fields])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
     pronouns: project?.contextual_pronoun_rules || [],
-  })), [glossaryTerms, project?.contextual_pronoun_rules]);
+    qaSettings: project?.style_toggles?.qa_settings || {},
+  })), [glossaryTerms, project?.contextual_pronoun_rules, project?.style_toggles?.qa_settings]);
   const qaRecords = project?.style_toggles?.workflow_progress?.qa || {};
   const qaStatusOf = (meta) => {
     const record = qaRecords[meta.id];
@@ -2458,10 +2612,13 @@ Tên chương đã dịch:`;
           >
             {chapterList.map((ch) => (
               <option key={ch.id} value={ch.id}>
-                {ch.title}
+                {storyQaReport?.chapters.some((item) => item.id === ch.id) ? "⚠ " : ""}{ch.title}
               </option>
             ))}
           </select>
+          <button onClick={() => setShowStoryQa(true)} className={`flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyQaReport?.chapters.length ? "bg-amber-100 text-amber-800" : "bg-white/10 text-violet-200 hover:bg-white/15"}`} title="Cấu hình và quét QA toàn truyện">
+            <ShieldCheck className="h-4 w-4"/><span className="hidden lg:inline">QA toàn truyện{storyQaReport?.chapters.length ? ` · ${storyQaReport.chapters.length}` : ""}</span>
+          </button>
           <button
             onClick={() => setShowChapterManager(true)}
             className="p-2 rounded-xl bg-white/10 hover:bg-white/15 text-violet-300 transition-colors"
@@ -2771,6 +2928,10 @@ Tên chương đã dịch:`;
         project={project}
         onUpdateProject={handleUpdateProject}
         onApply={handleApplyBatchRules}
+        onPreview={handlePreviewBatchRules}
+        onUndo={handleUndoBatchRules}
+        canUndo={Boolean(batchReplaceUndo?.rows?.length)}
+        busy={batchReplaceRunning}
       />
       <PronounSwitcherDialog
         open={showPronoun}
@@ -2835,6 +2996,20 @@ Tên chương đã dịch:`;
         exportingSelected={exportingSelected}
         onBatchEdit={() => setShowBatchEdit(true)}
         onBatchTitleEdit={() => setShowBatchTitleEdit(true)}
+        qaIssuesByChapter={Object.fromEntries((storyQaReport?.chapters || []).map((chapter) => [chapter.id, chapter.count]))}
+      />
+      <StoryQaDialog
+        open={showStoryQa}
+        onOpenChange={setShowStoryQa}
+        settings={project?.style_toggles?.qa_settings || { era:"neutral", context:"", genres:[], forbiddenWords:[] }}
+        report={storyQaReport}
+        running={storyQaRunning}
+        onSaveSettings={handleSaveQaSettings}
+        onScan={handleScanStoryQa}
+        onBulkReplace={handleStoryQaBulkReplace}
+        onUndoBulkReplace={handleUndoBatchRules}
+        canUndoBulkReplace={Boolean(batchReplaceUndo?.rows?.length)}
+        onOpenChapter={(id) => { switchChapter(id); setShowStoryQa(false); }}
       />
       <BulkColumnMoveDialog
         open={showColumnMove}
