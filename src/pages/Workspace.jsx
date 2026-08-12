@@ -1678,7 +1678,14 @@ ${sourceText}`;
         const rows = await Chapter.getMany(chapterList.slice(offset, offset + 200).map((chapter) => chapter.id));
         rows.forEach((chapter) => {
           const cleaned = cleanToolPartMarkers(chapter.qt_raw);
-          if (cleaned.changed) chapters.push({ id:chapter.id, title:chapter.title, removed:cleaned.removed, before:chapter.qt_raw || "", after:cleaned.text });
+          if (cleaned.changed) chapters.push({
+            id:chapter.id,
+            title:chapter.title,
+            removed:cleaned.removed,
+            before:chapter.qt_raw || "",
+            after:cleaned.text,
+            originalChapter:chapter,
+          });
         });
       }
       chapters.sort((a,b) => (chapterList.findIndex((item)=>item.id===a.id) - chapterList.findIndex((item)=>item.id===b.id)));
@@ -1693,9 +1700,9 @@ ${sourceText}`;
     if (!scan?.chapters?.length) return null;
     setQtCleanupRunning(true);
     try {
-      const rows = scan.chapters.map((item) => ({ id:item.id, qt_raw:item.after }));
+      const rows = scan.chapters.map((item) => ({ ...item.originalChapter, qt_raw:item.after }));
       await Chapter.bulkUpsert(rows);
-      setQtCleanupUndo(scan.chapters.map((item) => ({ id:item.id, qt_raw:item.before })));
+      setQtCleanupUndo(scan.chapters.map((item) => ({ ...item.originalChapter, qt_raw:item.before })));
       rows.forEach((row) => {
         const cached = chapterCacheRef.current.get(row.id);
         if (cached) {
