@@ -96,7 +96,7 @@ const EditorPanel = forwardRef(function EditorPanel(
               <pre
                 ref={qaOverlayRef}
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-0 z-20 m-0 h-full w-full overflow-y-scroll p-5 text-[15px] leading-8 text-transparent whitespace-pre-wrap break-words font-body [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+                className="pointer-events-none absolute inset-y-0 left-0 right-[7px] z-20 m-0 overflow-hidden p-5 text-[15px] leading-8 text-transparent whitespace-pre-wrap break-words font-body"
               >
                 {highlightQualityIssues(value || "", qualityIssues, { overlay: true })}
               </pre>

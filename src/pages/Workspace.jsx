@@ -880,8 +880,9 @@ export default function Workspace() {
         const issues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
         issues.forEach((issue) => {
           const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct"].join("\u0001");
-          const group = issueGroups.get(key) || { key, type:issue.type, label:issue.label, value:issue.value, replacement:issue.replacement || "", contextual:Boolean(issue.contextual), count:0, chapterIds:new Set(), samples:[] };
+          const group = issueGroups.get(key) || { key, type:issue.type, label:issue.label, value:issue.value, replacement:issue.replacement || "", contextual:Boolean(issue.contextual), severity:issue.severity, count:0, chapterIds:new Set(), samples:[], locations:[] };
           group.count += 1; group.chapterIds.add(chapter.id);
+          group.locations.push({ id:`${chapter.id}:${issue.start}:${issue.end}`, chapterId:chapter.id, chapterTitle:chapter.title, chapter_order:chapter.chapter_order, line:issue.line, context:issue.context, start:issue.start, end:issue.end, value:issue.value });
           if (group.samples.length < 6) group.samples.push({ chapterId:chapter.id, chapterTitle:chapter.title, chapter_order:chapter.chapter_order, line:issue.line, context:issue.context });
           issueGroups.set(key, group);
         });
@@ -898,11 +899,42 @@ export default function Workspace() {
     } finally { setStoryQaRunning(false); }
   };
 
-  const handleStoryQaBulkReplace = async (group, replacement, qaSettings) => {
+  const handleStoryQaBulkReplace = async (group, replacement, qaSettings, selectedIds = [], remember = false) => {
     const next = String(replacement || "").trim();
     if (!next || !group?.value) return;
-    await handleApplyBatchRules([{ find:group.value, replace:next }], "edited", true, "story");
-    await handleScanStoryQa(qaSettings);
+    const selected = new Set(selectedIds);
+    const locations = (group.locations || []).filter((item) => !selected.size || selected.has(item.id));
+    setBatchReplaceRunning(true);
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      const ids = [...new Set(locations.map((item) => item.chapterId))];
+      const chapters = await Chapter.getMany(ids);
+      setBatchReplaceUndo({ target:"edited", rows:chapters.map(chapterUpsertRow) });
+      const changedRows = chapters.map((chapter) => {
+        const positions = locations.filter((item) => item.chapterId === chapter.id).sort((a,b)=>b.start-a.start);
+        const edited = positions.reduce((text,item) => text.slice(item.start,item.end) === item.value ? text.slice(0,item.start)+next+text.slice(item.end) : text, chapter.edited || "");
+        return chapterUpsertRow({ ...chapter, edited });
+      });
+      let updated=[];
+      for(let index=0;index<changedRows.length;index+=200){updated=updated.concat(await Chapter.bulkUpsert(changedRows.slice(index,index+200)));}
+      updated.forEach((chapter)=>{chapterCacheRef.current.set(chapter.id,chapter);lastSavedRef.current.set(chapter.id,snapshotOf(chapter));});
+      const active=updated.find((chapter)=>chapter.id===currentChapter?.id);if(active)setCurrentChapter(active);
+      let settingsAfterDecision = qaSettings;
+      if (remember) {
+        const forbiddenWords = [...(qaSettings.forbiddenWords || []).filter((item)=>String(typeof item==="string"?item:item.find).toLocaleLowerCase("vi")!==group.value.toLocaleLowerCase("vi")), { find:group.value, replace:next }];
+        settingsAfterDecision = { ...qaSettings, forbiddenWords };
+        await handleSaveQaSettings(settingsAfterDecision);
+      }
+      toast({title:`Đã thay ${locations.length} vị trí trong ${updated.length} chương`,description:remember?"Đã ghi nhớ thành quy tắc QA của truyện.":"Có thể hoàn tác trong Trung tâm QA."});
+      await handleScanStoryQa(settingsAfterDecision);
+    } catch(error){toast({title:"Không thể áp dụng các vị trí đã chọn",description:error.message,variant:"destructive"});}
+    finally{setBatchReplaceRunning(false);}
+  };
+
+  const handleStoryQaIgnore = async (group, qaSettings, remember) => {
+    if (!remember) return;
+    const allowedWords=[...new Set([...(qaSettings.allowedWords||[]),group.value])];
+    const next={...qaSettings,allowedWords};await handleSaveQaSettings(next);await handleScanStoryQa(next);
   };
 
   useEffect(() => {
@@ -3007,8 +3039,10 @@ Tên chương đã dịch:`;
         onSaveSettings={handleSaveQaSettings}
         onScan={handleScanStoryQa}
         onBulkReplace={handleStoryQaBulkReplace}
+        onIgnoreGroup={handleStoryQaIgnore}
         onUndoBulkReplace={handleUndoBatchRules}
         canUndoBulkReplace={Boolean(batchReplaceUndo?.rows?.length)}
+        qaWorkflow={{ pending:chapterList.filter(ch=>editedChapterIds.has(ch.id)&&qaStatusOf(ch)!=="done"), stale:chapterList.filter(ch=>qaStatusOf(ch)==="stale") }}
         onOpenChapter={(id) => { switchChapter(id); setShowStoryQa(false); }}
       />
       <BulkColumnMoveDialog

@@ -360,9 +360,11 @@ const ANCIENT_SUSPICIOUS_WORDS = [
 function scanConfiguredWords(text, qaSettings) {
   const ancient = qaSettings?.era === "ancient" ? ANCIENT_SUSPICIOUS_WORDS.map((find) => ({ find, source:"Bối cảnh cổ đại" })) : [];
   const custom = (qaSettings?.forbiddenWords || []).map((item) => typeof item === "string" ? { find:item, source:"Từ cấm QA" } : { ...item, source:"Từ cấm QA" });
+  const allowed = new Set((qaSettings?.allowedWords || []).map((item) => normalize(item)));
   const issues = [];
   [...ancient, ...custom].filter((rule) => String(rule.find || "").trim()).forEach((rule) => {
     const find = String(rule.find).trim();
+    if (allowed.has(normalize(find))) return;
     const regex = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(find)}(?![\\p{L}\\p{N}])`, "giu");
     for (const match of text.matchAll(regex)) {
       issues.push(makeIssue(text, {

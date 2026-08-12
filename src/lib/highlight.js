@@ -115,8 +115,8 @@ export function highlightQualityIssues(text, issues, { overlay = false } = {}) {
     result.push(React.createElement("span", {
       key: `qa-${range.start}-${index}`,
       className: overlay
-        ? "rounded-sm bg-red-200/70 border-b-2 border-red-500"
-        : "rounded-sm bg-red-100 text-inherit underline decoration-red-500 decoration-2 underline-offset-2",
+        ? "rounded-sm bg-violet-300/20 text-transparent underline decoration-dotted decoration-violet-600 decoration-2 underline-offset-2"
+        : "rounded-sm bg-violet-100 text-violet-900 underline decoration-dotted decoration-violet-500 underline-offset-2",
       title: [...new Set(range.labels)].join(" · ")
     }, text.slice(range.start, range.end)));
     cursor = range.end;
