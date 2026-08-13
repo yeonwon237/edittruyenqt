@@ -131,3 +131,18 @@ create policy "own rows" on public.prompt_presets
 create trigger trg_prompt_presets_updated_date
   before update on public.prompt_presets
   for each row execute function public.set_updated_date();
+
+-- ── temporary Wattpad transfer packages ───────────────────────────────
+-- Server-only table: no public RLS policy. A transfer can be redeemed once;
+-- the API deletes its row immediately after a successful redemption.
+create table if not exists public.wattpad_transfers (
+  code_hash text primary key,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  payload jsonb not null,
+  expires_at timestamptz not null,
+  claimed_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
+alter table public.wattpad_transfers enable row level security;
+create index if not exists idx_wattpad_transfers_expires_at on public.wattpad_transfers(expires_at);

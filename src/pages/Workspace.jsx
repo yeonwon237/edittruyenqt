@@ -403,6 +403,22 @@ export default function Workspace() {
           };
         }
 
+        if (request.action === "createWattpadTransfer") {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session?.access_token) throw new Error("Bạn cần đăng nhập lại để tạo mã chuyển.");
+          const response = await fetch("/api/wattpad-transfer", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ action: "create", package: request.package }),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || "Không tạo được mã chuyển.");
+          return result;
+        }
+
         const meta = chapterList.find((chapter) => chapter.id === request.chapterId);
         if (!meta) throw new Error("Chương không thuộc dự án đang mở.");
         if (currentChapter?.id === meta.id) await flushSave(currentChapter, true);
