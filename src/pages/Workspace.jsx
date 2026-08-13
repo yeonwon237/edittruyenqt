@@ -422,6 +422,18 @@ export default function Workspace() {
           };
         }
 
+        if (request.action === "readEdited") {
+          const text = String(chapter.edited || "").trim();
+          if (!text) throw new Error("Chương chưa có Bản Edit để xuất.");
+          return {
+            chapterId: chapter.id,
+            title: chapter.title || meta.title,
+            text,
+            hasEdited: true,
+            updatedAt: chapter.updated_date || meta.updated_date || "",
+          };
+        }
+
         if (request.action === "write") {
           const text = String(request.text || "").trim();
           if (!text) throw new Error("Gemini trả về nội dung rỗng.");
