@@ -33,6 +33,46 @@ function pickRandomChapterRange(chapters) {
   return eligible.slice(start, start + rangeLen).map((chapter) => chapter.id);
 }
 
+// One-time safety net for the 2026-08-14→08-15 switch from localStorage
+// back to Supabase: any scenario drafts a user made while the feature was
+// local-only would otherwise just vanish from view once this page starts
+// reading from Supabase instead. Runs on every load, but only actually does
+// anything if it finds leftover rows for this project — after a successful
+// migrate it deletes them from localStorage, so it's a no-op on every
+// subsequent load. If Supabase's roleplay tables don't exist yet (migration
+// SQL not run), RoleplayScenario.create throws and this just leaves the
+// local rows untouched to retry next time, rather than losing them.
+const LOCAL_SCENARIOS_KEY = "etq-roleplay-v1:roleplay_scenarios";
+
+function readLocalScenarios() {
+  try { return JSON.parse(localStorage.getItem(LOCAL_SCENARIOS_KEY) || "[]"); }
+  catch { return []; }
+}
+
+async function migrateLocalScenarios(projectId) {
+  const all = readLocalScenarios();
+  const mine = all.filter((row) => row.project_id === projectId);
+  if (!mine.length) return [];
+  const migrated = [];
+  for (const row of mine) {
+    // eslint-disable-next-line no-await-in-loop
+    const created = await RoleplayScenario.create({
+      project_id: row.project_id,
+      analysis_id: null, // the old row's analysis_id pointed at a localStorage-only id, never a real Supabase row
+      title: row.title || "",
+      status: row.status || "draft",
+      source_chapter_ids: row.source_chapter_ids || [],
+      source_hash: row.source_hash || "",
+      pack: row.pack || {},
+      validation_report: row.validation_report || {},
+    });
+    migrated.push(created);
+  }
+  const remaining = all.filter((row) => row.project_id !== projectId);
+  localStorage.setItem(LOCAL_SCENARIOS_KEY, JSON.stringify(remaining));
+  return migrated;
+}
+
 function downloadPack(pack) {
   const blob = new Blob([JSON.stringify(pack, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -78,6 +118,15 @@ export default function RoleplayStudio() {
         const ready = chapterData.filter((chapter) => String(chapter.edited || "").trim());
         setSelectedIds(ready.slice(0, 5).map((chapter) => chapter.id));
         setScenarios(scenarioData);
+        try {
+          const migrated = await migrateLocalScenarios(projectId);
+          if (migrated.length) {
+            setScenarios((current) => [...migrated, ...current]);
+            toast({ title: `Đã chuyển ${migrated.length} bản nháp Roleplay cũ sang lưu trữ mới`, description: "Bản nháp cũ lưu trong trình duyệt đã được đồng bộ, không bị mất." });
+          }
+        } catch (migrationError) {
+          console.error("Roleplay local-draft migration failed", migrationError);
+        }
       } catch (error) { toast({ title: "Không tải được dữ liệu Roleplay", description: error.message, variant: "destructive" }); }
     })();
   }, [projectId, toast]);

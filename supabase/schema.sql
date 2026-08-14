@@ -132,6 +132,101 @@ create trigger trg_prompt_presets_updated_date
   before update on public.prompt_presets
   for each row execute function public.set_updated_date();
 
+-- ── roleplay studio (AI-generated branching game authoring data) ──────────
+-- Added after the 2026-08-14 "no Supabase, portable" upgrade turned out to
+-- be the wrong tradeoff for the AUTHORING side: an in-progress generation
+-- (or a finished draft the author hasn't exported yet) needs to survive a
+-- browser clear / device switch / new tab, so it belongs server-side like
+-- everything else in this app. The player-facing save/resume progress
+-- (src/lib/roleplay/progress.js, separate localStorage keys) is unaffected
+-- by this — that one's the READER's own play-through state on their own
+-- device, which is exactly the "no account needed" case the portable design
+-- was actually meant for, so it stays local by design.
+create table if not exists public.roleplay_generation_runs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  project_id uuid not null references public.projects(id) on delete cascade,
+  status text not null default 'running',
+  current_step text default '',
+  step_state jsonb not null default '{}',
+  provider text default '',
+  model text default '',
+  prompt_versions jsonb not null default '{}',
+  created_date timestamptz not null default now(),
+  updated_date timestamptz not null default now()
+);
+
+alter table public.roleplay_generation_runs enable row level security;
+
+create policy "own rows" on public.roleplay_generation_runs
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create trigger trg_roleplay_generation_runs_updated_date
+  before update on public.roleplay_generation_runs
+  for each row execute function public.set_updated_date();
+
+create index if not exists idx_roleplay_generation_runs_project_id on public.roleplay_generation_runs(project_id);
+
+create table if not exists public.roleplay_analyses (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  project_id uuid not null references public.projects(id) on delete cascade,
+  chapter_ids jsonb not null default '[]',
+  source_hash text not null,
+  lore_rules_hash text not null,
+  analyzer_version text not null default 'context-v1',
+  status text not null default 'ready',
+  analysis jsonb not null default '{}',
+  created_date timestamptz not null default now(),
+  updated_date timestamptz not null default now()
+);
+
+alter table public.roleplay_analyses enable row level security;
+
+create policy "own rows" on public.roleplay_analyses
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create trigger trg_roleplay_analyses_updated_date
+  before update on public.roleplay_analyses
+  for each row execute function public.set_updated_date();
+
+-- Matches RoleplayAnalysis.findCached's lookup exactly (project + content
+-- hash + rules hash + analyzer version) — this is a cache-hit check on
+-- every generation run, worth indexing.
+create index if not exists idx_roleplay_analyses_lookup on public.roleplay_analyses(project_id, source_hash, lore_rules_hash, analyzer_version);
+
+create table if not exists public.roleplay_scenarios (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  project_id uuid not null references public.projects(id) on delete cascade,
+  analysis_id uuid references public.roleplay_analyses(id) on delete set null,
+  title text not null default '',
+  status text not null default 'draft',
+  source_chapter_ids jsonb not null default '[]',
+  source_hash text default '',
+  pack jsonb not null default '{}',
+  validation_report jsonb not null default '{}',
+  created_date timestamptz not null default now(),
+  updated_date timestamptz not null default now()
+);
+
+alter table public.roleplay_scenarios enable row level security;
+
+create policy "own rows" on public.roleplay_scenarios
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+create trigger trg_roleplay_scenarios_updated_date
+  before update on public.roleplay_scenarios
+  for each row execute function public.set_updated_date();
+
+create index if not exists idx_roleplay_scenarios_project_id on public.roleplay_scenarios(project_id);
+
 -- ── temporary Wattpad transfer packages ───────────────────────────────
 -- Server-only table: no public RLS policy. A transfer can be redeemed once;
 -- the API deletes its row immediately after a successful redemption.

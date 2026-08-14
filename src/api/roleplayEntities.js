@@ -1,44 +1,42 @@
-const LOCAL_PREFIX = "etq-roleplay-v1:";
+import { supabase } from "@/api/supabaseClient";
 
-function readLocal(table) {
-  try { return JSON.parse(localStorage.getItem(`${LOCAL_PREFIX}${table}`) || "[]"); }
-  catch { return []; }
-}
-
-function writeLocal(table, rows) {
-  localStorage.setItem(`${LOCAL_PREFIX}${table}`, JSON.stringify(rows));
-}
-
-function localCreate(table, values) {
-  const now = new Date().toISOString();
-  const row = { id: crypto.randomUUID(), created_date: now, updated_date: now, ...values };
-  writeLocal(table, [row, ...readLocal(table)]);
-  return row;
-}
-
+// Roleplay Studio authoring data (in-progress generation runs, cached
+// analyses, finished/draft scenario packs) lives in Supabase like every
+// other entity in this app — an unfinished draft has to survive a browser
+// clear or a device switch. This is deliberately separate from the
+// player-facing save/resume progress in src/lib/roleplay/progress.js, which
+// stays in localStorage on purpose: that's the READER's own play-through
+// state on their own device, no account involved, exactly the "portable, no
+// backend" case the feature was originally meant for.
 function entity(table) {
   return {
     async get(id) {
-      return readLocal(table).find((row) => row.id === id) || null;
+      const { data, error } = await supabase.from(table).select("*").eq("id", id).maybeSingle();
+      if (error) throw error;
+      return data;
     },
     async list(projectId) {
-      return readLocal(table).filter((row) => row.project_id === projectId).sort((a, b) => String(b.updated_date).localeCompare(String(a.updated_date)));
+      const { data, error } = await supabase
+        .from(table)
+        .select("*")
+        .eq("project_id", projectId)
+        .order("updated_date", { ascending: false });
+      if (error) throw error;
+      return data;
     },
     async create(values) {
-      return localCreate(table, values);
+      const { data, error } = await supabase.from(table).insert(values).select().single();
+      if (error) throw error;
+      return data;
     },
     async update(id, values) {
-      let updated = null;
-      const rows = readLocal(table).map((row) => {
-        if (row.id !== id) return row;
-        updated = { ...row, ...values, updated_date: new Date().toISOString() };
-        return updated;
-      });
-      writeLocal(table, rows);
-      return updated;
+      const { data, error } = await supabase.from(table).update(values).eq("id", id).select().single();
+      if (error) throw error;
+      return data;
     },
     async delete(id) {
-      writeLocal(table, readLocal(table).filter((row) => row.id !== id));
+      const { error } = await supabase.from(table).delete().eq("id", id);
+      if (error) throw error;
     },
   };
 }
@@ -46,7 +44,18 @@ function entity(table) {
 export const RoleplayAnalysis = {
   ...entity("roleplay_analyses"),
   async findCached(projectId, sourceHash, loreRulesHash, analyzerVersion = "context-v1") {
-    return readLocal("roleplay_analyses").find((row) => row.project_id === projectId && row.source_hash === sourceHash && row.lore_rules_hash === loreRulesHash && row.analyzer_version === analyzerVersion && row.status === "ready") || null;
+    const { data, error } = await supabase
+      .from("roleplay_analyses")
+      .select("*")
+      .eq("project_id", projectId)
+      .eq("source_hash", sourceHash)
+      .eq("lore_rules_hash", loreRulesHash)
+      .eq("analyzer_version", analyzerVersion)
+      .eq("status", "ready")
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
   },
 };
 
