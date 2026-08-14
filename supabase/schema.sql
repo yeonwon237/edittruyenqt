@@ -158,11 +158,13 @@ create table if not exists public.roleplay_generation_runs (
 
 alter table public.roleplay_generation_runs enable row level security;
 
+drop policy if exists "own rows" on public.roleplay_generation_runs;
 create policy "own rows" on public.roleplay_generation_runs
   for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop trigger if exists trg_roleplay_generation_runs_updated_date on public.roleplay_generation_runs;
 create trigger trg_roleplay_generation_runs_updated_date
   before update on public.roleplay_generation_runs
   for each row execute function public.set_updated_date();
@@ -185,11 +187,13 @@ create table if not exists public.roleplay_analyses (
 
 alter table public.roleplay_analyses enable row level security;
 
+drop policy if exists "own rows" on public.roleplay_analyses;
 create policy "own rows" on public.roleplay_analyses
   for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop trigger if exists trg_roleplay_analyses_updated_date on public.roleplay_analyses;
 create trigger trg_roleplay_analyses_updated_date
   before update on public.roleplay_analyses
   for each row execute function public.set_updated_date();
@@ -216,11 +220,13 @@ create table if not exists public.roleplay_scenarios (
 
 alter table public.roleplay_scenarios enable row level security;
 
+drop policy if exists "own rows" on public.roleplay_scenarios;
 create policy "own rows" on public.roleplay_scenarios
   for all
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
+drop trigger if exists trg_roleplay_scenarios_updated_date on public.roleplay_scenarios;
 create trigger trg_roleplay_scenarios_updated_date
   before update on public.roleplay_scenarios
   for each row execute function public.set_updated_date();
