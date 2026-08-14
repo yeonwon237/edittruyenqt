@@ -191,10 +191,6 @@ function sourceBlock(chapters) {
   return chapters.map((chapter) => `### ${chapter.title}\n${chapterText(chapter)}`).join("\n\n");
 }
 
-async function updateRun(run, values) {
-  return RoleplayGenerationRun.update(run.id, values);
-}
-
 function pickRandomRole(analysis) {
   const candidates = Array.isArray(analysis?.roleCandidates) ? analysis.roleCandidates.filter(Boolean) : [];
   if (!candidates.length) return null;
@@ -248,10 +244,16 @@ export async function generateRoleplay({ project, chapterIds, onProgress }) {
   const sourceHash = await hashText(chapters.map((chapter) => `${chapter.id}:${chapter.updated_date}:${chapterText(chapter)}`).join("\n"));
   const loreRules = JSON.stringify({ glossary: glossaryRows.map((term) => [term.source_term, term.translation]), pronouns: project.contextual_pronoun_rules || [], preset: project.active_preset_id || "" });
   const loreRulesHash = await hashText(loreRules);
-  let run = await RoleplayGenerationRun.create({ project_id: project.id, status: "running", current_step: "context", step_state: {}, provider, model, prompt_versions: PROMPT_VERSIONS });
-  const checkpoint = async (step, output) => {
+  // The run row exists only so a failed generation leaves a debuggable trace
+  // — nothing in the app ever reads it back (no progress-resume feature),
+  // so intermediate steps are tracked purely in-memory (currentStep below)
+  // rather than round-tripped through Supabase on every one of the 6 AI
+  // calls. The row is deleted outright once the scenario saves successfully.
+  const run = await RoleplayGenerationRun.create({ project_id: project.id, status: "running", current_step: "context", provider, model, prompt_versions: PROMPT_VERSIONS });
+  let currentStep = "context";
+  const checkpoint = (step) => {
+    currentStep = step;
     onProgress?.(step);
-    run = await updateRun(run, { current_step: step, step_state: { ...(run.step_state || {}), [step]: { status: "done", output } } });
   };
   try {
     onProgress?.("context");
@@ -260,12 +262,12 @@ export async function generateRoleplay({ project, chapterIds, onProgress }) {
       const output = await callLLMForJson(`Bạn là Story Analyzer cho interactive fiction xuyên sách. Phân tích đúng phần truyện được cung cấp; không viết game. Trả DUY NHẤT JSON object có keys: summary (string), characters (array {id,name,aliases,role,personality,goals,status,knowledge}), relationships (array {from,to,type,state}), events (array {id,chapter,title,description,stakes,dramaScore}), locations (array), items (array), knowledgeFacts (array {fact,knownBy,notKnownBy}), roleCandidates (array {role,canonical,logic,opportunity}). stakes mô tả mức độ kịch tính/nguy hiểm/hệ quả nếu thất bại, càng cụ thể càng tốt. dramaScore là số nguyên 1-10, 10 là cao trào/nguy hiểm nhất, dùng để bước sau ưu tiên sự kiện kịch tính nhất. Ưu tiên sự thật tại đúng thời điểm, không dùng kiến thức tương lai.\n\nGỢI Ý TỪ EDITQT:\n${loreRules.slice(0, 12000)}\n\nTRUYỆN:\n${source}`);
       analysis = await RoleplayAnalysis.create({ project_id: project.id, chapter_ids: chapterIds, source_hash: sourceHash, lore_rules_hash: loreRulesHash, analyzer_version: PROMPT_VERSIONS.context, status: "ready", analysis: output });
     }
-    await checkpoint("context", analysis.analysis);
+    checkpoint("context");
 
     onProgress?.("blueprint");
     const chosenRole = pickRandomRole(analysis.analysis);
     const blueprint = await callLLMForJson(`Bạn là Scenario Designer cho game xuyên sách có Hệ Thống. Từ Context Bible bên dưới, thiết kế đúng 10 beat theo sơ đồ cấu trúc bắt buộc. Trước khi thiết kế sceneOutline, chọn ra 4-6 event có dramaScore cao nhất từ events[] trong Context Bible — đây là các biến cố PHẢI xuất hiện hoặc PHẢI là hệ quả trực tiếp của một lựa chọn trong game. KHÔNG kể lại tuần tự toàn bộ nội dung chương đã chọn — hãy nén, bỏ qua các đoạn thuật lại không có xung đột, và dựng 10 beat xoay quanh các event kịch tính nhất. Nếu một chương không có event dramaScore ≥ 6, có thể bỏ qua chương đó khi thiết kế beat mà vẫn được, miễn cốt truyện fanfic vẫn nhất quán. Tự chọn loại Hệ Thống phù hợp nhất với truyện (Sinh Tồn, Cứu Rỗi Phản Diện, Sửa Chữa Cốt Truyện, Nghịch Thiên Cải Mệnh hoặc Cá Mặn). Hệ Thống có cá tính riêng và chỉ biết nguyên tác nên không đáng tin tuyệt đối khi độ lệch tăng.${roleConstraintBlock(chosenRole)}\n\n${branchingLayout}\n\nTrả DUY NHẤT JSON object gồm: title, player {role,canonicalCharacterId,isOriginalCharacter,loreRule}, system {name,personality,reliability từ 50 đến 95,activationText,mainMission,failureText,deviationMessages:[{threshold:30 hoặc 70,message}]}, missions {main: 1 mission object, side: mảng 1-2 mission, hidden: MẢNG chứa đúng 1 mission (không phải object đơn lẻ)}, stateSchema {stats,relationships,flags,items}, startSceneId phải là "scene_01", sceneOutline (12 phần tử theo đúng id sơ đồ: scene_01,scene_02,scene_03,scene_04,scene_05a,scene_05b,scene_06,scene_07,scene_08a,scene_08b,scene_09,scene_10 — mỗi phần tử {id,title,beat,allowedFacts}), endingsPlan (mảng, mỗi phần tử theo đúng cấu trúc ending bên dưới). Mỗi mission có {id,type,title,description,unlockWhen?,completeWhen,failWhen?,failurePenalty,rewardText}; main type main, side type side, hidden type hidden. Mỗi nhiệm vụ có thể thất bại phải có hình phạt thật (failurePenalty) lên survival/suspicion/relationship, đủ sức làm thay đổi cách chơi. Nhiệm vụ ẩn phải mở khóa quanh scene_05a/05b hoặc scene_08a/08b bằng chuỗi trạng thái có thể đạt được nhưng không được tiết lộ trước.\n\n${missionsExample}\n\n${endingsExample}\n\nstateSchema.stats và relationships là object có key ổn định, mỗi value đúng dạng {initial:number,min:number,max:number}; flags và items là array string. Stats chỉ gồm survival/suspicion/plotDeviation; relationship tối đa 5 NPC. Mọi flag/item phải khai báo trước.\n\nCONTEXT BIBLE:\n${JSON.stringify(analysis.analysis)}`);
-    await checkpoint("blueprint", blueprint);
+    checkpoint("blueprint");
 
     // Split into 4 small scene-writer calls instead of 2 large ones — a
     // single call asking for 7 richly-fielded scenes (mood/primaryCharacterId/
@@ -275,19 +277,19 @@ export async function generateRoleplay({ project, chapterIds, onProgress }) {
     // context so character voice/state stays consistent across calls.
     onProgress?.("scenes_1_4");
     const part1 = await callLLMForJson(`Bạn là Scene Writer. Viết scenes scene_01, scene_02, scene_03, scene_04 đúng theo blueprint và sơ đồ rẽ nhánh bắt buộc. scene_04 phải có choices dẫn rõ ràng bằng next tới "scene_05a" hoặc "scene_05b" (hai scene này sẽ được viết ở bước sau, cứ tham chiếu đúng id). Trả DUY NHẤT JSON array (4 phần tử). ${sceneContract}\n\n${branchingLayout}\n\nCONTEXT:\n${JSON.stringify(analysis.analysis)}\n\nBLUEPRINT:\n${JSON.stringify(blueprint)}`, { maxTokens: 8192 });
-    await checkpoint("scenes_1_4", part1);
+    checkpoint("scenes_1_4");
 
     onProgress?.("scenes_5_6");
     const part2 = await callLLMForJson(`Bạn là Scene Writer. Viết scenes scene_05a, scene_05b, scene_06 đúng theo blueprint và sơ đồ rẽ nhánh bắt buộc. scene_05a và scene_05b PHẢI khác biệt rõ rệt về nội dung, hậu quả, systemReaction (không chỉ đổi câu chữ) — đây là kết quả của hai lựa chọn khác nhau ở scene_04. Cả hai đều phải có choices dẫn về scene_06. Trả DUY NHẤT JSON array (3 phần tử). ${sceneContract}\n\n${branchingLayout}\n\nCONTEXT:\n${JSON.stringify(analysis.analysis)}\n\nBLUEPRINT:\n${JSON.stringify(blueprint)}\n\nSCENES ĐÃ VIẾT (scene_01..scene_04):\n${JSON.stringify(part1)}`, { maxTokens: 8192 });
-    await checkpoint("scenes_5_6", part2);
+    checkpoint("scenes_5_6");
 
     onProgress?.("scenes_7_8");
     const part3 = await callLLMForJson(`Bạn là Scene Writer. Viết scenes scene_07, scene_08a, scene_08b đúng theo blueprint và sơ đồ rẽ nhánh bắt buộc. scene_07 là cao trào, choices phải dẫn rõ ràng bằng next tới "scene_08a" hoặc "scene_08b" (hai scene này sẽ được viết ngay dưới đây). scene_08a và scene_08b PHẢI khác biệt rõ rệt, đây là beat thử thách/kịch tính nhất toàn game. Trả DUY NHẤT JSON array (3 phần tử). ${sceneContract}\n\n${branchingLayout}\n\nCONTEXT:\n${JSON.stringify(analysis.analysis)}\n\nBLUEPRINT:\n${JSON.stringify(blueprint)}\n\nSCENES ĐÃ VIẾT (scene_01..scene_06):\n${JSON.stringify([...part1, ...part2])}`, { maxTokens: 8192 });
-    await checkpoint("scenes_7_8", part3);
+    checkpoint("scenes_7_8");
 
     onProgress?.("scenes_9_10");
     const part4 = await callLLMForJson(`Bạn là Scene Writer và Ending Designer. Viết scenes scene_09, scene_10 theo blueprint. scene_10 vẫn PHẢI có đủ 3-4 choices như mọi scene khác (chỉ khác là next của tất cả choices ở scene_10 là null) — TUYỆT ĐỐI không được viết ít hơn 3 choices cho scene_10. Trả DUY NHẤT JSON object {scenes,endings}. scenes là array 2 phần tử. endings là mảng gồm 1 HE, 1-2 NE, 2-3 BE, optional SPECIAL/HIDDEN; mỗi ending theo đúng cấu trúc bên dưới. Điều kiện "when" phải dựa trên state/flags và luôn có một BE fallback priority 0 có điều kiện luôn đạt bằng stat_gte với min của một stat. ${sceneContract}\n\n${endingsExample}\n\n${branchingLayout}\n\nCONTEXT:\n${JSON.stringify(analysis.analysis)}\n\nBLUEPRINT:\n${JSON.stringify(blueprint)}\n\nSCENES ĐÃ VIẾT (scene_01..scene_08b):\n${JSON.stringify([...part1, ...part2, ...part3])}`, { maxTokens: 8192 });
-    await checkpoint("scenes_9_10", part4);
+    checkpoint("scenes_9_10");
 
     const generatedScenes = [...part1, ...part2, ...part3, ...(part4.scenes || [])].map((scene) => ({
       ...scene,
@@ -301,16 +303,19 @@ export async function generateRoleplay({ project, chapterIds, onProgress }) {
       meta: { generatorVersion: "generator-v2-branching", promptVersions: PROMPT_VERSIONS, provider, model, roleSelection: chosenRole ? "random_from_candidates" : "ai_fallback", roleCandidateChosen: chosenRole || null },
     };
     const repairedPack = normalizePackDraft(pack);
-    onProgress?.("validation");
+    checkpoint("validation");
     const validation = validateRoleplayPack(repairedPack, { events: analysis.analysis?.events || [] });
     const simulation = validation.valid ? simulateRoleplay(repairedPack, 1000) : null;
     const report = { ...validation, simulation };
     const scenario = await RoleplayScenario.create({ project_id: project.id, analysis_id: analysis.id, title: repairedPack.title, status: validation.valid ? "ready" : "draft", source_chapter_ids: chapterIds, source_hash: sourceHash, pack: repairedPack, validation_report: report });
-    await updateRun(run, { status: "completed", current_step: "completed", scenario_id: scenario.id, analysis_id: analysis.id, step_state: { ...(run.step_state || {}), validation: { status: "done", output: report } } });
+    // The run row has zero further value once the scenario it was tracking
+    // exists — delete it instead of writing one more (large) "completed"
+    // update that nothing will ever read back.
+    await RoleplayGenerationRun.delete(run.id).catch(() => {});
     onProgress?.("completed");
     return scenario;
   } catch (error) {
-    await updateRun(run, { status: "failed", error: { message: error.message }, current_step: run.current_step }).catch(() => {});
+    await RoleplayGenerationRun.update(run.id, { status: "failed", error: { message: error.message }, current_step: currentStep }).catch(() => {});
     throw error;
   }
 }

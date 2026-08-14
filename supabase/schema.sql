@@ -142,35 +142,8 @@ create trigger trg_prompt_presets_updated_date
 -- by this — that one's the READER's own play-through state on their own
 -- device, which is exactly the "no account needed" case the portable design
 -- was actually meant for, so it stays local by design.
-create table if not exists public.roleplay_generation_runs (
-  id uuid primary key default gen_random_uuid(),
-  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
-  project_id uuid not null references public.projects(id) on delete cascade,
-  status text not null default 'running',
-  current_step text default '',
-  step_state jsonb not null default '{}',
-  provider text default '',
-  model text default '',
-  prompt_versions jsonb not null default '{}',
-  created_date timestamptz not null default now(),
-  updated_date timestamptz not null default now()
-);
-
-alter table public.roleplay_generation_runs enable row level security;
-
-drop policy if exists "own rows" on public.roleplay_generation_runs;
-create policy "own rows" on public.roleplay_generation_runs
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
-
-drop trigger if exists trg_roleplay_generation_runs_updated_date on public.roleplay_generation_runs;
-create trigger trg_roleplay_generation_runs_updated_date
-  before update on public.roleplay_generation_runs
-  for each row execute function public.set_updated_date();
-
-create index if not exists idx_roleplay_generation_runs_project_id on public.roleplay_generation_runs(project_id);
-
+-- Table order matters here: roleplay_generation_runs FK-references both of
+-- the other two tables, so it has to be created last.
 create table if not exists public.roleplay_analyses (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
@@ -232,6 +205,45 @@ create trigger trg_roleplay_scenarios_updated_date
   for each row execute function public.set_updated_date();
 
 create index if not exists idx_roleplay_scenarios_project_id on public.roleplay_scenarios(project_id);
+
+-- step_state is deliberately NOT used to log each step's full AI output —
+-- src/lib/roleplay/generator.js tracks progress via an in-memory callback
+-- only (this table is never read back anywhere in the app, only
+-- created/updated/deleted), so persisting the running generation's full
+-- content here would just be a second, write-only copy of everything that
+-- ends up in roleplay_scenarios.pack. The row itself is deleted once the
+-- scenario saves successfully; a failed row is kept (small) for debugging.
+create table if not exists public.roleplay_generation_runs (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  project_id uuid not null references public.projects(id) on delete cascade,
+  status text not null default 'running',
+  current_step text default '',
+  step_state jsonb not null default '{}',
+  provider text default '',
+  model text default '',
+  prompt_versions jsonb not null default '{}',
+  analysis_id uuid references public.roleplay_analyses(id) on delete set null,
+  scenario_id uuid references public.roleplay_scenarios(id) on delete set null,
+  error jsonb,
+  created_date timestamptz not null default now(),
+  updated_date timestamptz not null default now()
+);
+
+alter table public.roleplay_generation_runs enable row level security;
+
+drop policy if exists "own rows" on public.roleplay_generation_runs;
+create policy "own rows" on public.roleplay_generation_runs
+  for all
+  using (auth.uid() = user_id)
+  with check (auth.uid() = user_id);
+
+drop trigger if exists trg_roleplay_generation_runs_updated_date on public.roleplay_generation_runs;
+create trigger trg_roleplay_generation_runs_updated_date
+  before update on public.roleplay_generation_runs
+  for each row execute function public.set_updated_date();
+
+create index if not exists idx_roleplay_generation_runs_project_id on public.roleplay_generation_runs(project_id);
 
 -- ── temporary Wattpad transfer packages ───────────────────────────────
 -- Server-only table: no public RLS policy. A transfer can be redeemed once;
