@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Languages, Loader2, LocateFixed, RotateCcw, SearchCheck, Sparkles, UserRoundCheck } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Languages, Loader2, LocateFixed, RotateCcw, SearchCheck, Sparkles, UserRoundCheck, Zap } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QUALITY_LABELS } from "@/lib/qualityCheck";
 
@@ -11,12 +11,19 @@ const TYPE_META = {
   pronoun: { icon: UserRoundCheck, tone: "text-violet-700 bg-violet-50 border-violet-100" }
 };
 
-export default function QualityCheckDialog({ open, onOpenChange, issues, onApply, onLocate, onTranslate, onUndo, canUndo }) {
+const isSafeIssue = (issue) =>
+  issue.severity !== "review" &&
+  !issue.contextual &&
+  String(issue.replacement || "").trim() &&
+  issue.replacement !== issue.value;
+
+export default function QualityCheckDialog({ open, onOpenChange, issues, onApply, onLocate, onTranslate, onUndo, canUndo, onApplyAllSafe }) {
   const [filter, setFilter] = useState("all");
   const [replacements, setReplacements] = useState({});
   const [ignored, setIgnored] = useState(new Set());
   const [translating, setTranslating] = useState(null);
   const [selections, setSelections] = useState({});
+  const [batchTranslating, setBatchTranslating] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -45,6 +52,7 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
   }, [issues]);
   const visible = useMemo(() => groups.filter((group) => !ignored.has(group.key) && (filter === "all" || group.type === filter)), [groups, ignored, filter]);
   const counts = useMemo(() => (issues || []).reduce((acc, issue) => ({ ...acc, [issue.type]: (acc[issue.type] || 0) + 1 }), {}), [issues]);
+  const safeCount = useMemo(() => (issues || []).filter(isSafeIssue).length, [issues]);
 
   const ignore = (key) => setIgnored((current) => new Set([...current, key]));
 
@@ -86,6 +94,27 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
     onApply([issue], replacements[issue.id] ?? issue.replacement);
   };
 
+  const untranslatedCjkEnglish = groups.filter(
+    (group) => (group.type === "cjk" || group.type === "english") && !ignored.has(group.key) && !selections[group.key]?.active
+  );
+
+  const batchTranslateAll = async () => {
+    if (batchTranslating || !untranslatedCjkEnglish.length) return;
+    setBatchTranslating(true);
+    try {
+      for (let i = 0; i < untranslatedCjkEnglish.length; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await translate(untranslatedCjkEnglish[i]);
+        if (i < untranslatedCjkEnglish.length - 1) {
+          // eslint-disable-next-line no-await-in-loop
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
+      }
+    } finally {
+      setBatchTranslating(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl h-[86vh] overflow-hidden flex flex-col rounded-2xl border-violet-100 p-0">
@@ -95,7 +124,15 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
               <DialogTitle className="flex items-center gap-2 text-slate-800"><SearchCheck className="h-5 w-5 text-violet-600" /> QA bản Edit</DialogTitle>
               <DialogDescription className="mt-1">Chỉ đưa ra đề xuất. Văn bản không thay đổi cho đến khi bạn bấm Áp dụng.</DialogDescription>
             </div>
-            {canUndo && <button onClick={onUndo} className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><RotateCcw className="h-3.5 w-3.5" /> Hoàn tác QA</button>}
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              {untranslatedCjkEnglish.length > 0 && (
+                <button disabled={batchTranslating} onClick={batchTranslateAll} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50">
+                  {batchTranslating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />} Dịch AI hàng loạt ({untranslatedCjkEnglish.length})
+                </button>
+              )}
+              {safeCount > 0 && <button onClick={onApplyAllSafe} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-emerald-700"><Zap className="h-3.5 w-3.5" /> Sửa {safeCount} lỗi an toàn</button>}
+              {canUndo && <button onClick={onUndo} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs text-slate-600 hover:bg-slate-50"><RotateCcw className="h-3.5 w-3.5" /> Hoàn tác QA</button>}
+            </div>
           </div>
           <div className="flex flex-wrap gap-1.5 pt-3">
             {["all", "glossary", "cjk", "english", "name", "pronoun"].map((type) => {

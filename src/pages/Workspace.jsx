@@ -15,6 +15,7 @@ import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog"
 import ChapterManagerDialog from "@/components/workspace/ChapterManagerDialog";
 import ImportChaptersDialog from "@/components/workspace/ImportChaptersDialog";
 import BatchEditDialog from "@/components/workspace/BatchEditDialog";
+import BatchBetaAiDialog from "@/components/workspace/BatchBetaAiDialog";
 import BatchTitleEditDialog from "@/components/workspace/BatchTitleEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import QualityCheckDialog from "@/components/workspace/QualityCheckDialog";
@@ -176,6 +177,13 @@ export default function Workspace() {
   const [storyBetaRunning, setStoryBetaRunning] = useState(false);
   const [storyBetaReport, setStoryBetaReport] = useState(null);
   const [markingBeta, setMarkingBeta] = useState(false);
+  const [aiBetaFindings, setAiBetaFindings] = useState({});
+  const [showBatchBetaAi, setShowBatchBetaAi] = useState(false);
+  const [batchBetaAiRunning, setBatchBetaAiRunning] = useState(false);
+  const [batchBetaAiFinished, setBatchBetaAiFinished] = useState(false);
+  const [batchBetaAiProgress, setBatchBetaAiProgress] = useState({ done: 0, total: 0, found: 0, skipped: 0, failed: 0, currentTitle: "" });
+  const [batchBetaAiErrors, setBatchBetaAiErrors] = useState([]);
+  const batchBetaAiStopRef = useRef(false);
   const [showAISettings, setShowAISettings] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
   const [showColumnMove, setShowColumnMove] = useState(false);
@@ -976,6 +984,86 @@ export default function Workspace() {
     const next={...qaSettings,allowedWords};await handleSaveQaSettings(next);await handleScanStoryQa(next);
   };
 
+  const isSafeStoryQaGroup = (group) =>
+    group.severity !== "review" &&
+    !group.contextual &&
+    String(group.replacement || "").trim() &&
+    group.replacement !== group.value;
+
+  // Applies every group with an unambiguous replacement across the whole
+  // story in one DB pass, instead of the group-by-group "Thay N/M vị trí"
+  // flow — same position-verify-before-write safety as handleStoryQaBulkReplace.
+  const handleStoryQaApplyAllSafe = async (qaSettings) => {
+    const safeGroups = (storyQaReport?.groups || []).filter(isSafeStoryQaGroup);
+    if (!safeGroups.length) {
+      toast({ title: "Không có lỗi an toàn nào để sửa tự động" });
+      return;
+    }
+    setBatchReplaceRunning(true);
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      const byChapter = new Map();
+      safeGroups.forEach((group) => {
+        (group.locations || []).forEach((location) => {
+          const list = byChapter.get(location.chapterId) || [];
+          list.push({ start: location.start, end: location.end, value: location.value, replacement: group.replacement });
+          byChapter.set(location.chapterId, list);
+        });
+      });
+      const ids = [...byChapter.keys()];
+      const chapters = await Chapter.getMany(ids);
+      setBatchReplaceUndo({ target: "edited", rows: chapters.map(chapterUpsertRow) });
+      const changedRows = chapters.map((chapter) => {
+        const positions = (byChapter.get(chapter.id) || []).sort((a, b) => b.start - a.start);
+        const edited = positions.reduce(
+          (text, item) => (text.slice(item.start, item.end) === item.value ? text.slice(0, item.start) + item.replacement + text.slice(item.end) : text),
+          chapter.edited || ""
+        );
+        return chapterUpsertRow({ ...chapter, edited });
+      });
+      let updated = [];
+      for (let index = 0; index < changedRows.length; index += 200) {
+        updated = updated.concat(await Chapter.bulkUpsert(changedRows.slice(index, index + 200)));
+      }
+      updated.forEach((chapter) => { chapterCacheRef.current.set(chapter.id, chapter); lastSavedRef.current.set(chapter.id, snapshotOf(chapter)); });
+      const active = updated.find((chapter) => chapter.id === currentChapter?.id);
+      if (active) setCurrentChapter(active);
+      const totalOccurrences = safeGroups.reduce((sum, group) => sum + (group.locations?.length || 0), 0);
+      toast({ title: `Đã sửa ${totalOccurrences} vị trí an toàn trong ${updated.length} chương`, description: "Có thể hoàn tác trong Trung tâm QA." });
+      await handleScanStoryQa(qaSettings);
+    } catch (error) {
+      toast({ title: "Không thể sửa tất cả lỗi an toàn", description: error.message, variant: "destructive" });
+    } finally {
+      setBatchReplaceRunning(false);
+    }
+  };
+
+  // Story-wide counterpart of handleTranslateQualityIssue: a group here has
+  // no contextTargetStart/End (those only exist on a single chapter's live
+  // scan), so the target span is found by locating group.value inside the
+  // first location's saved context instead of relying on a live textarea
+  // selection.
+  const handleTranslateStoryQaGroup = async (group) => {
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return "";
+    }
+    const location = group.locations?.[0];
+    const context = location?.context || group.value;
+    const idx = context.indexOf(group.value);
+    const start = idx === -1 ? 0 : idx;
+    const end = start + group.value.length;
+    try {
+      const markedContext = idx === -1 ? context : `${context.slice(0, start)}【${context.slice(start, end)}】${context.slice(end)}`;
+      const prompt = `Câu tiếng Việt dưới đây còn sót chữ Hán/Anh. Phần cần dịch lại được đánh dấu bằng 【】.\n\nHãy dịch hoặc biên tập CHỈ phần trong 【】 thành một cụm tiếng Việt tự nhiên, đúng nghĩa trong toàn câu. Không dịch từng chữ theo nghĩa từ điển nếu làm câu vô nghĩa. Có thể dùng âm Hán–Việt khi đó là thành ngữ, tên gọi hoặc cách ghép tự nhiên. Phần ngoài 【】 chỉ là ngữ cảnh và phải được giữ nguyên.\n\nChỉ trả về nội dung thay thế cho phần trong 【】, không giải thích, không dấu ngoặc và không câu dẫn.\n\nPhần đã chọn: ${group.value}\nCâu có đánh dấu: ${markedContext}`;
+      const result = await callLLM(prompt);
+      return String(result || "").trim().replace(/^['\"“”]+|['\"“”]+$/g, "");
+    } catch (error) {
+      toast({ title: "Không dịch được từ", description: error.message, variant: "destructive" });
+      return "";
+    }
+  };
+
   useEffect(() => {
     try { setStoryQaReport(JSON.parse(localStorage.getItem(`etq-story-qa:${projectId}`) || "null")); }
     catch { setStoryQaReport(null); }
@@ -1037,6 +1125,49 @@ export default function Workspace() {
     }
   };
 
+  // "Safe" = a QA issue with a single, unambiguous replacement the scanner
+  // already computed (glossary/CJK/name matches, or an English word with a
+  // known suggestion) — never a contextual (Xưng hô) or "review"-severity
+  // issue, since those explicitly require reading the surrounding sentence.
+  const isSafeQualityIssue = (issue) =>
+    issue.severity !== "review" &&
+    !issue.contextual &&
+    String(issue.replacement || "").trim() &&
+    issue.replacement !== issue.value;
+
+  const handleApplyAllSafeQuality = () => {
+    if (!currentChapter) return;
+    const previous = currentChapter.edited || "";
+    const safeIssues = qualityIssues.filter(isSafeQualityIssue);
+    if (!safeIssues.length) {
+      toast({ title: "Không có lỗi an toàn nào để sửa tự động" });
+      return;
+    }
+    try {
+      const applicable = safeIssues
+        .filter((issue) => previous.slice(issue.start, issue.end) === issue.value)
+        .sort((a, b) => b.start - a.start);
+      if (!applicable.length) throw new Error("Các vị trí đề xuất đã thay đổi. Hãy quét QA lại.");
+      const next = applicable.reduce(
+        (text, issue) => applyQualitySuggestion(text, issue, String(issue.replacement)),
+        previous
+      );
+      setQualityUndo({ chapterId: currentChapter.id, previous });
+      setCurrentChapter({ ...currentChapter, edited: next });
+      const remaining = runQualityCheck(next, qualityOptions());
+      setQualityIssues(remaining);
+      toast({
+        title: `Đã sửa ${applicable.length} lỗi an toàn`,
+        description: remaining.length
+          ? `Còn ${remaining.length} lỗi/nghi vấn cần xem ngữ cảnh trước khi sửa.`
+          : "Chương không còn lỗi QA nào.",
+      });
+    } catch (error) {
+      toast({ title: "Không thể sửa tự động", description: error.message, variant: "destructive" });
+      setQualityIssues(runQualityCheck(currentChapter.edited || "", qualityOptions()));
+    }
+  };
+
   const handleTranslateQualityIssue = async (group, selection) => {
     if (!hasCustomAI()) {
       toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
@@ -1085,7 +1216,54 @@ export default function Workspace() {
 
   const betaSettings = () => project?.style_toggles?.beta_settings || { longSentence:180, longParagraph:900, rules:[], ignored:[] };
   const handleSaveBetaSettings = async (settings) => handleUpdateProject({ style_toggles:{ ...(project?.style_toggles || {}), beta_settings:settings } });
-  const scanCurrentBeta = (text=currentChapter?.edited || "", settings=betaSettings()) => runBetaCheck(text,{settings});
+
+  // Findings from "AI xem câu khó" (manual, per-chapter) and the batch AI
+  // Beta runner both persist here, keyed by chapter id, so they survive
+  // switching chapters/closing the dialog instead of being lost the moment
+  // betaIssues gets recomputed. A stored suggestion is only shown while its
+  // exact flagged span still matches the live text (same position-verify
+  // convention used everywhere else in this file) — no content-hash needed,
+  // and it means an edit elsewhere in the chapter never wipes out unrelated
+  // pending suggestions.
+  const persistAiBetaSuggestions = (chapterId, additions) => {
+    if (!additions.length) return;
+    setAiBetaFindings((current) => {
+      const existing = current[chapterId]?.suggestions || [];
+      const suggestions = [
+        ...existing.filter((item) => !additions.some((next) => next.start === item.start && next.end === item.end)),
+        ...additions,
+      ].sort((a, b) => a.start - b.start);
+      const next = { ...current, [chapterId]: { checkedAt: new Date().toISOString(), suggestions } };
+      localStorage.setItem(`etq-story-beta-ai:${projectId}`, JSON.stringify(next));
+      return next;
+    });
+  };
+  const removeAiBetaFindings = (chapterId, ids) => {
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+    setAiBetaFindings((current) => {
+      const existing = current[chapterId]?.suggestions;
+      if (!existing?.length) return current;
+      const suggestions = existing.filter((item) => !idSet.has(item.id));
+      const next = { ...current, [chapterId]: { ...current[chapterId], suggestions } };
+      localStorage.setItem(`etq-story-beta-ai:${projectId}`, JSON.stringify(next));
+      return next;
+    });
+  };
+  const storedAiBetaIssues = (chapterId, text) => {
+    const suggestions = aiBetaFindings[chapterId]?.suggestions || [];
+    return suggestions.filter((item) => text.slice(item.start, item.end) === item.value);
+  };
+  useEffect(() => {
+    try { setAiBetaFindings(JSON.parse(localStorage.getItem(`etq-story-beta-ai:${projectId}`) || "{}")); }
+    catch { setAiBetaFindings({}); }
+  }, [projectId]);
+
+  const scanCurrentBeta = (text=currentChapter?.edited || "", settings=betaSettings()) => {
+    const codeIssues = runBetaCheck(text,{settings});
+    const aiIssues = currentChapter ? storedAiBetaIssues(currentChapter.id, text) : [];
+    return aiIssues.length ? [...codeIssues, ...aiIssues].sort((a,b)=>a.start-b.start||a.end-b.end) : codeIssues;
+  };
   const handleOpenBetaCheck = () => {
     if(!currentChapter?.edited?.trim()){toast({title:"Bản Edit đang trống",variant:"destructive"});return;}
     setBetaIssues(scanCurrentBeta());setShowBetaCheck(true);
@@ -1098,14 +1276,43 @@ export default function Workspace() {
       if(!applicable.length)throw new Error("Vị trí Beta đã thay đổi. Hãy quét lại.");
       const next=applicable.reduce((text,item)=>applyBetaSuggestion(text,item,replacement),previous);
       setBetaUndo({chapterId:currentChapter.id,previous});setCurrentChapter({...currentChapter,edited:next});
+      removeAiBetaFindings(currentChapter.id, applicable.filter(item=>item.type==="ai-beta").map(item=>item.id));
       let settings=betaSettings();
       if(remember){const find=items[0]?.value;const rules=[...(settings.rules||[]).filter(rule=>normalizeText(rule.find)!==normalizeText(find)),{find,replace:String(replacement||"")}];settings={...settings,rules};await handleSaveBetaSettings(settings);}
-      setBetaIssues(runBetaCheck(next,{settings}));toast({title:`Đã áp dụng ${applicable.length} vị trí Beta`,description:remember?"Đã ghi nhớ thành quy tắc của truyện.":"Không thay đổi các câu khác."});
+      setBetaIssues(scanCurrentBeta(next,settings));toast({title:`Đã áp dụng ${applicable.length} vị trí Beta`,description:remember?"Đã ghi nhớ thành quy tắc của truyện.":"Không thay đổi các câu khác."});
     }catch(error){toast({title:"Không thể áp dụng Beta",description:error.message,variant:"destructive"});}
+  };
+  const handleApplyAllSafeBeta = () => {
+    if (!currentChapter) return;
+    const previous = currentChapter.edited || "";
+    const safeIssues = betaIssues.filter((item) => item.safe);
+    if (!safeIssues.length) {
+      toast({ title: "Không có lỗi Beta an toàn nào để sửa tự động" });
+      return;
+    }
+    try {
+      const applicable = safeIssues
+        .filter((item) => previous.slice(item.start, item.end) === item.value)
+        .sort((a, b) => b.start - a.start);
+      if (!applicable.length) throw new Error("Vị trí Beta đã thay đổi. Hãy quét lại.");
+      const next = applicable.reduce((text, item) => applyBetaSuggestion(text, item, item.replacement), previous);
+      setBetaUndo({ chapterId: currentChapter.id, previous });
+      setCurrentChapter({ ...currentChapter, edited: next });
+      const remaining = scanCurrentBeta(next, betaSettings());
+      setBetaIssues(remaining);
+      toast({
+        title: `Đã sửa ${applicable.length} lỗi Beta an toàn`,
+        description: remaining.length ? `Còn ${remaining.length} nghi vấn cần xem lại thủ công.` : "Chương không còn nghi vấn Beta nào.",
+      });
+    } catch (error) {
+      toast({ title: "Không thể sửa tự động", description: error.message, variant: "destructive" });
+      setBetaIssues(scanCurrentBeta());
+    }
   };
   const normalizeText=(value)=>String(value||"").trim().toLocaleLowerCase("vi");
   const handleIgnoreBeta = async (group,remember) => {
     setBetaIssues(current=>current.filter(item=>!group.items.some(target=>target.id===item.id)));
+    if(currentChapter) removeAiBetaFindings(currentChapter.id, group.items.filter(item=>item.type==="ai-beta").map(item=>item.id));
     if(!remember)return;
     const settings=betaSettings();const ignored=[...new Set([...(settings.ignored||[]),group.value])];await handleSaveBetaSettings({...settings,ignored});
   };
@@ -1121,6 +1328,7 @@ export default function Workspace() {
       const prompt=`Bạn là beta reader tiếng Việt. Chỉ kiểm tra các câu dưới đây về văn phong Convert/QT, câu tối nghĩa, sai chủ-vị, lặp ý và trình bày. Không đổi tên riêng, xưng hô, tình tiết. Bỏ qua câu đã ổn. Trả DUY NHẤT JSON array, mỗi phần tử: {"id":"B1","issue":"lý do tối đa 12 từ","suggestion":"câu thay thế hoàn chỉnh"}. Không markdown.\n${compact}`;
       const raw=await callLLM(prompt);const parsed=JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g,""));
       const additions=(Array.isArray(parsed)?parsed:[]).flatMap(result=>{const source=candidates.find(item=>item.id===result.id);if(!source||!String(result.suggestion||"").trim()||String(result.suggestion).trim()===source.text.trim())return[];return[{id:`beta-ai-${source.start}-${Date.now()}`,type:"ai-beta",label:"AI nghi ngờ câu văn",value:source.text,replacement:String(result.suggestion).trim(),start:source.start,end:source.end,line:(currentChapter.edited||"").slice(0,source.start).split("\n").length,context:source.context,detail:String(result.issue||"Cần xem lại câu văn."),safe:false,aiCandidate:false}];});
+      persistAiBetaSuggestions(currentChapter.id, additions);
       setBetaIssues(current=>[...current.filter(item=>item.type!=="ai-beta"),...additions].sort((a,b)=>a.start-b.start));toast({title:`AI đề xuất ${additions.length}/${candidates.length} câu`,description:"Chưa có câu nào được tự động sửa."});
     }catch(error){toast({title:"AI Beta không trả kết quả hợp lệ",description:error.message,variant:"destructive"});}
     finally{setBetaAiRunning(false);}
@@ -1133,6 +1341,129 @@ export default function Workspace() {
   };
   const handleStoryBetaReplace = async (group,replacement,settings,selectedIds=[]) => {if(!group?.safe)return;const selected=new Set(selectedIds);const locations=group.locations.filter(loc=>!selected.size||selected.has(loc.id));setStoryBetaRunning(true);try{if(currentChapter)await flushSave(currentChapter,true);const ids=[...new Set(locations.map(loc=>loc.chapterId))];const chapters=await Chapter.getMany(ids);setBatchReplaceUndo({target:"edited",rows:chapters.map(chapterUpsertRow)});const rows=chapters.map(chapter=>{const positions=locations.filter(loc=>loc.chapterId===chapter.id).sort((a,b)=>b.start-a.start);const edited=positions.reduce((text,loc)=>text.slice(loc.start,loc.end)===loc.value?text.slice(0,loc.start)+String(replacement||"")+text.slice(loc.end):text,chapter.edited||"");return chapterUpsertRow({...chapter,edited});});let updated=[];for(let index=0;index<rows.length;index+=200)updated=updated.concat(await Chapter.bulkUpsert(rows.slice(index,index+200)));updated.forEach(ch=>{chapterCacheRef.current.set(ch.id,ch);lastSavedRef.current.set(ch.id,snapshotOf(ch));});const active=updated.find(ch=>ch.id===currentChapter?.id);if(active)setCurrentChapter(active);await handleScanStoryBeta(settings);}catch(error){toast({title:"Không thể sửa Beta toàn truyện",description:error.message,variant:"destructive"});}finally{setStoryBetaRunning(false);}};
   const handleStoryBetaIgnore = async (group,settings,remember) => {if(!remember)return;const next={...settings,ignored:[...new Set([...(settings.ignored||[]),group.value])]};await handleSaveBetaSettings(next);await handleScanStoryBeta(next);};
+
+  // Same "apply every group with a single confident replacement across the
+  // whole story in one DB pass" pattern as handleStoryQaApplyAllSafe, but
+  // for Beta groups: "safe" here is already computed by betaCheck.js
+  // (spacing/punctuation/repeated-word/known-QT-pattern fixes only).
+  const handleStoryBetaApplyAllSafe = async (settings) => {
+    const safeGroups = (storyBetaReport?.groups || []).filter((group) => group.safe);
+    if (!safeGroups.length) {
+      toast({ title: "Không có lỗi Beta an toàn nào để sửa tự động" });
+      return;
+    }
+    setStoryBetaRunning(true);
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      const byChapter = new Map();
+      safeGroups.forEach((group) => {
+        (group.locations || []).forEach((location) => {
+          const list = byChapter.get(location.chapterId) || [];
+          list.push({ start: location.start, end: location.end, value: location.value, replacement: group.replacement });
+          byChapter.set(location.chapterId, list);
+        });
+      });
+      const ids = [...byChapter.keys()];
+      const chapters = await Chapter.getMany(ids);
+      setBatchReplaceUndo({ target: "edited", rows: chapters.map(chapterUpsertRow) });
+      const rows = chapters.map((chapter) => {
+        const positions = (byChapter.get(chapter.id) || []).sort((a, b) => b.start - a.start);
+        const edited = positions.reduce(
+          (text, item) => (text.slice(item.start, item.end) === item.value ? text.slice(0, item.start) + String(item.replacement || "") + text.slice(item.end) : text),
+          chapter.edited || ""
+        );
+        return chapterUpsertRow({ ...chapter, edited });
+      });
+      let updated = [];
+      for (let index = 0; index < rows.length; index += 200) {
+        updated = updated.concat(await Chapter.bulkUpsert(rows.slice(index, index + 200)));
+      }
+      updated.forEach((chapter) => { chapterCacheRef.current.set(chapter.id, chapter); lastSavedRef.current.set(chapter.id, snapshotOf(chapter)); });
+      const active = updated.find((chapter) => chapter.id === currentChapter?.id);
+      if (active) setCurrentChapter(active);
+      const totalOccurrences = safeGroups.reduce((sum, group) => sum + (group.locations?.length || 0), 0);
+      toast({ title: `Đã sửa ${totalOccurrences} vị trí Beta an toàn trong ${updated.length} chương` });
+      await handleScanStoryBeta(settings);
+    } catch (error) {
+      toast({ title: "Không thể sửa Beta toàn truyện", description: error.message, variant: "destructive" });
+    } finally {
+      setStoryBetaRunning(false);
+    }
+  };
+
+  // Runs the exact same "AI xem câu khó" call as handleAiBeta, one chapter
+  // at a time across the whole book, and just persists the results via
+  // persistAiBetaSuggestions instead of showing them immediately — so the
+  // user doesn't have to open every chapter and click the AI button
+  // individually. Skips chapters with no Bản Edit or no code-flagged
+  // candidate sentences (nothing to send the AI).
+  const handleStartBatchBetaAi = async () => {
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return;
+    }
+    if (chapterList.length === 0) return;
+    batchBetaAiStopRef.current = false;
+    setBatchBetaAiErrors([]);
+    setBatchBetaAiFinished(false);
+    const settings = betaSettings();
+    const ordered = [...chapterList].sort((a, b) => a.chapter_order - b.chapter_order);
+    setBatchBetaAiProgress({ done: 0, total: ordered.length, found: 0, skipped: 0, failed: 0, currentTitle: "" });
+    setBatchBetaAiRunning(true);
+
+    for (let i = 0; i < ordered.length; i++) {
+      if (batchBetaAiStopRef.current) break;
+      const meta = ordered[i];
+      setBatchBetaAiProgress((p) => ({ ...p, currentTitle: meta.title }));
+      try {
+        let chapter = chapterCacheRef.current.get(meta.id);
+        if (!chapter) {
+          chapter = await Chapter.get(meta.id);
+          chapterCacheRef.current.set(meta.id, chapter);
+          capCache(chapterCacheRef.current);
+        }
+        const text = chapter.edited || "";
+        const codeIssues = text.trim() ? runBetaCheck(text, { settings }) : [];
+        const candidates = betaCandidatePayload(text, codeIssues, 16);
+        if (!candidates.length) {
+          setBatchBetaAiProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
+        } else {
+          const compact = candidates.map((item) => `${item.id}|${item.context}`).join("\n");
+          const prompt = `Bạn là beta reader tiếng Việt. Chỉ kiểm tra các câu dưới đây về văn phong Convert/QT, câu tối nghĩa, sai chủ-vị, lặp ý và trình bày. Không đổi tên riêng, xưng hô, tình tiết. Bỏ qua câu đã ổn. Trả DUY NHẤT JSON array, mỗi phần tử: {"id":"B1","issue":"lý do tối đa 12 từ","suggestion":"câu thay thế hoàn chỉnh"}. Không markdown.\n${compact}`;
+          const raw = await callLLM(prompt);
+          const parsed = JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g, ""));
+          const additions = (Array.isArray(parsed) ? parsed : []).flatMap((result) => {
+            const source = candidates.find((item) => item.id === result.id);
+            if (!source || !String(result.suggestion || "").trim() || String(result.suggestion).trim() === source.text.trim()) return [];
+            return [{
+              id: `beta-ai-${source.start}-${meta.id}`, type: "ai-beta", label: "AI nghi ngờ câu văn",
+              value: source.text, replacement: String(result.suggestion).trim(), start: source.start, end: source.end,
+              line: text.slice(0, source.start).split("\n").length, context: source.context,
+              detail: String(result.issue || "Cần xem lại câu văn."), safe: false, aiCandidate: false,
+            }];
+          });
+          if (additions.length) {
+            persistAiBetaSuggestions(meta.id, additions);
+            setBatchBetaAiProgress((p) => ({ ...p, done: p.done + 1, found: p.found + 1 }));
+          } else {
+            setBatchBetaAiProgress((p) => ({ ...p, done: p.done + 1 }));
+          }
+        }
+      } catch (e) {
+        setBatchBetaAiErrors((prev) => [...prev, { title: meta.title, message: e.message }]);
+        setBatchBetaAiProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
+      }
+      if (!batchBetaAiStopRef.current && i < ordered.length - 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+    }
+
+    setBatchBetaAiRunning(false);
+    setBatchBetaAiFinished(true);
+    toast({ title: batchBetaAiStopRef.current ? "Đã dừng AI Beta hàng loạt ⏸️" : "Hoàn tất AI Beta hàng loạt! ✨" });
+  };
+  const handleStopBatchBetaAi = () => { batchBetaAiStopRef.current = true; };
 
   useEffect(()=>{try{setStoryBetaReport(JSON.parse(localStorage.getItem(`etq-story-beta:${projectId}`)||"null"));}catch{setStoryBetaReport(null);}},[projectId]);
   useEffect(()=>{if(!storyBetaReport||!currentChapter?.id)return;const issues=scanCurrentBeta();const meta=chapterList.find(ch=>ch.id===currentChapter.id)||currentChapter;const chapters=storyBetaReport.chapters.filter(ch=>ch.id!==currentChapter.id);if(issues.length)chapters.push({id:currentChapter.id,title:meta.title,chapter_order:meta.chapter_order,count:issues.length});chapters.sort((a,b)=>(a.chapter_order||0)-(b.chapter_order||0));const next={...storyBetaReport,chapters,issueCount:chapters.reduce((sum,ch)=>sum+ch.count,0),groupsStale:true};setStoryBetaReport(next);localStorage.setItem(`etq-story-beta:${projectId}`,JSON.stringify(next));// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2560,6 +2891,10 @@ Tên chương đã dịch:`;
   const qaNeedsRecheck = chapterList.filter((chapter) => qaRecords[chapter.id] && qaStatusOf(chapter) === "stale").length;
   const betaCount=chapterList.filter(ch=>betaStatusOf(ch)==="done").length;
   const betaNeedsRecheck=chapterList.filter(ch=>betaRecords[ch.id]&&betaStatusOf(ch)==="stale").length;
+  // Optimistic count — a chapter's stored AI Beta suggestions are re-verified
+  // against its live text (position match) only once that chapter is
+  // actually opened; this badge just reflects what the last batch run found.
+  const aiBetaPendingCount = Object.values(aiBetaFindings).filter((record) => record?.suggestions?.length).length;
   const contiguousThrough = (predicate) => {
     let last = null;
     for (const chapter of chapterList) {
@@ -3116,8 +3451,9 @@ Tên chương đã dịch:`;
         onTranslate={handleTranslateQualityIssue}
         onUndo={handleUndoQualitySuggestion}
         canUndo={qualityUndo?.chapterId === currentChapter?.id}
+        onApplyAllSafe={handleApplyAllSafeQuality}
       />
-      <BetaCheckDialog open={showBetaCheck} onOpenChange={setShowBetaCheck} issues={betaIssues} onApply={handleApplyBeta} onLocate={handleLocateBeta} onIgnore={handleIgnoreBeta} onAiCheck={handleAiBeta} aiRunning={betaAiRunning} onUndo={handleUndoBeta} canUndo={betaUndo?.chapterId===currentChapter?.id}/>
+      <BetaCheckDialog open={showBetaCheck} onOpenChange={setShowBetaCheck} issues={betaIssues} onApply={handleApplyBeta} onLocate={handleLocateBeta} onIgnore={handleIgnoreBeta} onAiCheck={handleAiBeta} aiRunning={betaAiRunning} onUndo={handleUndoBeta} canUndo={betaUndo?.chapterId===currentChapter?.id} onApplyAllSafe={handleApplyAllSafeBeta}/>
       <AISettingsDialog open={showAISettings} onOpenChange={setShowAISettings} />
       <ChapterManagerDialog
         open={showChapterManager}
@@ -3160,8 +3496,10 @@ Tên chương đã dịch:`;
         canUndoBulkReplace={Boolean(batchReplaceUndo?.rows?.length)}
         qaWorkflow={{ pending:chapterList.filter(ch=>editedChapterIds.has(ch.id)&&qaStatusOf(ch)!=="done"), stale:chapterList.filter(ch=>qaStatusOf(ch)==="stale") }}
         onOpenChapter={(id) => { switchChapter(id); setShowStoryQa(false); }}
+        onApplyAllSafe={handleStoryQaApplyAllSafe}
+        onTranslate={handleTranslateStoryQaGroup}
       />
-      <StoryBetaDialog open={showStoryBeta} onOpenChange={setShowStoryBeta} settings={betaSettings()} report={storyBetaReport} running={storyBetaRunning} onSaveSettings={handleSaveBetaSettings} onScan={handleScanStoryBeta} onBulkReplace={handleStoryBetaReplace} onIgnore={handleStoryBetaIgnore} pending={chapterList.filter(ch=>editedChapterIds.has(ch.id)&&betaStatusOf(ch)!=="done")} onOpenChapter={(id)=>{switchChapter(id);setShowStoryBeta(false);}}/>
+      <StoryBetaDialog open={showStoryBeta} onOpenChange={setShowStoryBeta} settings={betaSettings()} report={storyBetaReport} running={storyBetaRunning} onSaveSettings={handleSaveBetaSettings} onScan={handleScanStoryBeta} onBulkReplace={handleStoryBetaReplace} onIgnore={handleStoryBetaIgnore} pending={chapterList.filter(ch=>editedChapterIds.has(ch.id)&&betaStatusOf(ch)!=="done")} onOpenChapter={(id)=>{switchChapter(id);setShowStoryBeta(false);}} onApplyAllSafe={handleStoryBetaApplyAllSafe} onStartAiBatch={()=>setShowBatchBetaAi(true)} aiBatchPendingCount={aiBetaPendingCount}/>
       <BulkColumnMoveDialog
         open={showColumnMove}
         onOpenChange={setShowColumnMove}
@@ -3196,6 +3534,17 @@ Tên chương đã dịch:`;
         errors={batchErrors}
         onStart={handleStartBatchEdit}
         onStop={handleStopBatchEdit}
+      />
+      <BatchBetaAiDialog
+        open={showBatchBetaAi}
+        onOpenChange={setShowBatchBetaAi}
+        totalChapters={chapterList.length}
+        running={batchBetaAiRunning}
+        finished={batchBetaAiFinished}
+        progress={batchBetaAiProgress}
+        errors={batchBetaAiErrors}
+        onStart={handleStartBatchBetaAi}
+        onStop={handleStopBatchBetaAi}
       />
       <BatchTitleEditDialog
         open={showBatchTitleEdit}

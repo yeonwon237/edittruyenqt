@@ -124,25 +124,44 @@ function quoteAt(text, position) {
   return null;
 }
 
-function matrixSuggestionAt(text, start, end, rules) {
-  const quote = quoteAt(text, start);
-  const validRules = (rules || []).filter((rule) =>
-    rule?.speaker?.trim() && rule?.self_word?.trim() && rule?.target_word?.trim()
-  );
-  const allSuggestions = [...new Set(validRules.flatMap((rule) => [rule.self_word.trim(), rule.target_word.trim()]))];
-  if (!quote || !validRules.length) return { suggestions: allSuggestions, detail: "Không xác định được câu thoại hoặc người nói; hãy chọn thủ công." };
+const hasSpeakerSelfTarget = (rule) =>
+  Boolean(rule?.speaker?.trim() && rule?.self_word?.trim() && rule?.target_word?.trim());
 
-  const nearbyStart = Math.max(0, quote.start - 120);
-  const nearbyEnd = Math.min(text.length, quote.end + 120);
+// Shared by matrixSuggestionAt (a single already-located glossary match) and
+// scanContextualAddress (every address-term occurrence in every quote): who
+// is speaking near this quote, and — if the listener can also be pinned
+// down from nearby text — which specific (speaker, listener) rule applies.
+function resolveSpeakerAndRule(text, quoteStart, quoteEnd, validRules) {
+  if (!validRules.length) return null;
+  const nearbyStart = Math.max(0, quoteStart - 120);
+  const nearbyEnd = Math.min(text.length, quoteEnd + 120);
   const nearby = text.slice(nearbyStart, nearbyEnd);
+  const quoteRelStart = quoteStart - nearbyStart;
+  const quoteRelEnd = quoteEnd - nearbyStart;
   const speakers = [...new Set(validRules.map((rule) => rule.speaker.trim()))];
-  const speaker = speakers.find((name) => {
+
+  // A multi-speaker paragraph ("Nam nói: ... Linh đáp: ...") can put more
+  // than one candidate's attribution inside the same ±120-char window, so
+  // picking the first speaker that merely *appears* anywhere nearby would
+  // misattribute the second quote back to the first speaker. Instead score
+  // every attribution match by how close it sits to THIS quote and take the
+  // closest one, across all speakers.
+  let best = null;
+  speakers.forEach((name) => {
     const escaped = escapeRegex(name);
-    const beforePattern = new RegExp(`${escaped}[^“”"]{0,70}(?:${SPEECH_VERBS})[^“”"]{0,25}[“"]`, "iu");
-    const afterPattern = new RegExp(`[”"][^“”"]{0,35}${escaped}[^“”"]{0,35}(?:${SPEECH_VERBS})`, "iu");
-    return beforePattern.test(nearby) || afterPattern.test(nearby);
+    const beforePattern = new RegExp(`${escaped}[^“”"]{0,70}(?:${SPEECH_VERBS})[^“”"]{0,25}[“"]`, "giu");
+    const afterPattern = new RegExp(`[”"][^“”"]{0,35}${escaped}[^“”"]{0,35}(?:${SPEECH_VERBS})`, "giu");
+    for (const match of nearby.matchAll(beforePattern)) {
+      const distance = Math.abs(quoteRelStart - (match.index + match[0].length));
+      if (!best || distance < best.distance) best = { speaker: name, distance };
+    }
+    for (const match of nearby.matchAll(afterPattern)) {
+      const distance = Math.abs(match.index - quoteRelEnd);
+      if (!best || distance < best.distance) best = { speaker: name, distance };
+    }
   });
-  if (!speaker) return { suggestions: allSuggestions, detail: "Chưa nhận ra người nói trong câu này; hãy chọn thủ công." };
+  if (!best) return null;
+  const speaker = best.speaker;
 
   const speakerRules = validRules.filter((rule) => rule.speaker.trim() === speaker);
   const specificRule = speakerRules.find((rule) => {
@@ -151,17 +170,71 @@ function matrixSuggestionAt(text, start, end, rules) {
   });
   const defaultRule = speakerRules.find((rule) => !rule.listener?.trim() || rule.listener.trim() === "*");
   const rule = specificRule || defaultRule || (speakerRules.length === 1 ? speakerRules[0] : null);
+  return { speaker, speakerRules, rule };
+}
+
+// Is the word at [relativeStart, relativeEnd) inside `quoteText` the speaker
+// referring to themself ("self"), addressing the listener ("target"), or
+// unclear ("unknown" — e.g. third-person narration bleeding into the quote)?
+// selfWordHint is the resolved rule's self_word, when known — it sharpens
+// the "already said their self-word earlier, so this later word must be the
+// target" signal; without it (listener unresolved) that one signal is lost
+// but the position-based signals still work.
+// "X là ai?" / "X là gì?" / "X làm gì?" / "X muốn gì?" — a pronoun opening a
+// direct question ABOUT the listener ("Ngươi là ai?" = "Who are you?"). This
+// has to be excluded from the generic "opens the quote → self" default,
+// since it's grammatically identical (pronoun as the leading subject) to a
+// genuine self-statement like "Ta sẽ đi." but means the opposite role.
+const LISTENER_QUESTION_AFTER = /^\s*(là\s+(ai|gì|sao|người nào|ai vậy|ai thế)|làm\s+gì|muốn\s+gì|có\s+(biết|phải)\b)/iu;
+// Does the clause that starts right at `after` end in "?" — i.e. is *this*
+// sentence a question, not just "does the quote end in ?" (a multi-sentence
+// quote's later clause can easily be declarative even if an earlier or
+// later clause happens to be a question).
+const clauseEndPunctuation = (after) => {
+  const match = /[.?!…]/u.exec(after);
+  return match ? match[0] : after.trim().slice(-1);
+};
+const looksLikeQuestionAboutListener = (after) =>
+  clauseEndPunctuation(after) === "?" && LISTENER_QUESTION_AFTER.test(after);
+
+function resolveAddressRole(quoteText, relativeStart, relativeEnd, selfWordHint) {
+  const before = quoteText.slice(0, relativeStart);
+  const after = quoteText.slice(relativeEnd);
+  // A quote is often several sentences ("Ta yêu nàng, nàng biết không? Huynh
+  // sẽ luôn ở bên nàng."). Self/target cues from an EARLIER clause (e.g. a
+  // self_word said before an internal "?") shouldn't leak into a later,
+  // independent clause — so the positional signals below only look back to
+  // the start of the CURRENT clause, not the whole quote so far.
+  const lastBreak = Math.max(before.lastIndexOf("."), before.lastIndexOf("?"), before.lastIndexOf("!"), before.lastIndexOf("…"));
+  const clauseBefore = lastBreak === -1 ? before : before.slice(lastBreak + 1);
+  const atClauseStart = !clauseBefore.trim();
+  const selfWordBefore = selfWordHint
+    ? new RegExp(`(?:^|[^\\p{L}])${escapeRegex(selfWordHint)}(?=$|[^\\p{L}])`, "iu").test(clauseBefore)
+    : false;
+  const targetCue = /(?:với|cho|gọi|hỏi|bảo|nhờ|giúp|cứu|đợi|chờ|tìm|theo|của|đến|về|nhìn|thấy|yêu|ghét)\s*$/iu.test(clauseBefore);
+  const listenerQuestion = atClauseStart && looksLikeQuestionAboutListener(after);
+  const startsStatement = atClauseStart && !/^\s*[,!:?]/u.test(after) && !listenerQuestion;
+  const vocative = (atClauseStart && /^\s*[,!:?]/u.test(after)) || targetCue || listenerQuestion;
+  if (startsStatement && !vocative) return "self";
+  if (vocative || selfWordBefore) return "target";
+  return "unknown";
+}
+
+function matrixSuggestionAt(text, start, end, rules) {
+  const quote = quoteAt(text, start);
+  const validRules = (rules || []).filter(hasSpeakerSelfTarget);
+  const allSuggestions = [...new Set(validRules.flatMap((rule) => [rule.self_word.trim(), rule.target_word.trim()]))];
+  if (!quote || !validRules.length) return { suggestions: allSuggestions, detail: "Không xác định được câu thoại hoặc người nói; hãy chọn thủ công." };
+
+  const resolved = resolveSpeakerAndRule(text, quote.start, quote.end, validRules);
+  if (!resolved) return { suggestions: allSuggestions, detail: "Chưa nhận ra người nói trong câu này; hãy chọn thủ công." };
+
+  const { speaker, speakerRules, rule } = resolved;
   const speakerSuggestions = [...new Set(speakerRules.flatMap((item) => [item.self_word.trim(), item.target_word.trim()]))];
   if (!rule) return { suggestions: speakerSuggestions, detail: `Đã nhận ra ${speaker} nhưng chưa xác định được người nghe.` };
 
   const relativeStart = start - quote.start;
-  const before = quote.text.slice(0, relativeStart);
-  const after = quote.text.slice(relativeStart + (end - start));
-  const selfWordBefore = new RegExp(`(?:^|[^\\p{L}])${escapeRegex(rule.self_word.trim())}(?=$|[^\\p{L}])`, "iu").test(before);
-  const targetCue = /(?:với|cho|gọi|hỏi|bảo|nhờ|giúp|cứu|đợi|chờ|tìm|theo|của|đến|về|nhìn|thấy|yêu|ghét)\s*$/iu.test(before);
-  const startsStatement = !before.trim() && !/^\s*[,!:?]/u.test(after);
-  const vocative = (!before.trim() && /^\s*[,!:?]/u.test(after)) || targetCue;
-  const role = startsStatement && !vocative ? "self" : (vocative || selfWordBefore ? "target" : "unknown");
+  const role = resolveAddressRole(quote.text, relativeStart, relativeStart + (end - start), rule.self_word.trim());
   const listenerLabel = rule.listener?.trim() && rule.listener.trim() !== "*" ? rule.listener.trim() : "mọi người";
   if (role === "self") {
     return { replacement: rule.self_word.trim(), suggestions: speakerSuggestions, detail: `${speaker} đang tự xưng khi nói với ${listenerLabel}.` };
@@ -316,40 +389,109 @@ function scanNames(text, terms) {
   return [...directIssues, ...fuzzyIssues];
 }
 
-function scanPronouns(text, rules) {
-  const validRules = (rules || []).filter((rule) => rule.speaker?.trim() && rule.self_word?.trim());
+// Common Vietnamese address terms — used both as a fallback vocabulary (a
+// word never configured in any rule still gets checked if it's plausibly an
+// address term) and, via ANCIENT_SUSPICIOUS_WORDS below, era-checking. These
+// are exactly the words that are ambiguous between self-reference and
+// addressing-the-listener depending on sentence position (anh/em/chị most of
+// all), which is why a flat find/replace can't fix them — role has to be
+// resolved per occurrence.
+const TARGET_ADDRESS_TERMS = new Set([
+  "ngươi", "ngài", "nàng", "chàng", "muội", "huynh", "tỷ", "đệ",
+  "ca", "ca ca", "tỷ tỷ", "muội muội", "đệ đệ", "khanh", "ái khanh",
+  "thiếp", "nô tỳ", "nô gia", "hạ quan", "công tử", "cô nương",
+  "tiểu thư", "thiếu gia", "anh", "em", "chị", "cậu", "tớ",
+]);
+
+// Replaces the old scanPronouns (self-word-only, one match per line). Walks
+// every quoted line of dialogue in the whole text, resolves speaker+listener
+// via resolveSpeakerAndRule (the same ±120-char nearby-text search already
+// proven out for matrixSuggestionAt, not just same-line), and — the actual
+// gap this closes — checks BOTH self_word and target_word against whichever
+// address term actually appears, so a Huynh/Muội-style mixup or an
+// era-wrong "em"/"chị" used as either subject or object gets one concrete
+// correct suggestion instead of a generic "review this" warning.
+function scanContextualAddress(text, rules) {
+  const validRules = (rules || []).filter(hasSpeakerSelfTarget);
+  if (!validRules.length) return { issues: [], confirmedSpans: new Set() };
+
   const issues = [];
-  const speakers = [...new Set(validRules.map((rule) => rule.speaker.trim()))];
-  let offset = 0;
-  text.split("\n").forEach((line) => {
-    speakers.forEach((speaker) => {
-      const attribution = new RegExp(`${escapeRegex(speaker)}[^“”\"]{0,70}(?:${SPEECH_VERBS})[^“”\"]{0,20}[“\"]([^”\"]+)[”\"]`, "iu");
-      const matched = line.match(attribution);
-      if (!matched) return;
-      const quote = matched[1];
-      const quoteStart = offset + matched.index + matched[0].indexOf(quote);
-      const speakerRules = validRules.filter((item) => item.speaker.trim() === speaker);
-      const allowedSelfWords = [...new Set(speakerRules.map((item) => item.self_word.trim()))];
-      const allowedSelf = new Set(allowedSelfWords.map(normalize));
-      const uniqueSuggestion = allowedSelfWords.length === 1 ? allowedSelfWords[0] : "";
-      SELF_PRONOUNS.forEach((pronoun) => {
-        const regex = new RegExp(`(^|[^\\p{L}])(${escapeRegex(pronoun)})(?=$|[^\\p{L}])`, "giu");
-        for (const pronounMatch of quote.matchAll(regex)) {
-          const found = pronounMatch[2];
-          if (allowedSelf.has(normalize(found))) continue;
-          const start = quoteStart + pronounMatch.index + pronounMatch[1].length;
+  const seen = new Set();
+  // Spans this scanner actually checked and found already correct — passed
+  // to scanConfiguredWords so it doesn't separately nag about a modern-word
+  // era mismatch on a word the matrix just confirmed is the right one here.
+  const confirmedSpans = new Set();
+  const quoteRegex = /[“"]([^”"]+)[”"]/gu;
+  for (const quoteMatch of text.matchAll(quoteRegex)) {
+    const quoteText = quoteMatch[1];
+    if (!quoteText.trim()) continue;
+    const quoteStart = quoteMatch.index + 1;
+    const quoteEnd = quoteStart + quoteText.length;
+    const resolved = resolveSpeakerAndRule(text, quoteStart, quoteEnd, validRules);
+    if (!resolved) continue;
+    const { speaker, speakerRules, rule } = resolved;
+    const speakerWords = [...new Set(speakerRules.flatMap((item) => [item.self_word.trim(), item.target_word.trim()]).filter(Boolean))];
+    const candidateWords = [...new Set([...speakerWords, ...SELF_PRONOUNS, ...TARGET_ADDRESS_TERMS])];
+
+    candidateWords.forEach((word) => {
+      const regex = new RegExp(`(?:^|[^\\p{L}])(${escapeRegex(word)})(?=$|[^\\p{L}])`, "giu");
+      for (const wordMatch of quoteText.matchAll(regex)) {
+        const found = wordMatch[1];
+        const relativeStart = wordMatch.index + wordMatch[0].indexOf(found);
+        const relativeEnd = relativeStart + found.length;
+        const start = quoteStart + relativeStart;
+        const end = quoteStart + relativeEnd;
+        const dedupeKey = `${start}:${end}`;
+        if (seen.has(dedupeKey)) continue;
+
+        // If the found word already IS one of this rule's two configured
+        // words (self_word or target_word), trust it outright and skip
+        // straight to "confirmed" — no need to guess self-vs-target from
+        // sentence position at all. This matters: position alone can't
+        // reliably tell "Nàng thật xinh đẹp." (correctly addressing her)
+        // apart from "Ta thật xin lỗi." (self-statement) — both are just a
+        // leading pronoun + adjective. Guessing is only needed below, for a
+        // word that matches NEITHER configured slot (a genuine mix-up).
+        if (rule) {
+          const normFound = normalize(found);
+          if (normFound === normalize(rule.self_word) || normFound === normalize(rule.target_word)) {
+            confirmedSpans.add(dedupeKey);
+            continue;
+          }
+        }
+
+        const role = resolveAddressRole(quoteText, relativeStart, relativeEnd, rule?.self_word?.trim());
+        if (role === "unknown") continue;
+
+        if (!rule) {
+          // Listener unresolved — too ambiguous to name a single correct
+          // word, but still worth flagging since a real error is likely.
+          seen.add(dedupeKey);
           issues.push(makeIssue(text, {
             type: "pronoun", severity: "review", label: "Xưng hô cần xem lại",
-            value: found, replacement: uniqueSuggestion,
-            detail: `${speaker} được cấu hình tự xưng: ${allowedSelfWords.join(" / ")}. Chỉ là cảnh báo theo câu có ghi rõ người nói.`,
-            start, end: start + found.length
+            value: found, replacement: "", suggestions: speakerWords,
+            detail: `Đã nhận ra ${speaker} đang nói, nhưng chưa xác định được người nghe nên chưa chắc từ nào đúng ở đây.`,
+            start, end,
           }));
+          continue;
         }
-      });
+
+        const expected = (role === "self" ? rule.self_word : rule.target_word)?.trim();
+        if (!expected) continue;
+        seen.add(dedupeKey);
+        const listenerLabel = rule.listener?.trim() && rule.listener.trim() !== "*" ? rule.listener.trim() : "mọi người";
+        issues.push(makeIssue(text, {
+          type: "pronoun", severity: "review", label: "Xưng hô cần xem lại",
+          value: found, replacement: expected, suggestions: [...new Set([expected, ...speakerWords])],
+          detail: role === "self"
+            ? `${speaker} nên tự xưng là "${expected}" khi nói với ${listenerLabel} (đang thấy "${found}").`
+            : `${speaker} nên gọi ${listenerLabel} là "${expected}" (đang thấy "${found}").`,
+          start, end,
+        }));
+      }
     });
-    offset += line.length + 1;
-  });
-  return issues;
+  }
+  return { issues, confirmedSpans };
 }
 
 const ANCIENT_SUSPICIOUS_WORDS = [
@@ -357,7 +499,7 @@ const ANCIENT_SUSPICIOUS_WORDS = [
   "chồng yêu", "vợ yêu", "ok", "okay", "online", "deadline"
 ];
 
-function scanConfiguredWords(text, qaSettings) {
+function scanConfiguredWords(text, qaSettings, confirmedSpans) {
   const ancient = qaSettings?.era === "ancient" ? ANCIENT_SUSPICIOUS_WORDS.map((find) => ({ find, source:"Bối cảnh cổ đại" })) : [];
   const custom = (qaSettings?.forbiddenWords || []).map((item) => typeof item === "string" ? { find:item, source:"Từ cấm QA" } : { ...item, source:"Từ cấm QA" });
   const allowed = new Set((qaSettings?.allowedWords || []).map((item) => normalize(item)));
@@ -367,10 +509,15 @@ function scanConfiguredWords(text, qaSettings) {
     if (allowed.has(normalize(find))) return;
     const regex = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(find)}(?![\\p{L}\\p{N}])`, "giu");
     for (const match of text.matchAll(regex)) {
+      const start = match.index, end = start + match[0].length;
+      // The contextual scanner already confirmed this exact word here is
+      // the correct self/target term per the Ma Trận Xưng Hô — don't nag
+      // about it just for being an era-suspicious word in the abstract.
+      if (confirmedSpans?.has(`${start}:${end}`)) continue;
       issues.push(makeIssue(text, {
         type:"style", severity:"review", label: rule.source === "Bối cảnh cổ đại" ? "Xưng hô/từ hiện đại cần xem lại" : "Từ cấm cần xem lại",
         value:match[0], replacement:String(rule.replace || ""), suggestions:rule.replace ? [String(rule.replace)] : [],
-        detail:`${rule.source}: chỉ cảnh báo để duyệt theo ngữ cảnh, không tự sửa.`, start:match.index, end:match.index + match[0].length
+        detail:`${rule.source}: chỉ cảnh báo để duyệt theo ngữ cảnh, không tự sửa.`, start, end
       }));
     }
   });
@@ -379,13 +526,14 @@ function scanConfiguredWords(text, qaSettings) {
 
 export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], qaSettings = {} } = {}) {
   const source = String(text || "");
+  const { issues: addressIssues, confirmedSpans } = scanContextualAddress(source, pronounRules);
   const issues = [
     ...scanGlossaryRules(source, glossaryTerms, pronounRules),
     ...scanCjk(source, glossaryTerms),
     ...scanEnglish(source, glossaryTerms),
     ...scanNames(source, glossaryTerms),
-    ...scanPronouns(source, pronounRules),
-    ...scanConfiguredWords(source, qaSettings)
+    ...addressIssues,
+    ...scanConfiguredWords(source, qaSettings, confirmedSpans)
   ];
   const occupied = new Set();
   return issues.filter((issue) => {

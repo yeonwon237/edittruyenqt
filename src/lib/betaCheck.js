@@ -64,6 +64,37 @@ function scanPunctuation(text) {
   return issues;
 }
 
+// A short list of "classifier" nouns (dáng vẻ/thần sắc/ngữ khí/...) that
+// natural Vietnamese almost always places AFTER the adjective describing
+// them ("bộ dạng hung dữ", not "hung dữ bộ dạng"). QT/machine conversion
+// frequently leaves the Chinese order (adjective-的-noun) untouched, which
+// reads as exactly backwards. This only fires per-sentence as an AI
+// candidate — never a "safe" auto-fix — because the same shape can also be
+// a perfectly normal verb+object ("nhìn bộ dạng...", "của hắn"), so
+// QT_ORDER_STOPWORDS below exists specifically to bail out of those.
+const QT_ORDER_CLASSIFIER_NOUNS = [
+  "bộ dạng", "dáng vẻ", "dáng bộ", "thần sắc", "thần tình", "thần thái",
+  "ngữ khí", "giọng điệu", "ánh mắt", "vẻ mặt", "mô dạng", "khẩu khí",
+  "biểu tình", "tư thế", "thái độ",
+];
+const QT_ORDER_STOPWORDS = new Set([
+  "nhìn", "thấy", "xem", "ngắm", "liếc", "quan sát", "để ý", "chú ý",
+  "phát hiện", "nhận ra", "của", "là", "có", "một", "này", "đó", "kia",
+  "cái", "con", "người", "và", "với", "cứ", "đang", "đã", "sẽ", "rất",
+  "khá", "hơi", "quá", "tỏ", "tỏ ra", "lộ", "lộ ra", "giữ", "mang", "toát",
+]);
+const QT_ORDER_REGEX = new RegExp(
+  `(?<![\\p{L}])([\\p{L}]{2,}(?:\\s+[\\p{L}]{2,}){0,1})\\s+(${QT_ORDER_CLASSIFIER_NOUNS.map(escapeRegex).join("|")})(?![\\p{L}])`,
+  "giu"
+);
+function hasQtWordOrder(sentence) {
+  for (const match of sentence.matchAll(QT_ORDER_REGEX)) {
+    const lead = match[1].split(/\s+/).pop().toLocaleLowerCase("vi");
+    if (!QT_ORDER_STOPWORDS.has(lead)) return true;
+  }
+  return false;
+}
+
 function scanStructure(text, settings) {
   const issues=[];
   const longLimit=Math.max(100,Number(settings?.longSentence)||180);
@@ -71,6 +102,7 @@ function scanStructure(text, settings) {
     if(sentence.value.length>longLimit)issues.push(issue(text,{type:"long-sentence",label:"Câu quá dài, khó theo dõi",value:sentence.value,replacement:"",start:sentence.start,end:sentence.end,safe:false,aiCandidate:true,detail:`Câu dài ${sentence.value.length} ký tự; nên xem lại nhịp và chủ ngữ.`}));
     const commas=(sentence.value.match(/,/g)||[]).length;
     if(commas>=5&&sentence.value.length>90)issues.push(issue(text,{type:"heavy-sentence",label:"Câu nhiều vế",value:sentence.value,replacement:"",start:sentence.start,end:sentence.end,safe:false,aiCandidate:true,detail:`Câu có ${commas} dấu phẩy; có thể mang cấu trúc Convert hoặc thiếu điểm ngắt.`}));
+    if(hasQtWordOrder(sentence.value))issues.push(issue(text,{type:"qt-order",label:"Câu nghi cấu trúc dịch QT (thứ tự từ)",value:sentence.value,replacement:"",start:sentence.start,end:sentence.end,safe:false,aiCandidate:true,detail:`Tính từ đứng ngay trước danh từ như "bộ dạng/dáng vẻ/thần sắc"... thường là dấu hiệu dịch máy; câu tự nhiên hay đảo thứ tự (VD: "bộ dạng hung dữ" thay vì "hung dữ bộ dạng").`}));
   });
   let offset=0;
   text.split("\n").forEach(line=>{
