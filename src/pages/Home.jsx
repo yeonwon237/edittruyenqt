@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import {
   BookOpen, Settings as SettingsIcon, LogOut, Volume2, Clapperboard,
-  Captions, ArrowUpRight, Sparkles, Bot, Layers3, ShieldCheck, Zap, Palette,
+  Captions, ArrowUpRight, Sparkles, Bot, Layers3, ShieldCheck, Zap, Palette, Gamepad2,
 } from "lucide-react";
 import AISettingsDialog from "@/components/workspace/AISettingsDialog";
 
@@ -13,6 +13,7 @@ const FEATURES = [
   { id: "video", icon: Clapperboard, title: "Dựng video", eyebrow: "Sản xuất nội dung", desc: "Ghép audio, hình ảnh và hiệu ứng thành video truyện sẵn sàng để xuất bản.", to: "/create-video", color: "amber", number: "03" },
   { id: "subtitle", icon: Captions, title: "Tạo phụ đề", eyebrow: "Căn chỉnh thời gian", desc: "Tách câu, điều chỉnh timeline và xuất tệp phụ đề SRT hoặc VTT chuyên nghiệp.", to: "/create-subtitle", color: "sky", number: "04" },
   { id: "cover", icon: Palette, title: "Làm bìa truyện", eyebrow: "Studio thiết kế", desc: "Tạo bìa truyện chuyên nghiệp từ ảnh của bạn với chữ nghệ thuật, bố cục linh hoạt và xuất ảnh chất lượng cao.", to: "/cover-designer", color: "rose", number: "05" },
+  { id: "roleplay", icon: Gamepad2, title: "Roleplay Studio", eyebrow: "Xuyên sách", desc: "Biến những chương truyện đã edit thành mini-game có Hệ Thống, nhiệm vụ, lựa chọn và nhiều kết cục.", to: "/roleplay", color: "fuchsia", number: "06" },
 ];
 
 const TONES = {
@@ -21,6 +22,7 @@ const TONES = {
   amber: { icon: "bg-amber-500 text-white", glow: "from-amber-100/80", text: "text-amber-600" },
   sky: { icon: "bg-sky-600 text-white", glow: "from-sky-100/80", text: "text-sky-600" },
   rose: { icon: "bg-rose-600 text-white", glow: "from-rose-100/80", text: "text-rose-600" },
+  fuchsia: { icon: "bg-fuchsia-600 text-white", glow: "from-fuchsia-100/80", text: "text-fuchsia-600" },
 };
 
 export default function Home() {
@@ -38,7 +40,7 @@ export default function Home() {
             <img src="/brand-mark.svg" alt="" className="h-11 w-11 shrink-0 rounded-2xl shadow-[0_10px_24px_-10px_rgb(var(--violet-600))]" />
             <span className="min-w-0">
               <span className="block truncate text-sm font-bold tracking-tight text-slate-900 sm:text-base">Trợ Lý Sáng Tạo Truyện</span>
-              <span className="hidden text-[11px] font-medium text-slate-400 sm:block">Biên tập · Audio · Video · Phụ đề</span>
+              <span className="hidden text-[11px] font-medium text-slate-400 sm:block">Biên tập · Audio · Video · Phụ đề · Roleplay</span>
             </span>
           </button>
           <nav className="flex items-center gap-1.5" aria-label="Tài khoản và cài đặt">
@@ -65,7 +67,7 @@ export default function Home() {
           </div>
           <div className="dashboard-hero__orb" />
           <div className="relative z-10 mt-10 grid gap-3 border-t border-white/10 pt-6 sm:grid-cols-3">
-            <div className="hero-stat"><Layers3 /><span><strong>4 công cụ</strong><small>Một quy trình thống nhất</small></span></div>
+            <div className="hero-stat"><Layers3 /><span><strong>6 công cụ</strong><small>Một quy trình thống nhất</small></span></div>
             <div className="hero-stat"><ShieldCheck /><span><strong>Riêng tư</strong><small>Dữ liệu trong tài khoản</small></span></div>
             <div className="hero-stat"><Sparkles /><span><strong>AI linh hoạt</strong><small>Gemini · GPT · Claude</small></span></div>
           </div>

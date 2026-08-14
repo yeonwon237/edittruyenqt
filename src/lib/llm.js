@@ -118,17 +118,18 @@ export function resetModel(provider) {
 // payload plus its MIME type (e.g. "image/png"). Only Gemini/OpenAI/Claude
 // (this custom-key path) support image input; the Base44 managed AI path
 // (InvokeLLM) is text-only.
-export async function callLLM(prompt, image) {
+export async function callLLM(prompt, image, options = {}) {
   const provider = getProvider();
   const key = getApiKey(provider).trim();
   if (!key) {
     throw new Error("Chưa cấu hình API Key. Vào Cài đặt (⚙️) để nhập key.");
   }
   const model = getModel(provider);
-  if (provider === "gemini") return callGeminiRaw(key, prompt, image, model);
-  if (provider === "openai") return callOpenAI(key, prompt, image, model);
-  if (provider === "claude") return callClaude(key, prompt, image, model);
-  if (provider === "stali") return callOpenAICompatible(key, prompt, image, model, getEndpoint("stali"), "STALI");
+  const maxTokens = options.maxTokens || 8192;
+  if (provider === "gemini") return callGeminiRaw(key, prompt, image, model, maxTokens);
+  if (provider === "openai") return callOpenAI(key, prompt, image, model, maxTokens);
+  if (provider === "claude") return callClaude(key, prompt, image, model, maxTokens);
+  if (provider === "stali") return callOpenAICompatible(key, prompt, image, model, getEndpoint("stali"), "STALI", maxTokens);
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
@@ -142,7 +143,7 @@ export async function testLLMKey(provider, key, model) {
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
-async function callGeminiRaw(apiKey, prompt, image, model) {
+async function callGeminiRaw(apiKey, prompt, image, model, maxTokens = 8192) {
   const parts = [{ text: prompt }];
   if (image) parts.push({ inline_data: { mime_type: image.mimeType, data: image.base64 } });
   const res = await fetch(`${geminiEndpoint(model)}?key=${encodeURIComponent(apiKey)}`, {
@@ -150,7 +151,7 @@ async function callGeminiRaw(apiKey, prompt, image, model) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts }],
-      generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+      generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
     }),
   });
   if (!res.ok) {
@@ -164,11 +165,12 @@ async function callGeminiRaw(apiKey, prompt, image, model) {
   const data = await res.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text || !text.trim()) throw new Error("Gemini không trả kết quả");
+  if (data?.candidates?.[0]?.finishReason === "MAX_TOKENS") throw new Error("Gemini bị cắt giữa chừng vì vượt giới hạn độ dài phản hồi. Hãy thử lại hoặc chọn ít chương hơn.");
   recordGeminiCall(model);
   return text.trim();
 }
 
-async function callOpenAI(apiKey, prompt, image, model) {
+async function callOpenAI(apiKey, prompt, image, model, maxTokens = 8192) {
   const content = image
     ? [
         { type: "text", text: prompt },
@@ -182,7 +184,7 @@ async function callOpenAI(apiKey, prompt, image, model) {
       model,
       messages: [{ role: "user", content }],
       temperature: 0.7,
-      max_tokens: 8192,
+      max_tokens: maxTokens,
     }),
   });
   if (!res.ok) {
@@ -196,12 +198,13 @@ async function callOpenAI(apiKey, prompt, image, model) {
   const data = await res.json();
   const text = data?.choices?.[0]?.message?.content;
   if (!text || !text.trim()) throw new Error("OpenAI không trả kết quả");
+  if (data?.choices?.[0]?.finish_reason === "length") throw new Error("OpenAI bị cắt giữa chừng vì vượt giới hạn độ dài phản hồi. Hãy thử lại hoặc chọn ít chương hơn.");
   return text.trim();
 }
 
-async function callOpenAICompatible(apiKey,prompt,image,model,endpoint,label) {
+async function callOpenAICompatible(apiKey,prompt,image,model,endpoint,label,maxTokens=8192) {
   const content=image?[{type:"text",text:prompt},{type:"image_url",image_url:{url:`data:${image.mimeType};base64,${image.base64}`}}]:prompt;
-  const payload={model,messages:[{role:"user",content}],temperature:0.3,max_tokens:8192};
+  const payload={model,messages:[{role:"user",content}],temperature:0.3,max_tokens:maxTokens};
   const useProxy=label==="STALI";
   const localStali=useProxy&&import.meta.env.DEV;
   const target=localStali?"/stali-api/v1/chat/completions":useProxy?"/api/stali-chat":endpoint;
@@ -214,10 +217,11 @@ async function callOpenAICompatible(apiKey,prompt,image,model,endpoint,label) {
   if(!res.ok){let msg=`${label} HTTP ${res.status}`;try{const e=await res.json();const detail=e?.error?.message||e?.message;const type=e?.error?.type;if(detail)msg=`${label}: ${detail}${type?` (${type})`:""}`;}catch{}throw new Error(msg);}
   const data=await res.json();const text=data?.choices?.[0]?.message?.content;
   if(!text||!String(text).trim())throw new Error(`${label} không trả kết quả`);
+  if(data?.choices?.[0]?.finish_reason==="length")throw new Error(`${label} bị cắt giữa chừng vì vượt giới hạn độ dài phản hồi. Hãy thử lại hoặc chọn ít chương hơn.`);
   return String(text).trim();
 }
 
-async function callClaude(apiKey, prompt, image, model) {
+async function callClaude(apiKey, prompt, image, model, maxTokens = 8192) {
   const content = image
     ? [
         { type: "image", source: { type: "base64", media_type: image.mimeType, data: image.base64 } },
@@ -235,7 +239,7 @@ async function callClaude(apiKey, prompt, image, model) {
     },
     body: JSON.stringify({
       model,
-      max_tokens: 8192,
+      max_tokens: maxTokens,
       messages: [{ role: "user", content }],
     }),
   });
@@ -250,6 +254,7 @@ async function callClaude(apiKey, prompt, image, model) {
   const data = await res.json();
   const text = data?.content?.[0]?.text;
   if (!text || !text.trim()) throw new Error("Claude không trả kết quả");
+  if (data?.stop_reason === "max_tokens") throw new Error("Claude bị cắt giữa chừng vì vượt giới hạn độ dài phản hồi. Hãy thử lại hoặc chọn ít chương hơn.");
   return text.trim();
 }
 

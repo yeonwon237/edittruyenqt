@@ -19,6 +19,7 @@ import TextToSpeech from '@/pages/TextToSpeech';
 import CreateVideo from '@/pages/CreateVideo';
 import CreateSubtitle from '@/pages/CreateSubtitle';
 import CoverDesigner from '@/pages/CoverDesigner';
+import RoleplayStudio from '@/pages/RoleplayStudio';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth } = useAuth();
@@ -47,6 +48,8 @@ const AuthenticatedApp = () => {
         <Route path="/create-video" element={<CreateVideo />} />
         <Route path="/create-subtitle" element={<CreateSubtitle />} />
         <Route path="/cover-designer" element={<CoverDesigner />} />
+        <Route path="/roleplay" element={<RoleplayStudio />} />
+        <Route path="/roleplay/:projectId" element={<RoleplayStudio />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
