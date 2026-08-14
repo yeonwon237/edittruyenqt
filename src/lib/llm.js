@@ -1,11 +1,13 @@
 // Multi-provider LLM dispatch: Gemini / OpenAI (GPT) / Anthropic (Claude).
 import { recordGeminiCall } from "@/lib/geminiUsage";
+import { STALI_CHAT_ENDPOINT } from "@/lib/staliModels";
 
 const PROVIDER_KEY = "llm_provider";
 const KEY_STORE = {
   gemini: "gemini_api_key",
   openai: "openai_api_key",
   claude: "claude_api_key",
+  stali: "stali_api_key",
 };
 
 // Model IDs churn fast (providers rename/retire them every few months —
@@ -18,13 +20,17 @@ const MODEL_KEY_STORE = {
   gemini: "gemini_model",
   openai: "openai_model",
   claude: "claude_model",
+  stali: "stali_model",
 };
 
 const DEFAULT_MODELS = {
   gemini: "gemini-3.5-flash-lite",
   openai: "gpt-4o-mini",
   claude: "claude-sonnet-4-6",
+  stali: "gemini-3.5-flash",
 };
+const ENDPOINT_KEY_STORE = { stali:"stali_api_endpoint" };
+const DEFAULT_ENDPOINTS = { stali: STALI_CHAT_ENDPOINT };
 
 const BASE_ENDPOINTS = {
   openai: "https://api.openai.com/v1/chat/completions",
@@ -35,7 +41,19 @@ function geminiEndpoint(model) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
 
-export const PROVIDERS = ["gemini", "openai", "claude"];
+export const PROVIDERS = ["gemini", "openai", "claude", "stali"];
+
+export function getEndpoint(provider) {
+  const p=provider||getProvider();
+  if (p === "stali") return STALI_CHAT_ENDPOINT;
+  try{return (localStorage.getItem(ENDPOINT_KEY_STORE[p])||"").trim()||DEFAULT_ENDPOINTS[p]||"";}catch{return DEFAULT_ENDPOINTS[p]||"";}
+}
+export function saveEndpoint(provider,value) {
+  if (provider === "stali") return;
+  if(!ENDPOINT_KEY_STORE[provider])return;
+  const next=String(value||"").trim();
+  if(next)localStorage.setItem(ENDPOINT_KEY_STORE[provider],next);else localStorage.removeItem(ENDPOINT_KEY_STORE[provider]);
+}
 
 export function getProvider() {
   try {
@@ -110,6 +128,7 @@ export async function callLLM(prompt, image) {
   if (provider === "gemini") return callGeminiRaw(key, prompt, image, model);
   if (provider === "openai") return callOpenAI(key, prompt, image, model);
   if (provider === "claude") return callClaude(key, prompt, image, model);
+  if (provider === "stali") return callOpenAICompatible(key, prompt, image, model, getEndpoint("stali"), "STALI");
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
@@ -119,6 +138,7 @@ export async function testLLMKey(provider, key, model) {
   if (provider === "gemini") return testGeminiRaw(key, m);
   if (provider === "openai") return testOpenAI(key, m);
   if (provider === "claude") return testClaude(key, m);
+  if (provider === "stali") return testStali(key, m);
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
@@ -177,6 +197,24 @@ async function callOpenAI(apiKey, prompt, image, model) {
   const text = data?.choices?.[0]?.message?.content;
   if (!text || !text.trim()) throw new Error("OpenAI không trả kết quả");
   return text.trim();
+}
+
+async function callOpenAICompatible(apiKey,prompt,image,model,endpoint,label) {
+  const content=image?[{type:"text",text:prompt},{type:"image_url",image_url:{url:`data:${image.mimeType};base64,${image.base64}`}}]:prompt;
+  const payload={model,messages:[{role:"user",content}],temperature:0.3,max_tokens:8192};
+  const useProxy=label==="STALI";
+  const localStali=useProxy&&import.meta.env.DEV;
+  const target=localStali?"/stali-api/v1/chat/completions":useProxy?"/api/stali-chat":endpoint;
+  let res;
+  try {
+    res=await fetch(target,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${apiKey}`},body:JSON.stringify(useProxy&&!localStali?{endpoint,payload}:payload)});
+  } catch {
+    throw new Error(`${label}: không kết nối được máy chủ. Hãy kiểm tra mạng hoặc thử lại sau.`);
+  }
+  if(!res.ok){let msg=`${label} HTTP ${res.status}`;try{const e=await res.json();const detail=e?.error?.message||e?.message;const type=e?.error?.type;if(detail)msg=`${label}: ${detail}${type?` (${type})`:""}`;}catch{}throw new Error(msg);}
+  const data=await res.json();const text=data?.choices?.[0]?.message?.content;
+  if(!text||!String(text).trim())throw new Error(`${label} không trả kết quả`);
+  return String(text).trim();
 }
 
 async function callClaude(apiKey, prompt, image, model) {
@@ -255,6 +293,39 @@ async function testOpenAI(apiKey, model) {
     } catch {}
     throw new Error(msg);
   }
+  return true;
+}
+
+async function testOpenAICompatible(apiKey,model,endpoint,label) {
+  await callOpenAICompatible(apiKey,"Reply with exactly: OK",null,model,endpoint,label);
+  return true;
+}
+
+async function testStali(apiKey, model) {
+  const local = import.meta.env.DEV;
+  const target = local ? "/stali-api/v1/models" : "/api/stali-chat";
+  let response;
+  try {
+    response = await fetch(target, {
+      method: local ? "GET" : "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      ...(local ? {} : { body: JSON.stringify({ action: "models" }) }),
+    });
+  } catch {
+    throw new Error("STALI: không tới được máy chủ kiểm tra model.");
+  }
+  let data = null;
+  try { data = await response.json(); } catch {}
+  if (!response.ok) {
+    const detail = data?.error?.message || data?.message || `HTTP ${response.status}`;
+    const type = data?.error?.type;
+    throw new Error(`STALI: ${detail}${type ? ` (${type})` : ""}`);
+  }
+  const models = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
+  if (models.length && !models.some((item) => item?.id === model)) {
+    throw new Error(`STALI: API key hợp lệ nhưng model “${model}” không có trong danh sách được cấp. Hãy chọn model khác.`);
+  }
+  await testOpenAICompatible(apiKey, model, getEndpoint("stali"), "STALI");
   return true;
 }
 

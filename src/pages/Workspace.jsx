@@ -19,6 +19,8 @@ import BatchTitleEditDialog from "@/components/workspace/BatchTitleEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import QualityCheckDialog from "@/components/workspace/QualityCheckDialog";
 import StoryQaDialog from "@/components/workspace/StoryQaDialog";
+import BetaCheckDialog from "@/components/workspace/BetaCheckDialog";
+import StoryBetaDialog from "@/components/workspace/StoryBetaDialog";
 import BulkColumnMoveDialog from "@/components/workspace/BulkColumnMoveDialog";
 import WorkflowProgress from "@/components/workspace/WorkflowProgress";
 import QtCleanupDialog from "@/components/workspace/QtCleanupDialog";
@@ -39,13 +41,14 @@ import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
 import { diffTextChanges } from "@/lib/textDiff";
 import { countForeignChars } from "@/lib/highlight";
 import { applyQualitySuggestion, runQualityCheck } from "@/lib/qualityCheck";
+import { applyBetaSuggestion, betaCandidatePayload, runBetaCheck } from "@/lib/betaCheck";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
 import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
-import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck } from "lucide-react";
+import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -165,6 +168,14 @@ export default function Workspace() {
   const [storyQaReport, setStoryQaReport] = useState(null);
   const [qualityIssues, setQualityIssues] = useState([]);
   const [qualityUndo, setQualityUndo] = useState(null);
+  const [showBetaCheck, setShowBetaCheck] = useState(false);
+  const [showStoryBeta, setShowStoryBeta] = useState(false);
+  const [betaIssues, setBetaIssues] = useState([]);
+  const [betaUndo, setBetaUndo] = useState(null);
+  const [betaAiRunning, setBetaAiRunning] = useState(false);
+  const [storyBetaRunning, setStoryBetaRunning] = useState(false);
+  const [storyBetaReport, setStoryBetaReport] = useState(null);
+  const [markingBeta, setMarkingBeta] = useState(false);
   const [showAISettings, setShowAISettings] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
   const [showColumnMove, setShowColumnMove] = useState(false);
@@ -1072,6 +1083,63 @@ export default function Workspace() {
     }, 80);
   };
 
+  const betaSettings = () => project?.style_toggles?.beta_settings || { longSentence:180, longParagraph:900, rules:[], ignored:[] };
+  const handleSaveBetaSettings = async (settings) => handleUpdateProject({ style_toggles:{ ...(project?.style_toggles || {}), beta_settings:settings } });
+  const scanCurrentBeta = (text=currentChapter?.edited || "", settings=betaSettings()) => runBetaCheck(text,{settings});
+  const handleOpenBetaCheck = () => {
+    if(!currentChapter?.edited?.trim()){toast({title:"Bản Edit đang trống",variant:"destructive"});return;}
+    setBetaIssues(scanCurrentBeta());setShowBetaCheck(true);
+  };
+  const handleApplyBeta = async (items,replacement,remember=false) => {
+    if(!currentChapter)return;
+    try{
+      const previous=currentChapter.edited||"";
+      const applicable=[...(items||[])].filter(item=>previous.slice(item.start,item.end)===item.value).sort((a,b)=>b.start-a.start);
+      if(!applicable.length)throw new Error("Vị trí Beta đã thay đổi. Hãy quét lại.");
+      const next=applicable.reduce((text,item)=>applyBetaSuggestion(text,item,replacement),previous);
+      setBetaUndo({chapterId:currentChapter.id,previous});setCurrentChapter({...currentChapter,edited:next});
+      let settings=betaSettings();
+      if(remember){const find=items[0]?.value;const rules=[...(settings.rules||[]).filter(rule=>normalizeText(rule.find)!==normalizeText(find)),{find,replace:String(replacement||"")}];settings={...settings,rules};await handleSaveBetaSettings(settings);}
+      setBetaIssues(runBetaCheck(next,{settings}));toast({title:`Đã áp dụng ${applicable.length} vị trí Beta`,description:remember?"Đã ghi nhớ thành quy tắc của truyện.":"Không thay đổi các câu khác."});
+    }catch(error){toast({title:"Không thể áp dụng Beta",description:error.message,variant:"destructive"});}
+  };
+  const normalizeText=(value)=>String(value||"").trim().toLocaleLowerCase("vi");
+  const handleIgnoreBeta = async (group,remember) => {
+    setBetaIssues(current=>current.filter(item=>!group.items.some(target=>target.id===item.id)));
+    if(!remember)return;
+    const settings=betaSettings();const ignored=[...new Set([...(settings.ignored||[]),group.value])];await handleSaveBetaSettings({...settings,ignored});
+  };
+  const handleLocateBeta = (item) => {setShowBetaCheck(false);setMobileActiveCol("edited");setPanel3Mode("edit");window.setTimeout(()=>{const textarea=document.querySelector("[data-etq-panel='final'] [data-etq-role='edit-content']");if(!(textarea instanceof HTMLTextAreaElement))return;textarea.focus();textarea.setSelectionRange(item.start,item.end);textarea.scrollTop=Math.max(0,(item.line-3)*32);},80);};
+  const handleUndoBeta = () => {if(!currentChapter||betaUndo?.chapterId!==currentChapter.id)return;setCurrentChapter({...currentChapter,edited:betaUndo.previous});setBetaIssues(runBetaCheck(betaUndo.previous,{settings:betaSettings()}));setBetaUndo(null);};
+  const handleAiBeta = async () => {
+    if(!hasCustomAI()){toast({title:"Cần cấu hình AI trước",description:"Beta bằng code vẫn dùng được mà không cần AI.",variant:"destructive"});return;}
+    const candidates=betaCandidatePayload(currentChapter?.edited||"",betaIssues,16);
+    if(!candidates.length){toast({title:"Không có câu khó cần gửi AI"});return;}
+    setBetaAiRunning(true);
+    try{
+      const compact=candidates.map(item=>`${item.id}|${item.context}`).join("\n");
+      const prompt=`Bạn là beta reader tiếng Việt. Chỉ kiểm tra các câu dưới đây về văn phong Convert/QT, câu tối nghĩa, sai chủ-vị, lặp ý và trình bày. Không đổi tên riêng, xưng hô, tình tiết. Bỏ qua câu đã ổn. Trả DUY NHẤT JSON array, mỗi phần tử: {"id":"B1","issue":"lý do tối đa 12 từ","suggestion":"câu thay thế hoàn chỉnh"}. Không markdown.\n${compact}`;
+      const raw=await callLLM(prompt);const parsed=JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g,""));
+      const additions=(Array.isArray(parsed)?parsed:[]).flatMap(result=>{const source=candidates.find(item=>item.id===result.id);if(!source||!String(result.suggestion||"").trim()||String(result.suggestion).trim()===source.text.trim())return[];return[{id:`beta-ai-${source.start}-${Date.now()}`,type:"ai-beta",label:"AI nghi ngờ câu văn",value:source.text,replacement:String(result.suggestion).trim(),start:source.start,end:source.end,line:(currentChapter.edited||"").slice(0,source.start).split("\n").length,context:source.context,detail:String(result.issue||"Cần xem lại câu văn."),safe:false,aiCandidate:false}];});
+      setBetaIssues(current=>[...current.filter(item=>item.type!=="ai-beta"),...additions].sort((a,b)=>a.start-b.start));toast({title:`AI đề xuất ${additions.length}/${candidates.length} câu`,description:"Chưa có câu nào được tự động sửa."});
+    }catch(error){toast({title:"AI Beta không trả kết quả hợp lệ",description:error.message,variant:"destructive"});}
+    finally{setBetaAiRunning(false);}
+  };
+  const handleScanStoryBeta = async (settings) => {
+    setStoryBetaRunning(true);try{if(currentChapter)await flushSave(currentChapter,true);const chapters=await loadAllProjectChapters();const map=new Map();const chapterResults=[];
+      chapters.forEach(chapter=>{const issues=String(chapter.edited||"").trim()?runBetaCheck(chapter.edited,{settings}):[];if(issues.length)chapterResults.push({id:chapter.id,title:chapter.title,chapter_order:chapter.chapter_order,count:issues.length});issues.forEach(item=>{const key=[item.type,item.label,item.value,item.replacement||""].join("\u0001");const group=map.get(key)||{key,type:item.type,label:item.label,value:item.value,replacement:item.replacement||"",safe:Boolean(item.safe),count:0,chapterIds:new Set(),locations:[]};group.count++;group.chapterIds.add(chapter.id);group.locations.push({id:`${chapter.id}:${item.start}:${item.end}`,chapterId:chapter.id,chapterTitle:chapter.title,chapter_order:chapter.chapter_order,line:item.line,context:item.context,start:item.start,end:item.end,value:item.value});map.set(key,group);});});
+      const groups=[...map.values()].map(group=>({...group,chapterCount:group.chapterIds.size,chapterIds:[...group.chapterIds]})).sort((a,b)=>b.count-a.count);const report={scannedAt:new Date().toISOString(),chapters:chapterResults,groups,issueCount:chapterResults.reduce((sum,ch)=>sum+ch.count,0)};setStoryBetaReport(report);localStorage.setItem(`etq-story-beta:${projectId}`,JSON.stringify(report));toast({title:`Đã quét Beta ${chapters.length} chương`,description:`Còn ${report.issueCount} nghi vấn trong ${chapterResults.length} chương.`});
+    }catch(error){toast({title:"Không quét được Beta toàn truyện",description:error.message,variant:"destructive"});}finally{setStoryBetaRunning(false);}
+  };
+  const handleStoryBetaReplace = async (group,replacement,settings,selectedIds=[]) => {if(!group?.safe)return;const selected=new Set(selectedIds);const locations=group.locations.filter(loc=>!selected.size||selected.has(loc.id));setStoryBetaRunning(true);try{if(currentChapter)await flushSave(currentChapter,true);const ids=[...new Set(locations.map(loc=>loc.chapterId))];const chapters=await Chapter.getMany(ids);setBatchReplaceUndo({target:"edited",rows:chapters.map(chapterUpsertRow)});const rows=chapters.map(chapter=>{const positions=locations.filter(loc=>loc.chapterId===chapter.id).sort((a,b)=>b.start-a.start);const edited=positions.reduce((text,loc)=>text.slice(loc.start,loc.end)===loc.value?text.slice(0,loc.start)+String(replacement||"")+text.slice(loc.end):text,chapter.edited||"");return chapterUpsertRow({...chapter,edited});});let updated=[];for(let index=0;index<rows.length;index+=200)updated=updated.concat(await Chapter.bulkUpsert(rows.slice(index,index+200)));updated.forEach(ch=>{chapterCacheRef.current.set(ch.id,ch);lastSavedRef.current.set(ch.id,snapshotOf(ch));});const active=updated.find(ch=>ch.id===currentChapter?.id);if(active)setCurrentChapter(active);await handleScanStoryBeta(settings);}catch(error){toast({title:"Không thể sửa Beta toàn truyện",description:error.message,variant:"destructive"});}finally{setStoryBetaRunning(false);}};
+  const handleStoryBetaIgnore = async (group,settings,remember) => {if(!remember)return;const next={...settings,ignored:[...new Set([...(settings.ignored||[]),group.value])]};await handleSaveBetaSettings(next);await handleScanStoryBeta(next);};
+
+  useEffect(()=>{try{setStoryBetaReport(JSON.parse(localStorage.getItem(`etq-story-beta:${projectId}`)||"null"));}catch{setStoryBetaReport(null);}},[projectId]);
+  useEffect(()=>{if(!storyBetaReport||!currentChapter?.id)return;const issues=scanCurrentBeta();const meta=chapterList.find(ch=>ch.id===currentChapter.id)||currentChapter;const chapters=storyBetaReport.chapters.filter(ch=>ch.id!==currentChapter.id);if(issues.length)chapters.push({id:currentChapter.id,title:meta.title,chapter_order:meta.chapter_order,count:issues.length});chapters.sort((a,b)=>(a.chapter_order||0)-(b.chapter_order||0));const next={...storyBetaReport,chapters,issueCount:chapters.reduce((sum,ch)=>sum+ch.count,0),groupsStale:true};setStoryBetaReport(next);localStorage.setItem(`etq-story-beta:${projectId}`,JSON.stringify(next));// eslint-disable-next-line react-hooks/exhaustive-deps
+  },[currentChapter?.edited]);
+  useEffect(()=>{const timer=window.setTimeout(()=>setBetaIssues(scanCurrentBeta()),450);return()=>window.clearTimeout(timer);// eslint-disable-next-line react-hooks/exhaustive-deps
+  },[currentChapter?.edited,project?.style_toggles?.beta_settings]);
+
   const buildEditPrompt = (sourceText) => {
     const glossaryText = glossaryTerms
       .map((t) => `- "${t.source_term}" → "${t.translation}"`)
@@ -1231,7 +1299,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
       setAiUndo({ chapterId, previous: prevEdited });
       checkLineAlignment(sourceText, finalText);
       const providerLabel =
-        ({ gemini: "Gemini", openai: "GPT", claude: "Claude" }[provider] || "AI");
+        ({ gemini: "Gemini", openai: "GPT", claude: "Claude", stali:"STALI" }[provider] || "AI");
       toast({
         title: `${providerLabel} đã edit xong! ✨`,
         description: "Kiểm tra và chỉnh thêm nhé",
@@ -2456,10 +2524,6 @@ Tên chương đã dịch:`;
     ? mobileActiveCol
     : visibleColumns[0] || "edited";
 
-  const legacyQualityRulesHash = useMemo(() => quickHash(JSON.stringify({
-    glossary: glossaryTerms.map((term) => [term.source_term, term.translation, term.category, term.custom_fields]),
-    pronouns: project?.contextual_pronoun_rules || [],
-  })), [glossaryTerms, project?.contextual_pronoun_rules]);
   const qualityRulesHash = useMemo(() => quickHash(stableSerialize({
     glossary: glossaryTerms
       .map((term) => [term.id, term.source_term, term.translation, term.category, term.custom_fields])
@@ -2468,10 +2532,16 @@ Tên chương đã dịch:`;
     qaSettings: project?.style_toggles?.qa_settings || {},
   })), [glossaryTerms, project?.contextual_pronoun_rules, project?.style_toggles?.qa_settings]);
   const qaRecords = project?.style_toggles?.workflow_progress?.qa || {};
+  const betaRulesHash = useMemo(()=>quickHash(stableSerialize(project?.style_toggles?.beta_settings||{})),[project?.style_toggles?.beta_settings]);
+  const betaRecords = project?.style_toggles?.workflow_progress?.beta || {};
   const qaStatusOf = (meta) => {
     const record = qaRecords[meta.id];
     if (!record) return "pending";
-    if (record.rulesHash !== qualityRulesHash && record.rulesHash !== legacyQualityRulesHash) return "stale";
+    // QA progress records that the user has already read/reviewed a chapter.
+    // Adding a glossary/pronoun/QA rule must not erase that work or send the
+    // "QA tiếp" cursor back to chapter 1. New rules still take effect in the
+    // live chapter scanner and Story QA; only an actual content edit makes a
+    // reviewed chapter stale and requires confirmation again.
     if (currentChapter?.id === meta.id) {
       return record.contentHash === quickHash(currentChapter.edited || "") ? "done" : "stale";
     }
@@ -2484,9 +2554,12 @@ Tên chương đã dịch:`;
     // tolerate clock skew between the user's device and Supabase.
     return updatedAt > Date.parse(record.checkedAt || 0) + 5 * 60 * 1000 ? "stale" : "done";
   };
+  const betaStatusOf=(meta)=>{const record=betaRecords[meta.id];if(!record)return"pending";if(record.rulesHash!==betaRulesHash)return"stale";if(currentChapter?.id===meta.id)return record.contentHash===quickHash(currentChapter.edited||"")?"done":"stale";const updated=Date.parse(meta.updated_date||0);return updated&&record.chapterUpdatedAt&&updated>Date.parse(record.chapterUpdatedAt)+1000?"stale":"done";};
   const qaCount = chapterList.filter((chapter) => qaStatusOf(chapter) === "done").length;
   const editedCount = chapterList.filter((chapter) => editedChapterIds.has(chapter.id)).length;
   const qaNeedsRecheck = chapterList.filter((chapter) => qaRecords[chapter.id] && qaStatusOf(chapter) === "stale").length;
+  const betaCount=chapterList.filter(ch=>betaStatusOf(ch)==="done").length;
+  const betaNeedsRecheck=chapterList.filter(ch=>betaRecords[ch.id]&&betaStatusOf(ch)==="stale").length;
   const contiguousThrough = (predicate) => {
     let last = null;
     for (const chapter of chapterList) {
@@ -2497,8 +2570,10 @@ Tên chương đã dịch:`;
   };
   const editedThrough = contiguousThrough((chapter) => editedChapterIds.has(chapter.id));
   const qaThrough = contiguousThrough((chapter) => qaStatusOf(chapter) === "done");
+  const betaThrough=contiguousThrough(ch=>betaStatusOf(ch)==="done");
   const currentMeta = chapterList.find((chapter) => chapter.id === currentChapter?.id);
   const currentQaStatus = currentMeta ? qaStatusOf(currentMeta) : "pending";
+  const currentBetaStatus=currentMeta?betaStatusOf(currentMeta):"pending";
 
   const handleMarkQaDone = async () => {
     if (!currentChapter?.id || !currentChapter.edited?.trim()) {
@@ -2545,6 +2620,7 @@ Tên chương đã dịch:`;
       setMarkingQa(false);
     }
   };
+  const handleMarkBetaDone=async()=>{if(!currentChapter?.id||!currentChapter.edited?.trim()){toast({title:"Bản Edit đang trống",variant:"destructive"});return;}const chapter={...currentChapter};setMarkingBeta(true);try{await flushSave(chapter,true);const saved=await Chapter.get(chapter.id);if((saved.edited||"")!==(chapter.edited||""))throw new Error("Bản Edit chưa lưu xong.");const next={...betaRecords,[saved.id]:{checkedAt:new Date().toISOString(),chapterUpdatedAt:saved.updated_date,contentHash:quickHash(saved.edited),rulesHash:betaRulesHash,issueCount:betaIssues.length}};await handleUpdateProject({style_toggles:{...(project?.style_toggles||{}),workflow_progress:{...(project?.style_toggles?.workflow_progress||{}),beta:next}}});setChapterList(list=>list.map(meta=>meta.id===saved.id?{...meta,updated_date:saved.updated_date}:meta));toast({title:"Đã lưu tiến độ Beta",description:betaIssues.length?`Bạn đã xem và chấp nhận ${betaIssues.length} nghi vấn còn lại.`:"Chương đã sạch theo bộ Beta."});}catch(error){toast({title:"Chưa lưu được tiến độ Beta",description:error.message,variant:"destructive"});}finally{setMarkingBeta(false);}};
 
   const goToNextEdit = () => {
     const target = chapterList.find((chapter) => !editedChapterIds.has(chapter.id));
@@ -2557,6 +2633,7 @@ Tên chương đã dịch:`;
     if (target) switchChapter(target.id);
     else toast({ title: "Không còn chương đã Edit nào cần QA 🎉" });
   };
+  const goToNextBeta=()=>{const target=chapterList.find(ch=>editedChapterIds.has(ch.id)&&betaStatusOf(ch)!=="done");if(target)switchChapter(target.id);else toast({title:"Không còn chương cần Beta 🎉"});};
 
   const foreignCharCount = countForeignChars(currentChapter?.edited);
   const qualityGroupCount = new Set(
@@ -2672,13 +2749,14 @@ Tên chương đã dịch:`;
           >
             {chapterList.map((ch) => (
               <option key={ch.id} value={ch.id}>
-                {storyQaReport?.chapters.some((item) => item.id === ch.id) ? "⚠ " : ""}{ch.title}
+                {storyQaReport?.chapters.some((item) => item.id === ch.id) ? "⚠ " : ""}{storyBetaReport?.chapters.some(item=>item.id===ch.id)?"✍ ":""}{ch.title}
               </option>
             ))}
           </select>
           <button onClick={() => setShowStoryQa(true)} className={`flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyQaReport?.chapters.length ? "bg-amber-100 text-amber-800" : "bg-white/10 text-violet-200 hover:bg-white/15"}`} title="Cấu hình và quét QA toàn truyện">
             <ShieldCheck className="h-4 w-4"/><span className="hidden lg:inline">QA toàn truyện{storyQaReport?.chapters.length ? ` · ${storyQaReport.chapters.length}` : ""}</span>
           </button>
+          <button onClick={()=>setShowStoryBeta(true)} className={`flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyBetaReport?.chapters.length?"bg-fuchsia-100 text-fuchsia-800":"bg-white/10 text-fuchsia-200 hover:bg-white/15"}`} title="Quét Beta câu văn toàn truyện"><PenTool className="h-4 w-4"/><span className="hidden lg:inline">Beta toàn truyện{storyBetaReport?.chapters.length?` · ${storyBetaReport.chapters.length}`:""}</span></button>
           <button
             onClick={() => setShowChapterManager(true)}
             className="p-2 rounded-xl bg-white/10 hover:bg-white/15 text-violet-300 transition-colors"
@@ -2769,14 +2847,21 @@ Tên chương đã dịch:`;
         total={chapterList.length}
         editedCount={editedCount}
         qaCount={qaCount}
+        betaCount={betaCount}
         qaNeedsRecheck={qaNeedsRecheck}
+        betaNeedsRecheck={betaNeedsRecheck}
         editedThrough={editedThrough}
         qaThrough={qaThrough}
+        betaThrough={betaThrough}
         currentQaStatus={currentQaStatus}
+        currentBetaStatus={currentBetaStatus}
         markingQa={markingQa}
+        markingBeta={markingBeta}
         onMarkQa={handleMarkQaDone}
+        onMarkBeta={handleMarkBetaDone}
         onNextEdit={goToNextEdit}
         onNextQa={goToNextQa}
+        onNextBeta={goToNextBeta}
         onRefresh={() => loadEditedProgress(true)}
         refreshing={refreshingProgress}
       />
@@ -2919,7 +3004,7 @@ Tên chương đã dịch:`;
                         setPanel3Mode(panel3Mode === "view" ? "edit" : "view")
                       }
                       flagForeignChars
-                      qualityIssues={qualityIssues}
+                      qualityIssues={[...qualityIssues,...betaIssues]}
                       onScroll={() => handlePanelScroll(2)}
                       placeholder="Bản edit hoàn chỉnh sẽ hiện ở đây..."
                       onHide={() => handleToggleColumn("edited")}
@@ -2933,6 +3018,7 @@ Tên chương đã dịch:`;
                             <ShieldCheck className="h-3.5 w-3.5" />
                             {qualityGroupCount > 0 ? `QA · ${qualityGroupCount} nhóm lỗi` : "QA · Không thấy lỗi"}
                           </button>
+                          <button onClick={handleOpenBetaCheck} className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors ${betaIssues.length?"border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700":"border-emerald-100 bg-emerald-50 text-emerald-700"}`} title="Beta văn phong, câu và trình bày"><PenTool className="h-3.5 w-3.5"/>{betaIssues.length?`Beta · ${betaIssues.length} nghi vấn`:"Beta · Sạch"}</button>
                           {foreignCharCount > 0 && (
                             <button
                               onClick={() => setPanel3Mode("view")}
@@ -3031,6 +3117,7 @@ Tên chương đã dịch:`;
         onUndo={handleUndoQualitySuggestion}
         canUndo={qualityUndo?.chapterId === currentChapter?.id}
       />
+      <BetaCheckDialog open={showBetaCheck} onOpenChange={setShowBetaCheck} issues={betaIssues} onApply={handleApplyBeta} onLocate={handleLocateBeta} onIgnore={handleIgnoreBeta} onAiCheck={handleAiBeta} aiRunning={betaAiRunning} onUndo={handleUndoBeta} canUndo={betaUndo?.chapterId===currentChapter?.id}/>
       <AISettingsDialog open={showAISettings} onOpenChange={setShowAISettings} />
       <ChapterManagerDialog
         open={showChapterManager}
@@ -3057,6 +3144,7 @@ Tên chương đã dịch:`;
         onBatchEdit={() => setShowBatchEdit(true)}
         onBatchTitleEdit={() => setShowBatchTitleEdit(true)}
         qaIssuesByChapter={Object.fromEntries((storyQaReport?.chapters || []).map((chapter) => [chapter.id, chapter.count]))}
+        betaIssuesByChapter={Object.fromEntries((storyBetaReport?.chapters || []).map(chapter=>[chapter.id,chapter.count]))}
       />
       <StoryQaDialog
         open={showStoryQa}
@@ -3073,6 +3161,7 @@ Tên chương đã dịch:`;
         qaWorkflow={{ pending:chapterList.filter(ch=>editedChapterIds.has(ch.id)&&qaStatusOf(ch)!=="done"), stale:chapterList.filter(ch=>qaStatusOf(ch)==="stale") }}
         onOpenChapter={(id) => { switchChapter(id); setShowStoryQa(false); }}
       />
+      <StoryBetaDialog open={showStoryBeta} onOpenChange={setShowStoryBeta} settings={betaSettings()} report={storyBetaReport} running={storyBetaRunning} onSaveSettings={handleSaveBetaSettings} onScan={handleScanStoryBeta} onBulkReplace={handleStoryBetaReplace} onIgnore={handleStoryBetaIgnore} pending={chapterList.filter(ch=>editedChapterIds.has(ch.id)&&betaStatusOf(ch)!=="done")} onOpenChapter={(id)=>{switchChapter(id);setShowStoryBeta(false);}}/>
       <BulkColumnMoveDialog
         open={showColumnMove}
         onOpenChange={setShowColumnMove}

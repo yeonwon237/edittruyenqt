@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -19,10 +19,18 @@ import {
   saveModel,
   resetModel,
   getDefaultModel,
+  getEndpoint,
 } from "@/lib/llm";
 import { useToast } from "@/components/ui/use-toast";
 import { GEMINI_MODELS } from "@/lib/geminiModels";
 import { getGeminiUsageToday } from "@/lib/geminiUsage";
+import {
+  STALI_MODELS,
+  STALI_BASE_URL,
+  STALI_PRICE_VERIFIED_AT,
+  STALI_PRICING_URL,
+  formatStaliPrice,
+} from "@/lib/staliModels";
 
 const PROVIDERS_INFO = {
   gemini: {
@@ -58,6 +66,17 @@ const PROVIDERS_INFO = {
     accentBorder: "border-amber-300",
     accentBg: "bg-amber-50",
   },
+  stali: {
+    label: "API.STALI.VN",
+    shortLabel: "STALI",
+    desc: "55 model Claude, GPT, Gemini… — hiển thị giá VNĐ",
+    placeholder: "sk-...",
+    helpUrl: "https://api.stali.vn",
+    helpStep1: "Mở trang quản lý API.STALI.VN → tạo API Key và xem tên model được cấp",
+    accentText: "text-fuchsia-600",
+    accentBorder: "border-fuchsia-300",
+    accentBg: "bg-fuchsia-50",
+  },
 };
 
 // AI provider/key/model management for Auto Edit — lives inside the
@@ -71,13 +90,29 @@ export default function AISettingsDialog({ open, onOpenChange }) {
     gemini: getApiKey("gemini"),
     openai: getApiKey("openai"),
     claude: getApiKey("claude"),
+    stali: getApiKey("stali"),
   });
   const [modelInputs, setModelInputs] = useState({
     gemini: getModel("gemini"),
     openai: getModel("openai"),
     claude: getModel("claude"),
+    stali: getModel("stali"),
   });
+  const [staliSearch, setStaliSearch] = useState("");
+  const [staliTier, setStaliTier] = useState("all");
   const [testing, setTesting] = useState(false);
+
+  const filteredStaliModels = useMemo(() => {
+    const query = staliSearch.trim().toLocaleLowerCase("vi");
+    return STALI_MODELS.filter((model) => {
+      const matchesQuery = !query || `${model.name} ${model.id}`.toLocaleLowerCase("vi").includes(query);
+      const matchesTier = staliTier === "all"
+        || (staliTier === "aws" && model.tier === "AWS Premium")
+        || (staliTier === "request" && model.priceKind === "request")
+        || (staliTier === "token" && model.priceKind === "token" && model.tier !== "AWS Premium");
+      return matchesQuery && matchesTier;
+    });
+  }, [staliSearch, staliTier]);
 
   const handleSelectProvider = (p) => {
     saveProvider(p);
@@ -135,7 +170,7 @@ export default function AISettingsDialog({ open, onOpenChange }) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-2">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-2">
           {Object.entries(PROVIDERS_INFO).map(([key, p]) => {
             const active = provider === key;
             const hasKey = !!keyInputs[key].trim();
@@ -215,6 +250,19 @@ export default function AISettingsDialog({ open, onOpenChange }) {
           </div>
 
           <div className="mt-4 pt-4 border-t border-violet-100">
+            {provider === "stali" && (
+              <div className="mb-3 rounded-xl border border-fuchsia-200 bg-white/80 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold text-slate-700">Địa chỉ API STALI đã xác minh</p>
+                  <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Đúng chuẩn OpenAI</span>
+                </div>
+                <div className="mt-2 space-y-1.5 rounded-lg bg-slate-900 px-3 py-2 text-[11px]">
+                  <div><span className="text-slate-400">Base URL: </span><code className="text-emerald-300">{STALI_BASE_URL}</code></div>
+                  <div><span className="text-slate-400">Gửi chat: </span><code className="text-emerald-300">{getEndpoint("stali")}</code></div>
+                </div>
+                <p className="mt-1.5 text-[10px] leading-relaxed text-slate-500">Extension tự nối <code>/chat/completions</code> vào Base URL theo chuẩn OpenAI. Địa chỉ được khóa để tránh nhập thiếu hoặc lặp <code>/v1</code>.</p>
+              </div>
+            )}
             <p className="text-xs font-semibold text-slate-700 mb-1.5">Model ({info.shortLabel})</p>
             <p className="text-xs text-slate-400 mb-2">
               Nhà cung cấp hay đổi/khai tử model — nếu báo lỗi kết nối hoặc hết hạn mức, đổi model
@@ -255,6 +303,51 @@ export default function AISettingsDialog({ open, onOpenChange }) {
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {provider === "stali" && (
+              <div className="mb-3 rounded-xl border border-fuchsia-100 bg-white/70 p-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-semibold text-slate-700">Chọn trong {STALI_MODELS.length} model STALI</p>
+                    <p className="mt-0.5 text-[10px] text-slate-400">Giá công khai kiểm tra ngày {STALI_PRICE_VERIFIED_AT}; STALI có thể thay đổi giá.</p>
+                  </div>
+                  <a href={STALI_PRICING_URL} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[10px] font-medium text-fuchsia-600 hover:underline">Xem giá gốc <ExternalLink className="h-3 w-3" /></a>
+                </div>
+                <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                  <input value={staliSearch} onChange={(event) => setStaliSearch(event.target.value)} placeholder="Tìm tên hoặc ID model…" className="min-w-0 rounded-lg border border-fuchsia-100 bg-white px-3 py-2 text-xs outline-none focus:border-fuchsia-400" />
+                  <select value={staliTier} onChange={(event) => setStaliTier(event.target.value)} className="rounded-lg border border-fuchsia-100 bg-white px-2.5 py-2 text-xs text-slate-600 outline-none">
+                    <option value="all">Tất cả</option>
+                    <option value="token">Theo token</option>
+                    <option value="request">Theo lượt</option>
+                    <option value="aws">AWS Premium</option>
+                  </select>
+                </div>
+                <div className="mt-2 max-h-64 space-y-1.5 overflow-y-auto pr-1 cute-scrollbar">
+                  {filteredStaliModels.map((model) => {
+                    const active = modelInputs.stali === model.id;
+                    const compatible = model.compatible !== false;
+                    return (
+                      <button
+                        key={model.id}
+                        type="button"
+                        disabled={!compatible}
+                        onClick={() => setModelInputs((prev) => ({ ...prev, stali: model.id }))}
+                        className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors ${active ? "border-fuchsia-400 bg-fuchsia-50" : compatible ? "border-slate-100 bg-white hover:border-fuchsia-200 hover:bg-fuchsia-50/40" : "cursor-not-allowed border-slate-100 bg-slate-50 opacity-55"}`}
+                      >
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-700"><span className="truncate">{model.name}</span>{model.tier === "AWS Premium" && <span className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] text-amber-700">AWS</span>}</span>
+                          <code className="block truncate text-[10px] text-slate-400">{model.id}</code>
+                          {!compatible && <span className="text-[9px] text-red-500">Không dùng cho Beta/Edit văn bản</span>}
+                        </span>
+                        <span className="shrink-0 text-right text-[11px] font-semibold text-fuchsia-700">{formatStaliPrice(model)}</span>
+                      </button>
+                    );
+                  })}
+                  {filteredStaliModels.length === 0 && <p className="py-4 text-center text-xs text-slate-400">Không tìm thấy model phù hợp.</p>}
+                </div>
+                <p className="mt-2 text-[10px] text-slate-400">Bấm model để chọn, sau đó bấm “Lưu model”. Ba model ảnh/TTS/video vẫn được hiển thị đủ giá nhưng không thể chọn cho tác vụ văn bản.</p>
               </div>
             )}
 
