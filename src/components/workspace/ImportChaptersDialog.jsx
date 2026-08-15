@@ -11,7 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Upload, FileSpreadsheet, Loader2 } from "lucide-react";
 import {
   CHAPTER_HEADING_PRESETS,
+  detectHeadingPreset,
   parseChaptersFile,
+  splitByBlankLineTitles,
   splitByHeadingRegex,
 } from "@/lib/importChapters";
 import {
@@ -41,10 +43,12 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
   const pattern = presetKey === "custom" ? customPattern : CHAPTER_HEADING_PRESETS[presetKey].source;
 
   const pasteParsed = useMemo(() => {
-    if (!text.trim() || !pattern) return [];
+    if (!text.trim()) return [];
+    if (presetKey === "blankTitle") return splitByBlankLineTitles(text);
+    if (!pattern) return [];
     const result = splitByHeadingRegex(text, pattern);
     return result || [];
-  }, [text, pattern]);
+  }, [text, pattern, presetKey]);
 
   const parsed = mode === "file" ? fileParsed : pasteParsed;
 
@@ -81,11 +85,17 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
     setCustomPattern("");
     try {
       if (ext === "txt") {
-        setText(await file.text());
+        const raw = await file.text();
+        setText(raw);
+        setPresetKey(detectHeadingPreset(raw));
       } else if (ext === "docx") {
-        setText(await extractTextFromDocx(file));
+        const raw = await extractTextFromDocx(file);
+        setText(raw);
+        setPresetKey(detectHeadingPreset(raw));
       } else if (ext === "pdf") {
-        setText(await extractTextFromPdf(file));
+        const raw = await extractTextFromPdf(file);
+        setText(raw);
+        setPresetKey(detectHeadingPreset(raw));
       } else if (ext === "epub") {
         const epubChapters = await extractChaptersFromEpub(file);
         if (epubChapters.length === 0) {

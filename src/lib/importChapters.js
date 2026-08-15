@@ -2,6 +2,10 @@ import { splitLine, findColumnIndex } from "./csvUtils.js";
 
 const CHUONG_KEYWORD = String.fromCharCode(0x43, 0x68, 0x01b0, 0x01a1, 0x6e, 0x67); // "Chương"
 
+// Chinese numerals (十百千万 combine into larger numbers like 一百二十三) plus
+// 〇/零 for zero — covers both "第1章" (Arabic) and "第一章" (Hán tự) raw dumps.
+const CN_CHAPTER_NUM = "[0-9〇零一二三四五六七八九十百千万]+";
+
 export const CHAPTER_HEADING_PRESETS = {
   vi: {
     label: "Chương 1… hoặc 551. Chương 548…",
@@ -11,8 +15,74 @@ export const CHAPTER_HEADING_PRESETS = {
     label: "Chapter 1… hoặc 551. Chapter 548…",
     source: "^\\s*(?:\\d+\\s*[.)、:–—-]\\s*)?Chapter\\s+\\d+[^\\n]*",
   },
+  zh: {
+    label: "第1章… hoặc 第一章… (bản gốc tiếng Trung)",
+    source: `^\\s*(?:第\\s*${CN_CHAPTER_NUM}\\s*卷\\s*)?第\\s*${CN_CHAPTER_NUM}\\s*[章回][^\\n]*|^\\s*(?:序章|楔子|引子|尾声|终章|番外(?:篇)?\\s*\\d*)[^\\n]*`,
+  },
+  blankTitle: {
+    label: "Tên chương đứng riêng, cách nhau bằng dòng trống (raw crawl không đánh số)",
+    source: null,
+  },
   custom: { label: "Tùy chỉnh (regex)", source: "" },
 };
+
+const TITLE_LINE_MAX_LENGTH = 40;
+// A real standalone chapter title rarely ends with sentence-ending
+// punctuation — a narration/dialogue line almost always does — so this is
+// the main guard against a short mid-paragraph line being mistaken for one.
+const SENTENCE_END_PUNCTUATION = /[。！？.!?…”"]$/;
+
+// Some raw crawled dumps mark a chapter with nothing but its bare title
+// sitting alone on its own line — no "第X章"/"Chương N" prefix at all —
+// set off from the surrounding paragraphs only by an extra blank line. A
+// short standalone line preceded by a blank line and not ending in typical
+// sentence punctuation is treated as a title. Content before the first
+// detected title is dropped, matching splitByHeadingRegex's behavior for
+// content before its first match (usually just a book-title/cover line).
+export function splitByBlankLineTitles(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const boundaries = [];
+  let blankRun = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed) { blankRun++; continue; }
+    if (blankRun >= 1 && trimmed.length <= TITLE_LINE_MAX_LENGTH && !SENTENCE_END_PUNCTUATION.test(trimmed)) {
+      boundaries.push({ lineIndex: i, title: trimmed });
+    }
+    blankRun = 0;
+  }
+  if (boundaries.length === 0) return [];
+  return boundaries.map((boundary, i) => {
+    const start = boundary.lineIndex + 1;
+    const end = i + 1 < boundaries.length ? boundaries[i + 1].lineIndex : lines.length;
+    return { title: boundary.title || `Chương ${i + 1}`, content: lines.slice(start, end).join("\n").trim() };
+  });
+}
+
+// Picks whichever built-in preset matches the most headings in the given
+// text, so uploading a raw file that isn't in the default "Chương N"
+// convention (e.g. a Chinese "第1章" raw dump, or a bare-title raw crawl)
+// doesn't silently fall back to zero matches and dump the whole file into
+// a single chapter.
+export function detectHeadingPreset(text) {
+  let bestKey = "vi";
+  let bestCount = 0;
+  for (const [key, preset] of Object.entries(CHAPTER_HEADING_PRESETS)) {
+    if (key === "custom" || !preset.source) continue;
+    try {
+      const count = (String(text || "").match(new RegExp(preset.source, "gim")) || []).length;
+      if (count > bestCount) { bestCount = count; bestKey = key; }
+    } catch { /* ignore invalid pattern */ }
+  }
+  // Only fall back to the blank-line-title heuristic if no keyword-based
+  // preset found a plausible number of chapters — it's a weaker signal
+  // (no explicit keyword), so a real "Chương N"/"第X章" match always wins.
+  if (bestCount < 2) {
+    const blankTitleCount = splitByBlankLineTitles(text).length;
+    if (blankTitleCount > bestCount) return "blankTitle";
+  }
+  return bestCount > 0 ? bestKey : "vi";
+}
 
 const EXPORT_INDEX_PREFIX = new RegExp(
   `^\\s*\\d+\\s*[.)、:–—-]\\s*(?=(?:${CHUONG_KEYWORD}|Chapter)\\s+\\d+)`,
