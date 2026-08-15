@@ -8,6 +8,11 @@ const STORAGE_KEY = "etq-prompt-generator-v1";
 
 const SOURCE_LANGS = ["Trung", "Hàn", "Nhật", "Anh", "Khác"];
 
+const MODES = [
+  { id: "translate", label: "Prompt Dịch" },
+  { id: "edit", label: "Prompt Edit" },
+];
+
 // Same list as StoryQaDialog.jsx's CONTEXT_SUGGESTIONS, kept in sync manually
 // since it's small and each dialog already inlines its own copy.
 const CONTEXT_SUGGESTIONS = [
@@ -37,13 +42,14 @@ const ERA_NOTES = {
   neutral: "Bối cảnh trung tính hoặc chưa rõ triều đại — chọn xưng hô phù hợp theo quan hệ nhân vật trong từng câu, ưu tiên tự nhiên, nhất quán xuyên suốt.",
 };
 
-// "Đặc thù thể loại" — canonical translation guidance per sub-genre/tag that
-// carries its own specialized vocabulary. Kept separate from GENRE_SUGGESTIONS
-// because some of these (ABO) aren't a "genre" in the QA/Beta sense and some
-// genres above don't need special terminology handling.
+// "Đặc thù thể loại" — canonical translation/editing guidance per sub-genre
+// that carries its own specialized vocabulary. Kept separate from
+// GENRE_SUGGESTIONS because some of these (ABO) aren't a "genre" in the
+// QA/Beta sense and some genres above don't need special terminology
+// handling. Shared between both prompt modes since it's the same novel.
 const SPECIALTY_HINTS = [
-  { id: "abo", label: "ABO (Alpha/Beta/Omega)", hint: "Đây là thể loại ABO (Alpha/Beta/Omega): giữ nguyên các danh xưng Alpha/Beta/Omega, không dịch nghĩa. Dịch chính xác và nhất quán các khái niệm đặc trưng: pheromone → thông tin tố, heat → kỳ động dục/kỳ phát tình (Omega), rut → kỳ phát dục (Alpha), mating/bond/mark → đánh dấu/dấu ấn, nest → tổ, suppressant → thuốc ức chế." },
-  { id: "system", label: "Hệ thống (game/status)", hint: "Đây là thể loại có Hệ Thống: giữ nguyên định dạng bảng thông báo/hộp thoại hệ thống (dùng dấu ngoặc vuông [...] để tách phần hệ thống khỏi phần tường thuật). Dịch nhất quán: nhiệm vụ (quest), điểm kinh nghiệm (EXP), cấp độ (level), thuộc tính (stats), vật phẩm (item), kỹ năng (skill)." },
+  { id: "abo", label: "ABO (Alpha/Beta/Omega)", hint: "Đây là thể loại ABO (Alpha/Beta/Omega): giữ nguyên các danh xưng Alpha/Beta/Omega, không dịch nghĩa. Dịch/biên tập chính xác và nhất quán các khái niệm đặc trưng: pheromone → thông tin tố, heat → kỳ động dục/kỳ phát tình (Omega), rut → kỳ phát dục (Alpha), mating/bond/mark → đánh dấu/dấu ấn, nest → tổ, suppressant → thuốc ức chế." },
+  { id: "system", label: "Hệ thống (game/status)", hint: "Đây là thể loại có Hệ Thống: giữ nguyên định dạng bảng thông báo/hộp thoại hệ thống (dùng dấu ngoặc vuông [...] để tách phần hệ thống khỏi phần tường thuật). Dùng nhất quán: nhiệm vụ (quest), điểm kinh nghiệm (EXP), cấp độ (level), thuộc tính (stats), vật phẩm (item), kỹ năng (skill)." },
   { id: "cultivation", label: "Tu tiên / Tiên hiệp", hint: "Đây là thể loại tu tiên/tiên hiệp: dùng đúng hệ thống cảnh giới tu luyện quen thuộc với độc giả Việt (Luyện khí → Trúc cơ → Kim đan → Nguyên anh → Hóa thần → Luyện hư → Hợp thể → Đại thừa → Độ kiếp...), không tự sáng tạo cảnh giới mới, giữ Hán Việt cho tên công pháp/pháp bảo/linh khí." },
   { id: "fantasy", label: "Dị giới / Fantasy phương Tây", hint: "Đây là thể loại dị giới/fantasy phương Tây: dùng thuật ngữ pháp thuật/chức danh quen thuộc (Pháp sư, Kiếm sĩ, Học viện, Công tước/Bá tước, Ma pháp, Nguyên tố...); tên riêng nhân vật/địa danh giữ nguyên dạng phiên âm hoặc Việt hóa nhẹ, miễn nhất quán xuyên suốt." },
   { id: "palace", label: "Cung đấu / Cung đình", hint: "Đây là thể loại cung đấu/cung đình cổ trang: dùng đúng hệ thống danh phận hậu cung và xưng hô hoàng tộc (Hoàng thượng, Hoàng hậu, Quý phi, Thái hậu, ái phi, thần thiếp, ai gia, trẫm...), phân biệt rõ theo thứ bậc." },
@@ -52,13 +58,27 @@ const SPECIALTY_HINTS = [
   { id: "superpower", label: "Đô thị dị năng / Siêu năng lực", hint: "Đây là thể loại đô thị có dị năng/siêu năng lực: dùng nhất quán một tên gọi cho mỗi năng lực đặc biệt xuyên suốt truyện, không đổi cách gọi giữa các chương." },
 ];
 
-const FORMAT_OPTIONS = [
+const TRANSLATE_FORMAT_OPTIONS = [
   { id: "keepParagraphs", label: "Giữ nguyên số đoạn và cách xuống dòng như bản gốc", text: "Giữ nguyên số đoạn và cách xuống dòng như bản gốc, không gộp/tách đoạn.", defaultOn: true },
   { id: "noCommentary", label: "Không thêm lời dẫn/ghi chú/giải thích của AI", text: "Không thêm lời dẫn, ghi chú, giải thích hay bình luận nào ở đầu/cuối — chỉ trả về đúng phần bản dịch.", defaultOn: true },
   { id: "noSkip", label: "Dịch đầy đủ, không tóm tắt, không bỏ câu", text: "Dịch đầy đủ 100% nội dung, không tóm tắt, không bỏ sót câu nào.", defaultOn: true },
   { id: "consistentNames", label: "Chuyển ngữ tên riêng/địa danh nhất quán", text: "Dùng nhất quán một cách chuyển ngữ cho mỗi tên riêng/địa danh trong suốt đoạn văn.", defaultOn: true },
   { id: "naturalVietnamese", label: "Văn phong tự nhiên, không dịch máy móc", text: "Văn phong tiếng Việt tự nhiên, mượt mà như tiểu thuyết mạng, không dịch kiểu word-by-word máy móc.", defaultOn: true },
   { id: "keepMarks", label: "Giữ nguyên ký hiệu/emoji đặc biệt (nếu có)", text: "Giữ nguyên các ký hiệu/emoji/dấu câu đặc biệt xuất hiện trong bản gốc (nếu có).", defaultOn: false },
+];
+
+// Edit prompt targets a different starting point (an already QT-translated,
+// word-for-word rough draft) so its requirements are about polishing prose
+// without touching plot, not about translation fidelity.
+const EDIT_FORMAT_OPTIONS = [
+  { id: "keepPlot", label: "Không thêm/bớt hoặc thay đổi tình tiết, chỉ biên tập câu chữ", text: "Không thêm, bớt hoặc thay đổi tình tiết/nội dung — chỉ biên tập lại câu chữ, văn phong.", defaultOn: true },
+  { id: "fixQtOrder", label: "Sửa trật tự từ kiểu dịch máy (QT) thành câu văn tự nhiên", text: "Sửa các câu bị đảo trật tự từ kiểu dịch máy (QT) thành câu văn tiếng Việt tự nhiên, đúng ngữ pháp.", defaultOn: true },
+  { id: "consistentAddress", label: "Xưng hô/đại từ nhân xưng nhất quán, đúng vai vế", text: "Xưng hô/đại từ nhân xưng phải nhất quán và đúng vai vế giữa các nhân vật xuyên suốt đoạn văn, phù hợp bối cảnh.", defaultOn: true },
+  { id: "noRepeatEdit", label: "Loại bỏ từ/cụm từ lặp lại sát nhau", text: "Loại bỏ tình trạng lặp từ, lặp cụm từ hoặc lặp cấu trúc câu liên tiếp nhau.", defaultOn: true },
+  { id: "keepNames", label: "Giữ nguyên tên riêng/địa danh/thuật ngữ đã xuất hiện", text: "Giữ nguyên cách gọi tên riêng, địa danh, thuật ngữ đã xuất hiện trong đoạn văn — không tự đổi cách gọi.", defaultOn: true },
+  { id: "noCommentaryEdit", label: "Không thêm lời dẫn/ghi chú của AI", text: "Không thêm lời dẫn, ghi chú, giải thích hay bình luận nào ở đầu/cuối — chỉ trả về đúng phần đã biên tập.", defaultOn: true },
+  { id: "keepParagraphsEdit", label: "Giữ nguyên số đoạn và cách xuống dòng như bản gốc", text: "Giữ nguyên số đoạn và cách xuống dòng như bản gốc, không gộp/tách đoạn.", defaultOn: true },
+  { id: "naturalStyleEdit", label: "Văn phong mượt mà như tiểu thuyết đã xuất bản", text: "Văn phong tiếng Việt mượt mà, tự nhiên như tiểu thuyết đã xuất bản, không còn dấu vết dịch máy.", defaultOn: true },
 ];
 
 const ERA_OPTIONS = [
@@ -68,6 +88,7 @@ const ERA_OPTIONS = [
 ];
 
 const defaultState = () => ({
+  mode: "translate",
   sourceLang: "Trung",
   genres: [],
   customGenreOptions: [],
@@ -75,26 +96,32 @@ const defaultState = () => ({
   context: "",
   customContextOptions: [],
   specialties: [],
-  format: Object.fromEntries(FORMAT_OPTIONS.map((o) => [o.id, o.defaultOn])),
+  translateFormat: Object.fromEntries(TRANSLATE_FORMAT_OPTIONS.map((o) => [o.id, o.defaultOn])),
+  editFormat: Object.fromEntries(EDIT_FORMAT_OPTIONS.map((o) => [o.id, o.defaultOn])),
   notes: "",
 });
 
-function buildPrompt(state) {
+function sharedCriteriaLines(state) {
   const lines = [];
-  lines.push(`Bạn là một dịch giả tiểu thuyết mạng chuyên nghiệp, dịch từ tiếng ${state.sourceLang} sang tiếng Việt.`);
-  lines.push("");
   lines.push(`THỂ LOẠI: ${state.genres.length ? state.genres.join(", ") : "chưa xác định"}`);
   lines.push(`BỐI CẢNH: ${state.context || "chưa xác định"}`);
   lines.push(ERA_NOTES[state.era] || ERA_NOTES.neutral);
-
   const specialtyLines = SPECIALTY_HINTS.filter((s) => state.specialties.includes(s.id));
   if (specialtyLines.length) {
     lines.push("");
     lines.push("ĐẶC THÙ THỂ LOẠI:");
     specialtyLines.forEach((s) => lines.push(`- ${s.hint}`));
   }
+  return lines;
+}
 
-  const formatLines = FORMAT_OPTIONS.filter((o) => state.format[o.id]);
+function buildTranslatePrompt(state) {
+  const lines = [];
+  lines.push(`Bạn là một dịch giả tiểu thuyết mạng chuyên nghiệp, dịch từ tiếng ${state.sourceLang} sang tiếng Việt.`);
+  lines.push("");
+  lines.push(...sharedCriteriaLines(state));
+
+  const formatLines = TRANSLATE_FORMAT_OPTIONS.filter((o) => state.translateFormat[o.id]);
   if (formatLines.length) {
     lines.push("");
     lines.push("YÊU CẦU KHI DỊCH:");
@@ -115,6 +142,40 @@ function buildPrompt(state) {
   return lines.join("\n");
 }
 
+function buildEditPrompt(state) {
+  const lines = [];
+  lines.push(`Bạn là một biên tập viên tiểu thuyết mạng chuyên nghiệp. Đoạn văn bản dưới đây là bản dịch thô qua công cụ QT (dịch máy theo từng chữ, từ tiếng ${state.sourceLang} sang tiếng Việt) — nhiệm vụ của bạn là biên tập lại thành văn xuôi tiếng Việt tự nhiên, mượt mà, giữ nguyên 100% nội dung và tình tiết gốc.`);
+  lines.push("");
+  lines.push(...sharedCriteriaLines(state));
+
+  lines.push("");
+  lines.push("CÁC LỖI QT THƯỜNG GẶP CẦN SỬA:");
+  lines.push('- Trật tự từ bị đảo lộn kiểu dịch máy (VD: "người kia hung dữ bộ dạng" → diễn đạt lại tự nhiên như "bộ dạng của người kia trông thật hung dữ")');
+  lines.push("- Từ Hán Việt dịch cứng nhắc, tối nghĩa trong tiếng Việt — thay bằng cách diễn đạt tự nhiên hơn nếu không làm mất sắc thái");
+  lines.push("- Xưng hô/đại từ nhân xưng sai vai vế hoặc không nhất quán giữa các câu");
+  lines.push("- Câu quá dài, thiếu dấu câu, hoặc ngắt câu sai chỗ");
+
+  const formatLines = EDIT_FORMAT_OPTIONS.filter((o) => state.editFormat[o.id]);
+  if (formatLines.length) {
+    lines.push("");
+    lines.push("YÊU CẦU KHI BIÊN TẬP:");
+    formatLines.forEach((o) => lines.push(`- ${o.text}`));
+  }
+
+  if (state.notes.trim()) {
+    lines.push("");
+    lines.push(`GHI CHÚ THÊM: ${state.notes.trim()}`);
+  }
+
+  lines.push("");
+  lines.push("Hãy biên tập đoạn văn bản QT dưới đây theo đúng các yêu cầu trên. Chỉ trả về bản đã biên tập, không thêm gì khác:");
+  lines.push("");
+  lines.push('"""');
+  lines.push("[DÁN NGUYÊN VĂN BẢN QT CẦN BIÊN TẬP VÀO ĐÂY]");
+  lines.push('"""');
+  return lines.join("\n");
+}
+
 export default function PromptGenerator() {
   const { toast } = useToast();
   const [state, setState] = useState(defaultState);
@@ -126,7 +187,19 @@ export default function PromptGenerator() {
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
-      if (saved) setState({ ...defaultState(), ...saved, format: { ...defaultState().format, ...(saved.format || {}) } });
+      if (saved) {
+        const base = defaultState();
+        // Migrate the old single `format` key (pre-Edit-prompt versions of
+        // this page) into translateFormat so returning users don't lose
+        // their saved checkboxes.
+        const legacyFormat = saved.format;
+        setState({
+          ...base,
+          ...saved,
+          translateFormat: { ...base.translateFormat, ...(legacyFormat || {}), ...(saved.translateFormat || {}) },
+          editFormat: { ...base.editFormat, ...(saved.editFormat || {}) },
+        });
+      }
     } catch { /* ignore corrupt local cache */ }
   }, []);
 
@@ -176,15 +249,26 @@ export default function PromptGenerator() {
     ...s,
     specialties: s.specialties.includes(id) ? s.specialties.filter((x) => x !== id) : [...s.specialties, id],
   }));
-  const toggleFormat = (id) => setState((s) => ({ ...s, format: { ...s.format, [id]: !s.format[id] } }));
 
-  const prompt = useMemo(() => buildPrompt(state), [state]);
+  const formatKey = state.mode === "edit" ? "editFormat" : "translateFormat";
+  const formatOptions = state.mode === "edit" ? EDIT_FORMAT_OPTIONS : TRANSLATE_FORMAT_OPTIONS;
+  const toggleFormat = (id) => setState((s) => ({ ...s, [formatKey]: { ...s[formatKey], [id]: !s[formatKey][id] } }));
+
+  const prompt = useMemo(
+    () => (state.mode === "edit" ? buildEditPrompt(state) : buildTranslatePrompt(state)),
+    [state]
+  );
 
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(prompt);
       setCopied(true);
-      toast({ title: "Đã sao chép prompt ✅", description: "Dán vào Gemini (hoặc AI khác) và thêm nội dung chương cần dịch." });
+      toast({
+        title: "Đã sao chép prompt ✅",
+        description: state.mode === "edit"
+          ? "Dán vào Gemini (hoặc AI khác) kèm bản QT cần biên tập."
+          : "Dán vào Gemini (hoặc AI khác) và thêm nội dung chương cần dịch.",
+      });
       setTimeout(() => setCopied(false), 2000);
     } catch {
       toast({ title: "Không sao chép được", description: "Trình duyệt chặn quyền clipboard, hãy bôi đen và copy thủ công.", variant: "destructive" });
@@ -197,8 +281,8 @@ export default function PromptGenerator() {
         <div className="mx-auto flex max-w-5xl items-center gap-3 px-4 py-4">
           <Link to="/" className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-violet-50"><ArrowLeft className="h-4 w-4" /></Link>
           <div>
-            <h1 className="flex items-center gap-2 text-lg font-bold text-slate-800"><Wand2 className="h-4.5 w-4.5 text-violet-600" /> Tạo Prompt Dịch</h1>
-            <p className="text-xs text-slate-400">Chọn tiêu chí bên dưới để có ngay 1 prompt dịch chuẩn, đem qua Gemini/ChatGPT dùng — không cần tạo dự án trước.</p>
+            <h1 className="flex items-center gap-2 text-lg font-bold text-slate-800"><Wand2 className="h-4.5 w-4.5 text-violet-600" /> Tạo Prompt Dịch &amp; Edit</h1>
+            <p className="text-xs text-slate-400">Chọn tiêu chí bên dưới để có ngay prompt dịch hoặc prompt biên tập chuẩn, đem qua Gemini/ChatGPT dùng — không cần tạo dự án trước.</p>
           </div>
         </div>
       </header>
@@ -265,11 +349,11 @@ export default function PromptGenerator() {
           </div>
 
           <div className="rounded-3xl border border-white bg-white/90 p-5 shadow-sm">
-            <label className="text-xs font-semibold text-slate-600">Yêu cầu định dạng đầu ra</label>
+            <label className="text-xs font-semibold text-slate-600">Yêu cầu định dạng đầu ra ({state.mode === "edit" ? "Edit" : "Dịch"})</label>
             <div className="mt-2 space-y-1.5">
-              {FORMAT_OPTIONS.map((o) => (
+              {formatOptions.map((o) => (
                 <label key={o.id} className="flex items-center gap-2 text-xs text-slate-600">
-                  <input type="checkbox" checked={Boolean(state.format[o.id])} onChange={() => toggleFormat(o.id)} className="accent-violet-600" />
+                  <input type="checkbox" checked={Boolean(state[formatKey][o.id])} onChange={() => toggleFormat(o.id)} className="accent-violet-600" />
                   {o.label}
                 </label>
               ))}
@@ -284,8 +368,18 @@ export default function PromptGenerator() {
 
         <div className="lg:sticky lg:top-24 lg:self-start">
           <div className="rounded-3xl border border-violet-100 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-violet-100 px-5 py-3">
-              <b className="text-sm text-slate-700">Prompt hoàn chỉnh</b>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-violet-100 px-5 py-3">
+              <div className="flex gap-1 rounded-xl bg-slate-100 p-1">
+                {MODES.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setState((s) => ({ ...s, mode: m.id }))}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${state.mode === m.id ? "bg-white text-violet-700 shadow-sm" : "text-slate-500"}`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
               <Button size="sm" onClick={handleCopy} className="bg-violet-600 hover:bg-violet-700">
                 {copied ? <Check className="mr-1.5 h-3.5 w-3.5" /> : <Copy className="mr-1.5 h-3.5 w-3.5" />}
                 {copied ? "Đã sao chép" : "Sao chép"}
