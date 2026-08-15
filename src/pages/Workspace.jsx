@@ -441,9 +441,22 @@ export default function Workspace() {
         const meta = chapterList.find((chapter) => chapter.id === request.chapterId);
         if (!meta) throw new Error("Chương không thuộc dự án đang mở.");
         if (currentChapter?.id === meta.id) await flushSave(currentChapter, true);
-        const chapter = currentChapter?.id === meta.id
-          ? { ...currentChapter }
-          : await Chapter.get(meta.id);
+        // "write" needs the full row — it gets cached/set as currentChapter,
+        // and a partial row there would silently blank out raw_original/
+        // qt_raw for the rest of the app. "readEdited" (what packaging for
+        // Wattpad actually uses, chapter by chapter across the whole book)
+        // only ever reads `chapter.edited`, so it doesn't need the other two
+        // text columns — this was fetching all 3 per chapter for no reason.
+        let chapter;
+        if (currentChapter?.id === meta.id) {
+          chapter = { ...currentChapter };
+        } else if (request.action === "readEdited") {
+          const rows = await Chapter.filter({ id: meta.id }, null, 1, 0, ["title", "project_id", "updated_date", "edited"]);
+          chapter = rows[0];
+          if (!chapter) throw new Error("Không tìm thấy chương.");
+        } else {
+          chapter = await Chapter.get(meta.id);
+        }
         if (chapter.project_id !== projectId) throw new Error("Không có quyền truy cập chương này.");
 
         if (request.action === "read") {

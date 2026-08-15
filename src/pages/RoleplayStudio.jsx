@@ -110,8 +110,13 @@ export default function RoleplayStudio() {
     if (!projectId) { setChapters([]); setScenarios([]); return; }
     (async () => {
       try {
+        // Only used here to populate the chapter picker (title + whether it
+        // has a Bản Edit) — generateRoleplay() does its own separate,
+        // full-column Chapter.getMany() fetch scoped to just the handful of
+        // selected chapters once the user actually generates, so this list
+        // never needs raw_original/qt_raw.
         const [chapterData, scenarioData] = await Promise.all([
-          fetchAllPages((limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip), { pageSize: 200, maxItems: 5000 }),
+          fetchAllPages((limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip, ["title", "chapter_order", "edited"]), { pageSize: 200, maxItems: 5000 }),
           RoleplayScenario.list(projectId).catch((error) => { if (String(error.message).includes("roleplay_scenarios")) return []; throw error; }),
         ]);
         setChapters(chapterData);
