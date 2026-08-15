@@ -2856,24 +2856,33 @@ ${sourceText}`;
   // hand. This dials in AI translation for just the title text, scoped to
   // whichever chapters the user picked in BatchTitleEditDialog (not "all"
   // unconditionally — not every run should touch every chapter).
-  const buildTitleEditPrompt = (rawTitle) => {
+  //
+  // Titles are short, so 1 AI request per chapter (the old behavior) wastes
+  // almost the entire request on fixed overhead — most AI providers bill
+  // per-request as well as per-token. Batching many titles into a single
+  // prompt cuts the request count by ~TITLE_BATCH_SIZE× for the same work.
+  // Each line is tagged with its chapter id (same "id|payload" convention
+  // as handleAiBeta's batch prompt) so the AI's JSON response maps back to
+  // the right chapter even if a couple of lines get skipped or reordered.
+  const TITLE_BATCH_SIZE = 40;
+  const buildBatchTitleEditPrompt = (items) => {
     const glossaryText = glossaryTerms
       .map((t) => `- "${t.source_term}" → "${t.translation}"`)
       .join("\n");
-    return `Bạn là biên tập viên truyện dịch. Hãy dịch/làm sạch TÊN CHƯƠNG sau đây sang tiếng Việt tự nhiên, mượt mà.
+    const compact = items.map((item) => `${item.id}|${item.title}`).join("\n");
+    return `Bạn là biên tập viên truyện dịch. Hãy dịch/làm sạch TÊN CHƯƠNG sang tiếng Việt tự nhiên, mượt mà cho TẤT CẢ các dòng dưới đây (mỗi dòng là 1 chương, định dạng "id|tên gốc").
 
 QUY TẮC:
 1. Nếu tên chương có số thứ tự ở đầu (ví dụ "Chương 12", "Chapter 12", "第12章"), giữ nguyên định dạng "Chương <số>" ở đầu, chỉ dịch phần tiêu đề phía sau.
 2. PHẢI tuân thủ Glossary nếu tên chương chứa tên riêng có trong đó.
-3. KHÔNG thêm giải thích, không thêm dấu ngoặc kép bao quanh, chỉ xuất ra đúng 1 dòng là tên chương đã dịch.
+3. Dịch ĐỦ tất cả các dòng, không bỏ sót dòng nào, không gộp nhiều dòng lại làm một.
+4. Trả về DUY NHẤT JSON array, mỗi phần tử: {"id":"<giữ nguyên id ở đầu vào>","title":"<tên chương đã dịch, không kèm giải thích hay ngoặc kép thừa>"}. Không markdown, không giải thích thêm.
 
 GLOSSARY:
 ${glossaryText || "(trống)"}
 
-TÊN CHƯƠNG GỐC:
-${rawTitle}
-
-Tên chương đã dịch:`;
+DANH SÁCH (id|tên gốc):
+${compact}`;
   };
 
   const handleStartBatchTitleEdit = async (selectedIds) => {
@@ -2896,31 +2905,60 @@ Tên chương đã dịch:`;
     setBatchTitleProgress({ done: 0, total: targets.length, edited: 0, failed: 0, currentTitle: "" });
     setBatchTitleRunning(true);
 
-    for (let i = 0; i < targets.length; i++) {
+    for (let start = 0; start < targets.length; start += TITLE_BATCH_SIZE) {
       if (batchTitleStopRef.current) break;
-      const meta = targets[i];
-      setBatchTitleProgress((p) => ({ ...p, currentTitle: meta.title }));
+      const chunk = targets.slice(start, start + TITLE_BATCH_SIZE);
+      setBatchTitleProgress((p) => ({
+        ...p,
+        currentTitle: chunk.length > 1 ? `${chunk[0].title} (+${chunk.length - 1} chương khác)` : chunk[0].title,
+      }));
+      let resultById = new Map();
+      let chunkErrorMessage = null;
       try {
-        const newTitle = (await callLLM(buildTitleEditPrompt(meta.title || ""))).trim();
-        if (newTitle) {
+        const raw = await callLLM(buildBatchTitleEditPrompt(chunk.map((c) => ({ id: c.id, title: c.title || "" }))));
+        const parsed = JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g, ""));
+        resultById = new Map(
+          (Array.isArray(parsed) ? parsed : [])
+            .map((item) => [String(item.id), String(item.title || "").trim()])
+            .filter(([, title]) => title)
+        );
+      } catch (e) {
+        chunkErrorMessage = e.message;
+      }
+
+      // Every chapter in the chunk gets resolved here — whether the whole
+      // request failed (chunkErrorMessage set, resultById empty), a
+      // particular id was missing from an otherwise-successful response, or
+      // it translated fine — so `done` always advances exactly once per
+      // chapter and `failed`/`edited` always sum back up to it.
+      for (let i = 0; i < chunk.length; i++) {
+        const meta = chunk[i];
+        const newTitle = resultById.get(String(meta.id));
+        if (!newTitle) {
+          setBatchTitleErrors((prev) => [...prev, { title: meta.title, message: chunkErrorMessage || "AI không trả về tên cho chương này." }]);
+          setBatchTitleProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
+          continue;
+        }
+        try {
+          // eslint-disable-next-line no-await-in-loop
           await Chapter.update(meta.id, { title: newTitle }, { returning: false });
-          setChapterList((prev) =>
-            prev.map((c) => (c.id === meta.id ? { ...c, title: newTitle } : c))
-          );
+          setChapterList((prev) => prev.map((c) => (c.id === meta.id ? { ...c, title: newTitle } : c)));
           const cached = chapterCacheRef.current.get(meta.id);
           if (cached) chapterCacheRef.current.set(meta.id, { ...cached, title: newTitle });
           if (currentChapter?.id === meta.id) {
             setCurrentChapter((prev) => (prev ? { ...prev, title: newTitle } : prev));
           }
+          setBatchTitleProgress((p) => ({ ...p, done: p.done + 1, edited: p.edited + 1 }));
+        } catch (e) {
+          setBatchTitleErrors((prev) => [...prev, { title: meta.title, message: e.message }]);
+          setBatchTitleProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
         }
-        setBatchTitleProgress((p) => ({ ...p, done: p.done + 1, edited: p.edited + 1 }));
-      } catch (e) {
-        setBatchTitleErrors((prev) => [...prev, { title: meta.title, message: e.message }]);
-        setBatchTitleProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
       }
-      // Same 700ms spacing as the content batch edit, to stay clear of the
-      // provider's per-minute rate limit across many rapid calls.
-      if (!batchTitleStopRef.current && i < targets.length - 1) {
+
+      // Spacing is now per CHUNK instead of per chapter — still stays clear
+      // of the provider's per-minute rate limit, but with far fewer waits
+      // since each chunk covers up to TITLE_BATCH_SIZE chapters in 1 request.
+      if (!batchTitleStopRef.current && start + TITLE_BATCH_SIZE < targets.length) {
         // eslint-disable-next-line no-await-in-loop
         await new Promise((resolve) => setTimeout(resolve, 700));
       }
