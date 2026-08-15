@@ -2861,27 +2861,38 @@ ${sourceText}`;
   // almost the entire request on fixed overhead — most AI providers bill
   // per-request as well as per-token. Batching many titles into a single
   // prompt cuts the request count by ~TITLE_BATCH_SIZE× for the same work.
-  // Each line is tagged with its chapter id (same "id|payload" convention
-  // as handleAiBeta's batch prompt) so the AI's JSON response maps back to
-  // the right chapter even if a couple of lines get skipped or reordered.
-  const TITLE_BATCH_SIZE = 40;
-  const buildBatchTitleEditPrompt = (items) => {
+  //
+  // Each line is tagged with its position in the chunk (a short integer)
+  // rather than the full chapter uuid — a uuid is ~36 chars of pure
+  // overhead the AI has to echo back on every single output line for
+  // no benefit here, since the mapping only needs to survive one prompt/
+  // response round-trip. This roughly halves the output tokens per line,
+  // which is what actually caps how big TITLE_BATCH_SIZE can safely be —
+  // callLLM's default response limit is 8192 tokens (see roleplay/
+  // generator.js's comment on why it had to split scene-writer calls for
+  // the exact same reason: a response that runs past that cap comes back
+  // truncated mid-JSON). 80 lines stays comfortably inside that budget with
+  // real margin for model verbosity; "gộp hết 1 lần" for a 300+ chapter
+  // novel would not — regardless of tagging scheme, that many lines is more
+  // JSON than fits in one response.
+  const TITLE_BATCH_SIZE = 80;
+  const buildBatchTitleEditPrompt = (titles) => {
     const glossaryText = glossaryTerms
       .map((t) => `- "${t.source_term}" → "${t.translation}"`)
       .join("\n");
-    const compact = items.map((item) => `${item.id}|${item.title}`).join("\n");
-    return `Bạn là biên tập viên truyện dịch. Hãy dịch/làm sạch TÊN CHƯƠNG sang tiếng Việt tự nhiên, mượt mà cho TẤT CẢ các dòng dưới đây (mỗi dòng là 1 chương, định dạng "id|tên gốc").
+    const compact = titles.map((title, index) => `${index}|${title}`).join("\n");
+    return `Bạn là biên tập viên truyện dịch. Hãy dịch/làm sạch TÊN CHƯƠNG sang tiếng Việt tự nhiên, mượt mà cho TẤT CẢ các dòng dưới đây (mỗi dòng là 1 chương, định dạng "số thứ tự|tên gốc").
 
 QUY TẮC:
 1. Nếu tên chương có số thứ tự ở đầu (ví dụ "Chương 12", "Chapter 12", "第12章"), giữ nguyên định dạng "Chương <số>" ở đầu, chỉ dịch phần tiêu đề phía sau.
 2. PHẢI tuân thủ Glossary nếu tên chương chứa tên riêng có trong đó.
 3. Dịch ĐỦ tất cả các dòng, không bỏ sót dòng nào, không gộp nhiều dòng lại làm một.
-4. Trả về DUY NHẤT JSON array, mỗi phần tử: {"id":"<giữ nguyên id ở đầu vào>","title":"<tên chương đã dịch, không kèm giải thích hay ngoặc kép thừa>"}. Không markdown, không giải thích thêm.
+4. Trả về DUY NHẤT JSON array, mỗi phần tử: {"i":<giữ nguyên số thứ tự ở đầu vào>,"title":"<tên chương đã dịch, không kèm giải thích hay ngoặc kép thừa>"}. Không markdown, không giải thích thêm.
 
 GLOSSARY:
 ${glossaryText || "(trống)"}
 
-DANH SÁCH (id|tên gốc):
+DANH SÁCH (số thứ tự|tên gốc):
 ${compact}`;
   };
 
@@ -2912,28 +2923,28 @@ ${compact}`;
         ...p,
         currentTitle: chunk.length > 1 ? `${chunk[0].title} (+${chunk.length - 1} chương khác)` : chunk[0].title,
       }));
-      let resultById = new Map();
+      let resultByIndex = new Map();
       let chunkErrorMessage = null;
       try {
-        const raw = await callLLM(buildBatchTitleEditPrompt(chunk.map((c) => ({ id: c.id, title: c.title || "" }))));
+        const raw = await callLLM(buildBatchTitleEditPrompt(chunk.map((c) => c.title || "")));
         const parsed = JSON.parse(String(raw).replace(/^```(?:json)?\s*|\s*```$/g, ""));
-        resultById = new Map(
+        resultByIndex = new Map(
           (Array.isArray(parsed) ? parsed : [])
-            .map((item) => [String(item.id), String(item.title || "").trim()])
-            .filter(([, title]) => title)
+            .map((item) => [Number(item.i), String(item.title || "").trim()])
+            .filter(([index, title]) => Number.isInteger(index) && title)
         );
       } catch (e) {
         chunkErrorMessage = e.message;
       }
 
       // Every chapter in the chunk gets resolved here — whether the whole
-      // request failed (chunkErrorMessage set, resultById empty), a
-      // particular id was missing from an otherwise-successful response, or
-      // it translated fine — so `done` always advances exactly once per
+      // request failed (chunkErrorMessage set, resultByIndex empty), a
+      // particular index was missing from an otherwise-successful response,
+      // or it translated fine — so `done` always advances exactly once per
       // chapter and `failed`/`edited` always sum back up to it.
       for (let i = 0; i < chunk.length; i++) {
         const meta = chunk[i];
-        const newTitle = resultById.get(String(meta.id));
+        const newTitle = resultByIndex.get(i);
         if (!newTitle) {
           setBatchTitleErrors((prev) => [...prev, { title: meta.title, message: chunkErrorMessage || "AI không trả về tên cho chương này." }]);
           setBatchTitleProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
