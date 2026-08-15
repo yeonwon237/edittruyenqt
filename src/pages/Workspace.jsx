@@ -781,9 +781,13 @@ export default function Workspace() {
     }).catch(() => {});
   };
 
-  // Batch replace (word-boundary aware, optional)
-  const loadAllProjectChapters = () => fetchAllPages(
-    (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
+  // Batch replace (word-boundary aware, optional). `fields` lets callers
+  // that only ever READ (never write back via chapterUpsertRow, which needs
+  // all 3 text columns present or it would wipe the ones left out) trim the
+  // select — QA/Beta scans only read `edited`, so they don't need to also
+  // download raw_original+qt_raw for every chapter.
+  const loadAllProjectChapters = (fields) => fetchAllPages(
+    (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip, fields),
     { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
   );
 
@@ -916,11 +920,67 @@ export default function Workspace() {
     await handleUpdateProject({ style_toggles:{ ...(project?.style_toggles || {}), qa_settings:qaSettings } });
   };
 
+  // Recomputes issues for just the chapters a fix/ignore action actually
+  // touched and merges them back into the existing story-wide report —
+  // avoids re-fetching + rescanning every chapter in the project (a
+  // select('*') of every chapter's text) after every single QA click, which
+  // was the single biggest Supabase egress driver in the app. `chapters`
+  // here already have their fresh `edited` text in memory (from the
+  // bulkUpsert response), so this costs zero network calls.
+  const patchStoryQaReportForChapters = (chapters, qaSettings) => {
+    setStoryQaReport((report) => {
+      if (!report) return report;
+      const options = { glossaryTerms, pronounRules: project?.contextual_pronoun_rules || [], qaSettings };
+      const touched = new Map(chapters.map((c) => [c.id, c]));
+      const groupMap = new Map();
+      report.groups.forEach((g) => {
+        const locations = (g.locations || []).filter((loc) => !touched.has(loc.chapterId));
+        if (locations.length) groupMap.set(g.key, { ...g, locations, chapterIds: new Set(locations.map((l) => l.chapterId)) });
+      });
+      const chapterResults = report.chapters.filter((c) => !touched.has(c.id));
+      touched.forEach((chapter) => {
+        const issues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        issues.forEach((issue) => {
+          const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct"].join("\u0001");
+          const group = groupMap.get(key) || { key, type: issue.type, label: issue.label, value: issue.value, replacement: issue.replacement || "", contextual: Boolean(issue.contextual), severity: issue.severity, locations: [], chapterIds: new Set() };
+          group.locations.push({ id: `${chapter.id}:${issue.start}:${issue.end}`, chapterId: chapter.id, chapterTitle: chapter.title, chapter_order: chapter.chapter_order, line: issue.line, context: issue.context, start: issue.start, end: issue.end, value: issue.value });
+          group.chapterIds.add(chapter.id);
+          groupMap.set(key, group);
+        });
+        const labels = [...new Set(issues.map((issue) => issue.label))];
+        if (issues.length) chapterResults.push({ id: chapter.id, title: chapter.title, chapter_order: chapter.chapter_order, count: issues.length, summary: labels.slice(0, 3).join(" · ") });
+      });
+      const groups = [...groupMap.values()].map((g) => ({ ...g, count: g.locations.length, chapterCount: g.chapterIds.size, chapterIds: [...g.chapterIds] })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+      chapterResults.sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+      const next = { ...report, chapters: chapterResults, groups, issueCount: chapterResults.reduce((sum, c) => sum + c.count, 0) };
+      localStorage.setItem(`etq-story-qa:${projectId}`, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  // Same idea for an ignore action: no chapter text changes, so just drop
+  // the ignored group's locations from the report locally instead of
+  // rescanning the whole story.
+  const dropStoryQaGroupLocally = (group) => {
+    setStoryQaReport((report) => {
+      if (!report) return report;
+      const removedByChapter = new Map();
+      (group.locations || []).forEach((loc) => removedByChapter.set(loc.chapterId, (removedByChapter.get(loc.chapterId) || 0) + 1));
+      const groups = report.groups.filter((g) => g.key !== group.key);
+      const chapters = report.chapters
+        .map((c) => (removedByChapter.has(c.id) ? { ...c, count: c.count - removedByChapter.get(c.id) } : c))
+        .filter((c) => c.count > 0);
+      const next = { ...report, groups, chapters, issueCount: groups.reduce((sum, g) => sum + g.count, 0) };
+      localStorage.setItem(`etq-story-qa:${projectId}`, JSON.stringify(next));
+      return next;
+    });
+  };
+
   const handleScanStoryQa = async (qaSettings) => {
     setStoryQaRunning(true);
     try {
       if (currentChapter) await flushSave(currentChapter, true);
-      const chapters = await loadAllProjectChapters();
+      const chapters = await loadAllProjectChapters(["title", "chapter_order", "edited"]);
       const options = { glossaryTerms, pronounRules:project?.contextual_pronoun_rules || [], qaSettings };
       const issueGroups = new Map();
       const results = chapters.map((chapter) => {
@@ -973,7 +1033,7 @@ export default function Workspace() {
         await handleSaveQaSettings(settingsAfterDecision);
       }
       toast({title:`Đã thay ${locations.length} vị trí trong ${updated.length} chương`,description:remember?"Đã ghi nhớ thành quy tắc QA của truyện.":"Có thể hoàn tác trong Trung tâm QA."});
-      await handleScanStoryQa(settingsAfterDecision);
+      patchStoryQaReportForChapters(updated, settingsAfterDecision);
     } catch(error){toast({title:"Không thể áp dụng các vị trí đã chọn",description:error.message,variant:"destructive"});}
     finally{setBatchReplaceRunning(false);}
   };
@@ -981,7 +1041,7 @@ export default function Workspace() {
   const handleStoryQaIgnore = async (group, qaSettings, remember) => {
     if (!remember) return;
     const allowedWords=[...new Set([...(qaSettings.allowedWords||[]),group.value])];
-    const next={...qaSettings,allowedWords};await handleSaveQaSettings(next);await handleScanStoryQa(next);
+    const next={...qaSettings,allowedWords};await handleSaveQaSettings(next);dropStoryQaGroupLocally(group);
   };
 
   const isSafeStoryQaGroup = (group) =>
@@ -1030,7 +1090,7 @@ export default function Workspace() {
       if (active) setCurrentChapter(active);
       const totalOccurrences = safeGroups.reduce((sum, group) => sum + (group.locations?.length || 0), 0);
       toast({ title: `Đã sửa ${totalOccurrences} vị trí an toàn trong ${updated.length} chương`, description: "Có thể hoàn tác trong Trung tâm QA." });
-      await handleScanStoryQa(qaSettings);
+      patchStoryQaReportForChapters(updated, qaSettings);
     } catch (error) {
       toast({ title: "Không thể sửa tất cả lỗi an toàn", description: error.message, variant: "destructive" });
     } finally {
@@ -1333,14 +1393,60 @@ export default function Workspace() {
     }catch(error){toast({title:"AI Beta không trả kết quả hợp lệ",description:error.message,variant:"destructive"});}
     finally{setBetaAiRunning(false);}
   };
+  // Beta counterparts of patchStoryQaReportForChapters/dropStoryQaGroupLocally
+  // - avoid a full select('*') rescan of every chapter after a single group
+  // fix/ignore, patch the already-loaded report in memory instead using
+  // chapter text already available (from the bulkUpsert response).
+  const patchStoryBetaReportForChapters = (chapters, settings) => {
+    setStoryBetaReport((report) => {
+      if (!report) return report;
+      const touched = new Map(chapters.map((c) => [c.id, c]));
+      const groupMap = new Map();
+      report.groups.forEach((g) => {
+        const locations = (g.locations || []).filter((loc) => !touched.has(loc.chapterId));
+        if (locations.length) groupMap.set(g.key, { ...g, locations, chapterIds: new Set(locations.map((l) => l.chapterId)) });
+      });
+      const chapterResults = report.chapters.filter((c) => !touched.has(c.id));
+      touched.forEach((chapter) => {
+        const issues = String(chapter.edited || "").trim() ? runBetaCheck(chapter.edited, { settings }) : [];
+        if (issues.length) chapterResults.push({ id: chapter.id, title: chapter.title, chapter_order: chapter.chapter_order, count: issues.length });
+        issues.forEach((item) => {
+          const key = [item.type, item.label, item.value, item.replacement || ""].join("\u0001");
+          const group = groupMap.get(key) || { key, type: item.type, label: item.label, value: item.value, replacement: item.replacement || "", safe: Boolean(item.safe), locations: [], chapterIds: new Set() };
+          group.locations.push({ id: `${chapter.id}:${item.start}:${item.end}`, chapterId: chapter.id, chapterTitle: chapter.title, chapter_order: chapter.chapter_order, line: item.line, context: item.context, start: item.start, end: item.end, value: item.value });
+          group.chapterIds.add(chapter.id);
+          groupMap.set(key, group);
+        });
+      });
+      const groups = [...groupMap.values()].map((g) => ({ ...g, count: g.locations.length, chapterCount: g.chapterIds.size, chapterIds: [...g.chapterIds] })).sort((a, b) => b.count - a.count);
+      chapterResults.sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+      const next = { ...report, chapters: chapterResults, groups, issueCount: chapterResults.reduce((sum, c) => sum + c.count, 0) };
+      localStorage.setItem(`etq-story-beta:${projectId}`, JSON.stringify(next));
+      return next;
+    });
+  };
+  const dropStoryBetaGroupLocally = (group) => {
+    setStoryBetaReport((report) => {
+      if (!report) return report;
+      const removedByChapter = new Map();
+      (group.locations || []).forEach((loc) => removedByChapter.set(loc.chapterId, (removedByChapter.get(loc.chapterId) || 0) + 1));
+      const groups = report.groups.filter((g) => g.key !== group.key);
+      const chapters = report.chapters
+        .map((c) => (removedByChapter.has(c.id) ? { ...c, count: c.count - removedByChapter.get(c.id) } : c))
+        .filter((c) => c.count > 0);
+      const next = { ...report, groups, chapters, issueCount: groups.reduce((sum, g) => sum + g.count, 0) };
+      localStorage.setItem(`etq-story-beta:${projectId}`, JSON.stringify(next));
+      return next;
+    });
+  };
   const handleScanStoryBeta = async (settings) => {
-    setStoryBetaRunning(true);try{if(currentChapter)await flushSave(currentChapter,true);const chapters=await loadAllProjectChapters();const map=new Map();const chapterResults=[];
+    setStoryBetaRunning(true);try{if(currentChapter)await flushSave(currentChapter,true);const chapters=await loadAllProjectChapters(["title","chapter_order","edited"]);const map=new Map();const chapterResults=[];
       chapters.forEach(chapter=>{const issues=String(chapter.edited||"").trim()?runBetaCheck(chapter.edited,{settings}):[];if(issues.length)chapterResults.push({id:chapter.id,title:chapter.title,chapter_order:chapter.chapter_order,count:issues.length});issues.forEach(item=>{const key=[item.type,item.label,item.value,item.replacement||""].join("\u0001");const group=map.get(key)||{key,type:item.type,label:item.label,value:item.value,replacement:item.replacement||"",safe:Boolean(item.safe),count:0,chapterIds:new Set(),locations:[]};group.count++;group.chapterIds.add(chapter.id);group.locations.push({id:`${chapter.id}:${item.start}:${item.end}`,chapterId:chapter.id,chapterTitle:chapter.title,chapter_order:chapter.chapter_order,line:item.line,context:item.context,start:item.start,end:item.end,value:item.value});map.set(key,group);});});
       const groups=[...map.values()].map(group=>({...group,chapterCount:group.chapterIds.size,chapterIds:[...group.chapterIds]})).sort((a,b)=>b.count-a.count);const report={scannedAt:new Date().toISOString(),chapters:chapterResults,groups,issueCount:chapterResults.reduce((sum,ch)=>sum+ch.count,0)};setStoryBetaReport(report);localStorage.setItem(`etq-story-beta:${projectId}`,JSON.stringify(report));toast({title:`Đã quét Beta ${chapters.length} chương`,description:`Còn ${report.issueCount} nghi vấn trong ${chapterResults.length} chương.`});
     }catch(error){toast({title:"Không quét được Beta toàn truyện",description:error.message,variant:"destructive"});}finally{setStoryBetaRunning(false);}
   };
-  const handleStoryBetaReplace = async (group,replacement,settings,selectedIds=[]) => {if(!group?.safe)return;const selected=new Set(selectedIds);const locations=group.locations.filter(loc=>!selected.size||selected.has(loc.id));setStoryBetaRunning(true);try{if(currentChapter)await flushSave(currentChapter,true);const ids=[...new Set(locations.map(loc=>loc.chapterId))];const chapters=await Chapter.getMany(ids);setBatchReplaceUndo({target:"edited",rows:chapters.map(chapterUpsertRow)});const rows=chapters.map(chapter=>{const positions=locations.filter(loc=>loc.chapterId===chapter.id).sort((a,b)=>b.start-a.start);const edited=positions.reduce((text,loc)=>text.slice(loc.start,loc.end)===loc.value?text.slice(0,loc.start)+String(replacement||"")+text.slice(loc.end):text,chapter.edited||"");return chapterUpsertRow({...chapter,edited});});let updated=[];for(let index=0;index<rows.length;index+=200)updated=updated.concat(await Chapter.bulkUpsert(rows.slice(index,index+200)));updated.forEach(ch=>{chapterCacheRef.current.set(ch.id,ch);lastSavedRef.current.set(ch.id,snapshotOf(ch));});const active=updated.find(ch=>ch.id===currentChapter?.id);if(active)setCurrentChapter(active);await handleScanStoryBeta(settings);}catch(error){toast({title:"Không thể sửa Beta toàn truyện",description:error.message,variant:"destructive"});}finally{setStoryBetaRunning(false);}};
-  const handleStoryBetaIgnore = async (group,settings,remember) => {if(!remember)return;const next={...settings,ignored:[...new Set([...(settings.ignored||[]),group.value])]};await handleSaveBetaSettings(next);await handleScanStoryBeta(next);};
+  const handleStoryBetaReplace = async (group,replacement,settings,selectedIds=[]) => {if(!group?.safe)return;const selected=new Set(selectedIds);const locations=group.locations.filter(loc=>!selected.size||selected.has(loc.id));setStoryBetaRunning(true);try{if(currentChapter)await flushSave(currentChapter,true);const ids=[...new Set(locations.map(loc=>loc.chapterId))];const chapters=await Chapter.getMany(ids);setBatchReplaceUndo({target:"edited",rows:chapters.map(chapterUpsertRow)});const rows=chapters.map(chapter=>{const positions=locations.filter(loc=>loc.chapterId===chapter.id).sort((a,b)=>b.start-a.start);const edited=positions.reduce((text,loc)=>text.slice(loc.start,loc.end)===loc.value?text.slice(0,loc.start)+String(replacement||"")+text.slice(loc.end):text,chapter.edited||"");return chapterUpsertRow({...chapter,edited});});let updated=[];for(let index=0;index<rows.length;index+=200)updated=updated.concat(await Chapter.bulkUpsert(rows.slice(index,index+200)));updated.forEach(ch=>{chapterCacheRef.current.set(ch.id,ch);lastSavedRef.current.set(ch.id,snapshotOf(ch));});const active=updated.find(ch=>ch.id===currentChapter?.id);if(active)setCurrentChapter(active);patchStoryBetaReportForChapters(updated,settings);}catch(error){toast({title:"Không thể sửa Beta toàn truyện",description:error.message,variant:"destructive"});}finally{setStoryBetaRunning(false);}};
+  const handleStoryBetaIgnore = async (group,settings,remember) => {if(!remember)return;const next={...settings,ignored:[...new Set([...(settings.ignored||[]),group.value])]};await handleSaveBetaSettings(next);dropStoryBetaGroupLocally(group);};
 
   // Same "apply every group with a single confident replacement across the
   // whole story in one DB pass" pattern as handleStoryQaApplyAllSafe, but
@@ -1383,7 +1489,7 @@ export default function Workspace() {
       if (active) setCurrentChapter(active);
       const totalOccurrences = safeGroups.reduce((sum, group) => sum + (group.locations?.length || 0), 0);
       toast({ title: `Đã sửa ${totalOccurrences} vị trí Beta an toàn trong ${updated.length} chương` });
-      await handleScanStoryBeta(settings);
+      patchStoryBetaReportForChapters(updated, settings);
     } catch (error) {
       toast({ title: "Không thể sửa Beta toàn truyện", description: error.message, variant: "destructive" });
     } finally {
