@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Upload, FileSpreadsheet, Loader2 } from "lucide-react";
+import { ArrowUpToLine, RotateCcw, Upload, FileSpreadsheet, Loader2 } from "lucide-react";
 import {
   CHAPTER_HEADING_PRESETS,
   detectHeadingPreset,
@@ -50,7 +50,28 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
     return result || [];
   }, [text, pattern, presetKey]);
 
-  const parsed = mode === "file" ? fileParsed : pasteParsed;
+  const autoParsed = mode === "file" ? fileParsed : pasteParsed;
+
+  // No auto-split pattern gets every raw crawl 100% right — some site
+  // scripts an in-story chat/system panel or a stray line slips through
+  // and gets over-split into its own bogus "chapter". Rather than needing
+  // a code fix for every new site's quirk, the preview below lets the user
+  // fold a spurious row into the chapter above it themselves. Any manual
+  // fix-up is dropped the moment the underlying auto-parse would change
+  // (new text/pattern/file), since it wouldn't line up anymore.
+  const [manualEdits, setManualEdits] = useState(null);
+  useEffect(() => setManualEdits(null), [autoParsed]);
+  const parsed = manualEdits ?? autoParsed;
+
+  const mergeIntoPrevious = (index) => {
+    if (index <= 0) return;
+    const next = parsed
+      .map((chapter, i) => (i === index - 1
+        ? { title: chapter.title, content: [chapter.content, parsed[index].content].filter(Boolean).join("\n\n") }
+        : chapter))
+      .filter((_, i) => i !== index);
+    setManualEdits(next);
+  };
 
   const handleClose = (v) => {
     if (!v) {
@@ -62,6 +83,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
       setFileParsed([]);
       setFileName("");
       setTxtFileName("");
+      setManualEdits(null);
     }
     onOpenChange(v);
   };
@@ -297,16 +319,43 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
             </select>
           </div>
 
-          <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 max-h-52 overflow-y-auto cute-scrollbar">
-            <p className="text-xs font-medium text-violet-700 mb-2">
-              {parsed.length > 0
-                ? `Xem trước: phát hiện ${parsed.length} chương`
-                : "Chưa có gì để xem trước"}
-            </p>
+          <div className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 max-h-64 overflow-y-auto cute-scrollbar">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <p className="text-xs font-medium text-violet-700">
+                {parsed.length > 0
+                  ? `Xem trước: phát hiện ${parsed.length} chương`
+                  : "Chưa có gì để xem trước"}
+              </p>
+              {manualEdits && (
+                <button
+                  onClick={() => setManualEdits(null)}
+                  className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-violet-600"
+                >
+                  <RotateCcw className="w-3 h-3" /> Đặt lại tự động
+                </button>
+              )}
+            </div>
+            {parsed.length > 1 && (
+              <p className="text-[11px] text-slate-400 mb-2">
+                Nếu app tách lố (VD: 1 chương thật bị chẻ làm nhiều mục), bấm ↑ ở mục thừa để gộp
+                nó vào chương ngay phía trên.
+              </p>
+            )}
             {parsed.map((c, i) => (
-              <div key={i} className="text-xs text-slate-600 py-1 border-b border-violet-100 last:border-0">
-                <span className="font-semibold">{c.title}</span>{" "}
-                <span className="text-slate-400">({(c.content || "").length.toLocaleString("vi")} ký tự)</span>
+              <div key={i} className="flex items-center gap-2 text-xs text-slate-600 py-1 border-b border-violet-100 last:border-0">
+                {i > 0 && (
+                  <button
+                    onClick={() => mergeIntoPrevious(i)}
+                    title="Gộp mục này vào chương phía trên"
+                    className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-violet-100 hover:text-violet-600"
+                  >
+                    <ArrowUpToLine className="w-3 h-3" />
+                  </button>
+                )}
+                <span className={i === 0 ? "ml-[22px]" : ""}>
+                  <span className="font-semibold">{c.title}</span>{" "}
+                  <span className="text-slate-400">({(c.content || "").length.toLocaleString("vi")} ký tự)</span>
+                </span>
               </div>
             ))}
           </div>
