@@ -44,6 +44,14 @@ const SENTENCE_END_PUNCTUATION = /[。！？.!?…”"」，,、—－\-：:；;
 // title to the checks above (short, no trailing sentence punctuation) but
 // are plot content, not a chapter boundary.
 const NOT_A_TITLE_START = /^[#＃]/;
+// Same idea for in-story "system"/group-chat panel lines, e.g.
+// "［还有，你把视角调高一点。］" or "对面的纪溪：［别说废话。］" — a whole
+// line ending in a closing bracket/paren/quote is almost always this kind
+// of inline UI/dialogue snippet, not a title. The one legitimate exception
+// is a "番外"(-style) bonus-chapter suffix tag, e.g. "苏应篇一[番外]", which
+// is explicitly allowed back through below.
+const CLOSING_BRACKET_END = /[\]］)）》’'：:]$/;
+const KNOWN_BONUS_SUFFIX_END = /[[［]\s*(番外|外传|后续|加更|彩蛋|SP|花絮)\s*[\]］]$/i;
 
 // Some raw crawled dumps mark a chapter with nothing but its bare title
 // sitting alone on its own line — no "第X章"/"Chương N" prefix at all —
@@ -59,11 +67,13 @@ export function splitByBlankLineTitles(text) {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     if (!trimmed) { blankRun++; continue; }
+    const isChatOrSystemLine = CLOSING_BRACKET_END.test(trimmed) && !KNOWN_BONUS_SUFFIX_END.test(trimmed);
     if (
       blankRun >= 1 &&
       trimmed.length <= TITLE_LINE_MAX_LENGTH &&
       !SENTENCE_END_PUNCTUATION.test(trimmed) &&
-      !NOT_A_TITLE_START.test(trimmed)
+      !NOT_A_TITLE_START.test(trimmed) &&
+      !isChatOrSystemLine
     ) {
       boundaries.push({ lineIndex: i, title: trimmed });
     }
