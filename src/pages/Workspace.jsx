@@ -808,7 +808,9 @@ export default function Workspace() {
     setBatchReplaceRunning(true);
     try {
       if (currentChapter) await flushSave(currentChapter, true);
-      const chapters = await loadAllProjectChapters();
+      // Read-only — only ever reads chapter[target], never writes, so unlike
+      // the "apply" path below it doesn't need the other 2 text columns.
+      const chapters = await loadAllProjectChapters(["title", "chapter_order", target]);
       const matches = chapters.map((chapter) => ({
         id: chapter.id,
         title: chapter.title,
