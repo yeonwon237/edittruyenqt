@@ -26,11 +26,24 @@ export const CHAPTER_HEADING_PRESETS = {
   custom: { label: "Tùy chỉnh (regex)", source: "" },
 };
 
-const TITLE_LINE_MAX_LENGTH = 40;
-// A real standalone chapter title rarely ends with sentence-ending
-// punctuation — a narration/dialogue line almost always does — so this is
-// the main guard against a short mid-paragraph line being mistaken for one.
-const SENTENCE_END_PUNCTUATION = /[。！？.!?…”"]$/;
+// Real chapter/section titles seen in practice (crawled raw dumps, docx
+// exports of Chinese web novels) are short — a few characters, occasionally
+// a short phrase with a "[番外]"/"上"/"下" suffix — never a full sentence.
+// Keeping this tight is what excludes ordinary paragraph lines that happen
+// to lack ending punctuation.
+const TITLE_LINE_MAX_LENGTH = 20;
+// A real standalone chapter title essentially never ends with punctuation
+// that signals the line continues into more text — sentence-enders
+// (。！？), a dangling colon/dash leading into a quote ("她说：" / "——"),
+// or a trailing comma — a narration/dialogue line almost always ends with
+// one of these. This is the main guard against a short mid-paragraph line
+// being mistaken for a title.
+const SENTENCE_END_PUNCTUATION = /[。！？.!?…”"」，,、—－\-：:；;]$/;
+// Some novels script in-story "trending topic" hashtags (e.g. "#盛云舒隐婚#")
+// as their own short standalone line for dramatic effect — these read as a
+// title to the checks above (short, no trailing sentence punctuation) but
+// are plot content, not a chapter boundary.
+const NOT_A_TITLE_START = /^[#＃]/;
 
 // Some raw crawled dumps mark a chapter with nothing but its bare title
 // sitting alone on its own line — no "第X章"/"Chương N" prefix at all —
@@ -46,7 +59,12 @@ export function splitByBlankLineTitles(text) {
   for (let i = 0; i < lines.length; i++) {
     const trimmed = lines[i].trim();
     if (!trimmed) { blankRun++; continue; }
-    if (blankRun >= 1 && trimmed.length <= TITLE_LINE_MAX_LENGTH && !SENTENCE_END_PUNCTUATION.test(trimmed)) {
+    if (
+      blankRun >= 1 &&
+      trimmed.length <= TITLE_LINE_MAX_LENGTH &&
+      !SENTENCE_END_PUNCTUATION.test(trimmed) &&
+      !NOT_A_TITLE_START.test(trimmed)
+    ) {
       boundaries.push({ lineIndex: i, title: trimmed });
     }
     blankRun = 0;
