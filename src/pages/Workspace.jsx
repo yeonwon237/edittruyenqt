@@ -2635,14 +2635,25 @@ ${sourceText}`;
     return exportChaptersCsv(chapters, filename);
   };
 
+  // chapterBody() (exportUtils.js) picks edited || qt_raw || raw_original per
+  // chapter, so this can't just select `edited` — some chapters may not have
+  // it yet. But most active projects DO have `edited` filled for most
+  // chapters, so a lite first pass (title/chapter_order/edited only) plus a
+  // second, full-column pass restricted to just the chapters actually
+  // missing `edited` avoids downloading raw_original+qt_raw for chapters
+  // that will never use them.
   const handleExportAllChapters = async (format = "csv") => {
     if (chapterList.length === 0) return;
     setExportingChapters(true);
     try {
-      const full = await fetchAllPages(
-        (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip),
+      const lite = await fetchAllPages(
+        (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip, ["title", "chapter_order", "edited"]),
         { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
       );
+      const missingEditedIds = lite.filter((c) => !String(c.edited || "").trim()).map((c) => c.id);
+      const fallbackChapters = missingEditedIds.length ? await Chapter.getMany(missingEditedIds) : [];
+      const fallbackById = new Map(fallbackChapters.map((c) => [c.id, c]));
+      const full = lite.map((c) => fallbackById.get(c.id) || c);
       await runChaptersExport(format, full, project?.title || "Chuong");
       toast({ title: `Đã xuất ${full.length} chương! 📤` });
     } catch (e) {
@@ -2651,10 +2662,12 @@ ${sourceText}`;
     setExportingChapters(false);
   };
 
-  // Same full-content read as "Xuất tất cả", but filtered down to only
-  // chapters that actually have Bản Edit content — for when the user has
-  // only finished editing a handful of chapters out of a much bigger import
-  // and wants just those, not the whole (mostly still-QT-thô) project.
+  // Filtered down to only chapters that actually have Bản Edit content — for
+  // when the user has only finished editing a handful of chapters out of a
+  // much bigger import and wants just those, not the whole (mostly still
+  // QT-thô) project. The server-side filter already guarantees every
+  // returned row has non-empty `edited`, so unlike "Xuất tất cả" this never
+  // needs the raw_original/qt_raw fallback — safe to select only `edited`.
   const handleExportEditedChapters = async (format = "csv") => {
     if (chapterList.length === 0) return;
     setExportingEdited(true);
@@ -2665,7 +2678,8 @@ ${sourceText}`;
           "edited",
           "chapter_order",
           limit,
-          skip
+          skip,
+          ["title", "chapter_order", "edited"]
         ),
         { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
       );
@@ -2786,7 +2800,7 @@ ${sourceText}`;
         );
         const finalText = applyHardRules(editedText);
 
-        await Chapter.update(meta.id, { edited: finalText });
+        await Chapter.update(meta.id, { edited: finalText }, { returning: false });
         setEditedChapterIds((current) => new Set(current).add(meta.id));
         const updatedChapter = { ...chapter, edited: finalText };
         chapterCacheRef.current.set(meta.id, updatedChapter);
@@ -2874,7 +2888,7 @@ Tên chương đã dịch:`;
       try {
         const newTitle = (await callLLM(buildTitleEditPrompt(meta.title || ""))).trim();
         if (newTitle) {
-          await Chapter.update(meta.id, { title: newTitle });
+          await Chapter.update(meta.id, { title: newTitle }, { returning: false });
           setChapterList((prev) =>
             prev.map((c) => (c.id === meta.id ? { ...c, title: newTitle } : c))
           );
