@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import {
   BookOpen, Settings as SettingsIcon, LogOut, Volume2, Clapperboard,
-  Captions, ArrowUpRight, Sparkles, Bot, Layers3, ShieldCheck, Zap, Palette, Gamepad2,
+  Captions, ArrowUpRight, Sparkles, Bot, Layers3, ShieldCheck, Zap, Palette, Gamepad2, Wand2,
 } from "lucide-react";
 import AISettingsDialog from "@/components/workspace/AISettingsDialog";
 
@@ -14,6 +14,7 @@ const FEATURES = [
   { id: "subtitle", icon: Captions, title: "Tạo phụ đề", eyebrow: "Căn chỉnh thời gian", desc: "Tách câu, điều chỉnh timeline và xuất tệp phụ đề SRT hoặc VTT chuyên nghiệp.", to: "/create-subtitle", color: "sky", number: "04" },
   { id: "cover", icon: Palette, title: "Làm bìa truyện", eyebrow: "Studio thiết kế", desc: "Tạo bìa truyện chuyên nghiệp từ ảnh của bạn với chữ nghệ thuật, bố cục linh hoạt và xuất ảnh chất lượng cao.", to: "/cover-designer", color: "rose", number: "05" },
   { id: "roleplay", icon: Gamepad2, title: "Roleplay Studio", eyebrow: "Xuyên sách", desc: "Biến những chương truyện đã edit thành mini-game có Hệ Thống, nhiệm vụ, lựa chọn và nhiều kết cục.", to: "/roleplay", color: "fuchsia", number: "06" },
+  { id: "prompt", icon: Wand2, title: "Tạo Prompt Dịch", eyebrow: "Trước khi vào dự án", desc: "Chọn thể loại, bối cảnh, yêu cầu định dạng — nhận ngay 1 prompt dịch chuẩn để đem qua Gemini dùng, không cần tạo dự án trước.", to: "/prompt-generator", color: "teal", number: "07" },
 ];
 
 const TONES = {
@@ -23,6 +24,7 @@ const TONES = {
   sky: { icon: "bg-sky-600 text-white", glow: "from-sky-100/80", text: "text-sky-600" },
   rose: { icon: "bg-rose-600 text-white", glow: "from-rose-100/80", text: "text-rose-600" },
   fuchsia: { icon: "bg-fuchsia-600 text-white", glow: "from-fuchsia-100/80", text: "text-fuchsia-600" },
+  teal: { icon: "bg-teal-600 text-white", glow: "from-teal-100/80", text: "text-teal-600" },
 };
 
 export default function Home() {
@@ -67,7 +69,7 @@ export default function Home() {
           </div>
           <div className="dashboard-hero__orb" />
           <div className="relative z-10 mt-10 grid gap-3 border-t border-white/10 pt-6 sm:grid-cols-3">
-            <div className="hero-stat"><Layers3 /><span><strong>6 công cụ</strong><small>Một quy trình thống nhất</small></span></div>
+            <div className="hero-stat"><Layers3 /><span><strong>7 công cụ</strong><small>Một quy trình thống nhất</small></span></div>
             <div className="hero-stat"><ShieldCheck /><span><strong>Riêng tư</strong><small>Dữ liệu trong tài khoản</small></span></div>
             <div className="hero-stat"><Sparkles /><span><strong>AI linh hoạt</strong><small>Gemini · GPT · Claude</small></span></div>
           </div>

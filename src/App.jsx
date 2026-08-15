@@ -20,6 +20,7 @@ import CreateVideo from '@/pages/CreateVideo';
 import CreateSubtitle from '@/pages/CreateSubtitle';
 import CoverDesigner from '@/pages/CoverDesigner';
 import RoleplayStudio from '@/pages/RoleplayStudio';
+import PromptGenerator from '@/pages/PromptGenerator';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth } = useAuth();
@@ -50,6 +51,7 @@ const AuthenticatedApp = () => {
         <Route path="/cover-designer" element={<CoverDesigner />} />
         <Route path="/roleplay" element={<RoleplayStudio />} />
         <Route path="/roleplay/:projectId" element={<RoleplayStudio />} />
+        <Route path="/prompt-generator" element={<PromptGenerator />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
