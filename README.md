@@ -28,3 +28,7 @@ Open the local URL printed by Vite.
 ## Deploy
 
 Deployed on Vercel, auto-deploying from the `main` branch. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` under Vercel → Project Settings → Environment Variables.
+
+## Optional Editor → LilyBeta integration
+
+The new **Gửi sang LilyBeta** button supports current, changed and all chapters with batch progress/retry. Existing editing/export controls remain unchanged. See [setup and safety rules](docs/lilybeta-sync.md); the new API is disabled until server-only secret and user allowlist are configured.

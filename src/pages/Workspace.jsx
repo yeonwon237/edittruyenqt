@@ -1,3 +1,4 @@
+import LilyBetaSync from "@/components/workspace/LilyBetaSync";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/api/supabaseClient";
@@ -3327,6 +3328,20 @@ ${compact}`;
             </button>
           </div>
 
+          <LilyBetaSync
+            key={projectId}
+            projectId={projectId}
+            currentChapterId={currentChapter?.id}
+            beforeSync={async () => {
+              if (!currentChapter?.id) return;
+              const changes = changedContentFields(currentChapter, lastSavedRef.current.get(currentChapter.id));
+              if (Object.keys(changes).length) {
+                await Chapter.update(currentChapter.id, changes, { returning: false });
+                lastSavedRef.current.set(currentChapter.id, snapshotOf(currentChapter));
+                chapterCacheRef.current.set(currentChapter.id, currentChapter);
+              }
+            }}
+          />
           <button
             onClick={handleLogout}
             className="p-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
