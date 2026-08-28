@@ -35,3 +35,9 @@ Local UI QA harness (synthetic Supabase data, real local LilyBeta integration AP
 3. Current → changed → retry failed batch → changed (0 new) → whole (idempotent).
 
 The harness is not loaded by production. Production authentication/networking and Vercel deployment still need environment-specific verification. No production secret/database data was changed during implementation.
+
+### Chọn chương theo ý muốn
+
+Trong hộp gửi, chọn **Chọn chương để gửi** để tải trạng thái từ LilyBeta. Đánh dấu từng chương hoặc nhập khoảng/vị trí như `1-20, 25, 30-35`, bấm **Chọn theo khoảng**, rồi **Gửi N chương đã chọn**. Chọn theo khoảng thay thế lựa chọn trước; có thể sửa từng checkbox sau đó. Danh sách chia trang 100 dòng để không treo truyện dài; lựa chọn giữ nguyên khi đổi trang. Số thứ tự là vị trí trong Editor; ID gửi đi vẫn là UUID, không phụ thuộc tên hay thứ tự chương.
+
+**Gửi chương chưa gửi** chỉ gửi những chương chưa có mapping. **Gửi các chương đã thay đổi** bao gồm cả chương mới và chương đã gửi nhưng sửa lại. Gửi lại một chương có cùng ID không tạo bản trùng: kết quả phân biệt Tạo mới / Cập nhật / Không đổi và hiển thị xung đột riêng. Ví dụ gửi 1–20 rồi 15–25: chỉ thêm 21–25, bỏ qua 15–20 nếu nội dung không đổi. Không thay đổi cơ chế bảo vệ công việc Beta hoặc workflow upload thủ công.

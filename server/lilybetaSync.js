@@ -52,7 +52,7 @@ export function createLilyBetaSyncHandler({ env = process.env, fetchImpl = fetch
         const synced = new Map(state.chapters.map(ch => [ch.editorChapterId, ch]));
         return res.status(200).json({
           betaBookId: state.betaBookId, syncState: state.syncState, totalChapters: metadata.length,
-          chapters: metadata.map((ch, index) => ({ id: ch.id, title: ch.title, changed: !synced.has(ch.id) || synced.get(ch.id).syncStatus !== 'SYNCED' || new Date(ch.updated_date).toISOString() !== synced.get(ch.id).updatedAt || index + 1 !== synced.get(ch.id).sourceChapterIndex })),
+          chapters: metadata.map((ch, index) => ({ id: ch.id, title: ch.title, synced: synced.has(ch.id), syncStatus: synced.get(ch.id)?.syncStatus || 'NOT_SYNCED', changed: !synced.has(ch.id) || synced.get(ch.id).syncStatus !== 'SYNCED' || new Date(ch.updated_date).toISOString() !== synced.get(ch.id).updatedAt || index + 1 !== synced.get(ch.id).sourceChapterIndex })),
         });
       }
       const positions = new Map(metadata.map((ch, index) => [ch.id, index + 1]));

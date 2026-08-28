@@ -81,3 +81,34 @@ test('network errors do not leak server secret or internal URLs', async () => {
   const result = await f.request(); assert.equal(result.status, 502);
   assert.ok(!JSON.stringify(result).includes(env.LILYBETA_SYNC_SECRET));
 });
+
+test('plan distinguishes never-sent chapters from already-synced chapters', async () => {
+  const f = fixture();
+  const existing = (await f.request()).data.chapters[0];
+  assert.equal(existing.synced, true);
+  assert.equal(existing.syncStatus, 'SYNCED');
+  const fresh = fixture({ respond: url => url.includes('/books/') ? new Response(JSON.stringify({ betaBookId: null, chapters: [] })) : undefined });
+  const chapter = (await fresh.request()).data.chapters[0];
+  assert.equal(chapter.synced, false);
+  assert.equal(chapter.changed, true);
+  assert.equal(chapter.syncStatus, 'NOT_SYNCED');
+});
+
+import { selectChapterRange, chapterIdsForMode } from '../src/components/workspace/lilybetaSelection.js';
+const selectionChapters = Array.from({ length: 40 }, (_, i) => ({ id: `chapter-${i + 1}`, synced: i < 20, changed: i >= 20 || i === 1 }));
+test('custom range selects exact IDs, deduplicates overlaps, and retains source order', () => {
+  assert.deepEqual(selectChapterRange(selectionChapters, '25, 1-3, 2-4, 30-31'), ['chapter-1','chapter-2','chapter-3','chapter-4','chapter-25','chapter-30','chapter-31']);
+  assert.equal(selectChapterRange(selectionChapters, '1-20').length, 20);
+  for (const invalid of ['', '0', '4-2', '1-41', '1,,2', '1.2', '-1', '1-999999999999999999999']) assert.throws(() => selectChapterRange(selectionChapters, invalid));
+});
+test('after 20 sent, never-sent mode selects only 21–40; changed still includes edited old chapters', () => {
+  assert.deepEqual(chapterIdsForMode(selectionChapters, 'new'), selectionChapters.slice(20).map(ch => ch.id));
+  assert.equal(chapterIdsForMode(selectionChapters, 'changed').length, 21);
+  assert.equal(chapterIdsForMode(selectionChapters, 'all').length, 40);
+  assert.deepEqual(chapterIdsForMode(selectionChapters, 'current', 'chapter-5'), ['chapter-5']);
+});
+test('manual choices are stable IDs across reordering and deleted selections require refresh', () => {
+  assert.deepEqual(chapterIdsForMode([...selectionChapters].reverse(), 'selected', null, ['chapter-2','chapter-5','chapter-2']), ['chapter-5','chapter-2']);
+  assert.throws(() => chapterIdsForMode(selectionChapters, 'selected', null, ['removed-id']));
+  assert.deepEqual(chapterIdsForMode(selectionChapters, 'selected', null, []), []);
+});
