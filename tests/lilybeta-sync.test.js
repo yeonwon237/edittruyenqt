@@ -54,12 +54,22 @@ test('batch reads only selected owned chapters and forwards original UUID identi
   const payload = JSON.parse(out.options.body);
   assert.equal(payload.editorBookId, projectId); assert.equal(payload.chapters[0].editorChapterId, chapterId);
   assert.equal(payload.chapters[0].chapterIndex, 1); // Fractional chapter_order is not an ID/index.
+  assert.equal(payload.overwriteExisting, false);
   assert.deepEqual(payload.chapters[0].paragraphs, ['Một dòng.', 'Dòng hai.']);
   assert.equal(payload.chapters[0].contentHash, chapterHash('Chương 1', ['Một dòng.', 'Dòng hai.']));
   assert.equal(out.options.headers.Authorization, `Bearer ${env.LILYBETA_SYNC_SECRET}`);
   assert.ok(!out.options.body.includes('synthetic-editor-session'));
   assert.ok(f.calls.filter(c => c.url.startsWith(env.SUPABASE_URL)).every(c => c.options.headers.Authorization === 'Bearer synthetic-editor-session'));
   assert.ok(!f.calls.some(c => c.url.includes('evil.invalid')));
+});
+test('explicit overwrite option is validated and forwarded to LilyBeta', async () => {
+  const f = fixture();
+  assert.equal((await f.request({ projectId, action: 'batch', chapterIds: [chapterId], overwriteExisting: true })).status, 200);
+  assert.equal(JSON.parse(f.calls.find(c => c.url.endsWith('/sync')).options.body).overwriteExisting, true);
+
+  const invalid = fixture();
+  assert.equal((await invalid.request({ projectId, action: 'batch', chapterIds: [chapterId], overwriteExisting: 'yes' })).status, 400);
+  assert.ok(!invalid.calls.some(c => c.url.endsWith('/sync')));
 });
 test('foreign chapter IDs and oversized batches are rejected', async () => {
   const f = fixture(); assert.equal((await f.request({ projectId, action: 'batch', chapterIds: [userId] })).status, 404);

@@ -14,6 +14,7 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync }
   const [chapters, setChapters] = useState(null);
   const [selectedIds, setSelectedIds] = useState([]);
   const [range, setRange] = useState('');
+  const [overwriteExisting, setOverwriteExisting] = useState(false);
   const [page, setPage] = useState(0);
   const pageSize = 100;
   const selectedSet = new Set(selectedIds);
@@ -75,16 +76,16 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync }
       while (queue.length && mountedRef.current) {
         const chapterIds = queue.shift();
         try {
-          const result = await request({ action: 'batch', chapterIds });
+          const result = await request({ action: 'batch', chapterIds, overwriteExisting });
           setBetaBookId(result.betaBookId);
-          setCounts(prev => ({ created: prev.created + result.results.filter(ch => ch.status === 'CREATED').length, updated: prev.updated + result.results.filter(ch => ch.status === 'UPDATED').length, unchanged: prev.unchanged + result.results.filter(ch => ch.status === 'ALREADY_SYNCED').length }));
+          setCounts(prev => ({ created: prev.created + result.results.filter(ch => ch.status === 'CREATED').length, updated: prev.updated + result.results.filter(ch => ['UPDATED', 'OVERWRITTEN'].includes(ch.status)).length, unchanged: prev.unchanged + result.results.filter(ch => ch.status === 'ALREADY_SYNCED').length }));
           setChapters(prev => prev && prev.map(ch => {
             const accepted = result.results.find(r => r.editorChapterId === ch.id);
             if (!accepted) return ch;
-            const ok = ['CREATED', 'UPDATED', 'ALREADY_SYNCED'].includes(accepted.status);
+            const ok = ['CREATED', 'UPDATED', 'OVERWRITTEN', 'ALREADY_SYNCED'].includes(accepted.status);
             return { ...ch, synced: !!accepted.betaChapterId, changed: !ok, syncStatus: ok ? 'SYNCED' : accepted.status };
           }));
-          const blocked = result.results.filter(ch => !['CREATED', 'UPDATED', 'ALREADY_SYNCED'].includes(ch.status));
+          const blocked = result.results.filter(ch => !['CREATED', 'UPDATED', 'OVERWRITTEN', 'ALREADY_SYNCED'].includes(ch.status));
           setConflicts(prev => [...prev, ...blocked]);
           setProgress(prev => ({ ...prev, done: prev.done + chapterIds.length }));
         } catch (err) {
@@ -108,8 +109,12 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync }
     {open && createPortal(<div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="lilybeta-sync-title">
       <div className="bg-white rounded-2xl p-5 w-full max-w-2xl max-h-[90dvh] overflow-y-auto space-y-4 text-slate-800 shadow-xl">
         <h2 id="lilybeta-sync-title" className="font-bold text-lg">Gửi bản edit sang LilyBeta</h2>
-        <p className="text-sm">Nút gửi sẽ lưu chương hiện tại trước khi đồng bộ. Chỉ gửi cột Bản edit; chương đã có công việc Beta sẽ không bị ghi đè. Xuất file vẫn dùng như trước.</p>
-        <p className="text-xs text-slate-600">Gửi lại cùng chương không tạo bản trùng: chương không đổi được bỏ qua, chương có thay đổi được cập nhật nếu an toàn. “Chưa gửi” chỉ gửi các chương chưa có trên LilyBeta.</p>
+        <p className="text-sm">Nút gửi sẽ lưu chương hiện tại trước khi đồng bộ và chỉ gửi cột Bản edit. Xuất file vẫn dùng như trước.</p>
+        <p className="text-xs text-slate-600">Gửi lại cùng chương không tạo bản trùng. Nếu nội dung đã sửa, bật tùy chọn ghi đè bên dưới để cập nhật lại chương tương ứng trên LilyBeta.</p>
+        <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+          <input type="checkbox" checked={overwriteExisting} onChange={e => setOverwriteExisting(e.target.checked)} disabled={busy} className="mt-1" />
+          <span><b>Cho phép ghi đè chương đã gửi</b><span className="block text-xs mt-0.5">Dùng khi bạn đã sửa Bản edit và muốn gửi lại. Nội dung hiện có của đúng chương đó trên LilyBeta sẽ được thay thế.</span></span>
+        </label>
         <div className="flex flex-wrap gap-2 text-sm">
           <button disabled={busy || !currentChapterId} onClick={() => run('current')} className="border rounded-lg p-2 disabled:opacity-40">Gửi chương hiện tại</button>
           <button disabled={busy} onClick={() => run('changed')} className="border rounded-lg p-2 disabled:opacity-40">Gửi các chương đã thay đổi</button>

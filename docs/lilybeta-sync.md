@@ -21,7 +21,7 @@ Before enabling, deploy LilyBeta's additive migrations/API and configure its act
 - Failed batches can retry independently. Checkpoints are held by LilyBeta, so reload + changed resumes without duplicates. Business conflicts remain visible and do not count as successfully synced content.
 - Source chapters have stable UUIDs; fractional `chapter_order` is converted to a source ordinal, never used as identity.
 - LilyBeta preserves its existing dense chapter positions. First sending source chapter 13 creates one Beta chapter at position 1 with original title; later chapters append. Reorder does not move existing Beta anchors.
-- Conservative v1 source safety: after a Beta book has ever been assigned, content changes return `SOURCE_CONFLICT`. New chapters may still append. No force overwrite or automatic merge exists.
+- Ghi đè là tùy chọn chủ động: batch chỉ gửi `overwriteExisting: true` khi người dùng bật **Cho phép ghi đè chương đã gửi**. Mặc định, nội dung đã có trên Beta vẫn được bảo vệ và có thể trả về `SOURCE_CONFLICT`.
 - Existing source book metadata is not renamed over an Admin's edits; missing source chapters are not deleted.
 
 ## Verification
@@ -40,4 +40,4 @@ The harness is not loaded by production. Production authentication/networking an
 
 Trong hộp gửi, chọn **Chọn chương để gửi** để tải trạng thái từ LilyBeta. Đánh dấu từng chương hoặc nhập khoảng/vị trí như `1-20, 25, 30-35`, bấm **Chọn theo khoảng**, rồi **Gửi N chương đã chọn**. Chọn theo khoảng thay thế lựa chọn trước; có thể sửa từng checkbox sau đó. Danh sách chia trang 100 dòng để không treo truyện dài; lựa chọn giữ nguyên khi đổi trang. Số thứ tự là vị trí trong Editor; ID gửi đi vẫn là UUID, không phụ thuộc tên hay thứ tự chương.
 
-**Gửi chương chưa gửi** chỉ gửi những chương chưa có mapping. **Gửi các chương đã thay đổi** bao gồm cả chương mới và chương đã gửi nhưng sửa lại. Gửi lại một chương có cùng ID không tạo bản trùng: kết quả phân biệt Tạo mới / Cập nhật / Không đổi và hiển thị xung đột riêng. Ví dụ gửi 1–20 rồi 15–25: chỉ thêm 21–25, bỏ qua 15–20 nếu nội dung không đổi. Không thay đổi cơ chế bảo vệ công việc Beta hoặc workflow upload thủ công.
+**Gửi chương chưa gửi** chỉ gửi những chương chưa có mapping. **Gửi các chương đã thay đổi** bao gồm cả chương mới và chương đã gửi nhưng sửa lại. Gửi lại một chương có cùng ID không tạo bản trùng: kết quả phân biệt Tạo mới / Cập nhật / Không đổi và hiển thị xung đột riêng. Ví dụ gửi 1–20 rồi 15–25: chỉ thêm 21–25, bỏ qua 15–20 nếu nội dung không đổi. Khi cần thay nội dung chương 15 đã gửi, bật **Cho phép ghi đè chương đã gửi** rồi gửi chương đó; LilyBeta phải hỗ trợ cờ batch `overwriteExisting` trên integration API.
