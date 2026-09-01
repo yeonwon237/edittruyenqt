@@ -24,6 +24,7 @@ import StoryQaDialog from "@/components/workspace/StoryQaDialog";
 import BetaCheckDialog from "@/components/workspace/BetaCheckDialog";
 import StoryBetaDialog from "@/components/workspace/StoryBetaDialog";
 import BulkColumnMoveDialog from "@/components/workspace/BulkColumnMoveDialog";
+import ChapterPicker from "@/components/workspace/ChapterPicker";
 import WorkflowProgress from "@/components/workspace/WorkflowProgress";
 import QtCleanupDialog from "@/components/workspace/QtCleanupDialog";
 import {
@@ -50,6 +51,7 @@ import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
+import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterEditStats";
 import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -134,6 +136,7 @@ export default function Workspace() {
   const [chapterList, setChapterList] = useState([]);
   const [currentChapter, setCurrentChapter] = useState(null);
   const [editedChapterIds, setEditedChapterIds] = useState(new Set());
+  const [editedWordCounts, setEditedWordCounts] = useState({});
   const [refreshingProgress, setRefreshingProgress] = useState(false);
   const [markingQa, setMarkingQa] = useState(false);
   const [glossaryTerms, setGlossaryTerms] = useState([]);
@@ -269,11 +272,12 @@ export default function Workspace() {
           "chapter_order",
           limit,
           skip,
-          ["chapter_order"]
+          ["chapter_order", "edited"]
         ),
         { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
       );
       setEditedChapterIds(new Set(edited.map((chapter) => chapter.id)));
+      setEditedWordCounts(Object.fromEntries(edited.map((chapter) => [chapter.id, countVietnameseWords(chapter.edited)])));
       if (showToast) toast({ title: "Đã làm mới tiến độ" });
     } catch (error) {
       if (showToast) toast({ title: "Không tải được tiến độ", description: error.message, variant: "destructive" });
@@ -496,6 +500,7 @@ export default function Workspace() {
           capCache(chapterCacheRef.current);
           if (currentChapter?.id === chapter.id) setCurrentChapter(updated);
           setEditedChapterIds((current) => new Set(current).add(chapter.id));
+          setEditedWordCounts((current) => ({ ...current, [chapter.id]: countVietnameseWords(text) }));
           return { chapterId: chapter.id, title: updated.title, saved: true };
         }
 
@@ -537,6 +542,14 @@ export default function Workspace() {
       const next = new Set(current);
       if (currentChapter.edited?.trim()) next.add(currentChapter.id);
       else next.delete(currentChapter.id);
+      return next;
+    });
+    setEditedWordCounts((current) => {
+      const count = countVietnameseWords(currentChapter.edited);
+      if (count) return current[currentChapter.id] === count ? current : { ...current, [currentChapter.id]: count };
+      if (!(currentChapter.id in current)) return current;
+      const next = { ...current };
+      delete next[currentChapter.id];
       return next;
     });
   }, [currentChapter?.id, currentChapter?.edited]);
@@ -2818,6 +2831,7 @@ ${sourceText}`;
 
         await Chapter.update(meta.id, { edited: finalText }, { returning: false });
         setEditedChapterIds((current) => new Set(current).add(meta.id));
+        setEditedWordCounts((current) => ({ ...current, [meta.id]: countVietnameseWords(finalText) }));
         const updatedChapter = { ...chapter, edited: finalText };
         chapterCacheRef.current.set(meta.id, updatedChapter);
         lastSavedRef.current.set(meta.id, snapshotOf(updatedChapter));
@@ -3073,6 +3087,9 @@ ${compact}`;
   const betaStatusOf=(meta)=>{const record=betaRecords[meta.id];if(!record)return"pending";if(record.rulesHash!==betaRulesHash)return"stale";if(currentChapter?.id===meta.id)return record.contentHash===quickHash(currentChapter.edited||"")?"done":"stale";const updated=Date.parse(meta.updated_date||0);return updated&&record.chapterUpdatedAt&&updated>Date.parse(record.chapterUpdatedAt)+1000?"stale":"done";};
   const qaCount = chapterList.filter((chapter) => qaStatusOf(chapter) === "done").length;
   const editedCount = chapterList.filter((chapter) => editedChapterIds.has(chapter.id)).length;
+  const editedWordSummary = useMemo(() => summarizeChapterWordCounts(editedWordCounts), [editedWordCounts]);
+  const qaIssueIds = useMemo(() => new Set((storyQaReport?.chapters || []).map(item => item.id)), [storyQaReport]);
+  const betaIssueIds = useMemo(() => new Set((storyBetaReport?.chapters || []).map(item => item.id)), [storyBetaReport]);
   const qaNeedsRecheck = chapterList.filter((chapter) => qaRecords[chapter.id] && qaStatusOf(chapter) === "stale").length;
   const betaCount=chapterList.filter(ch=>betaStatusOf(ch)==="done").length;
   const betaNeedsRecheck=chapterList.filter(ch=>betaRecords[ch.id]&&betaStatusOf(ch)==="stale").length;
@@ -3262,17 +3279,7 @@ ${compact}`;
           <div className="flex-1" />
 
           {/* Chapter selector */}
-          <select
-            value={currentChapter?.id || ""}
-            onChange={(e) => switchChapter(e.target.value)}
-            className="text-sm px-3 py-2 rounded-xl border border-white/10 bg-white/10 text-white focus:outline-none focus:border-violet-400 max-w-[180px] [&>option]:text-slate-900"
-          >
-            {chapterList.map((ch) => (
-              <option key={ch.id} value={ch.id}>
-                {storyQaReport?.chapters.some((item) => item.id === ch.id) ? "⚠ " : ""}{storyBetaReport?.chapters.some(item=>item.id===ch.id)?"✍ ":""}{ch.title}
-              </option>
-            ))}
-          </select>
+          <ChapterPicker chapters={chapterList} currentChapterId={currentChapter?.id} onSelect={switchChapter} wordCounts={editedWordCounts} averageWords={editedWordSummary.average} editedSampleSize={editedWordSummary.sampleSize} qaIssueIds={qaIssueIds} betaIssueIds={betaIssueIds} />
           <button onClick={() => setShowStoryQa(true)} className={`flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyQaReport?.chapters.length ? "bg-amber-100 text-amber-800" : "bg-white/10 text-violet-200 hover:bg-white/15"}`} title="Cấu hình và quét QA toàn truyện">
             <ShieldCheck className="h-4 w-4"/><span className="hidden lg:inline">QA toàn truyện{storyQaReport?.chapters.length ? ` · ${storyQaReport.chapters.length}` : ""}</span>
           </button>

@@ -10,7 +10,8 @@
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
-    "test:sync": "node --test tests/lilybeta-sync.test.js"
+    "test:sync": "node --test tests/lilybeta-sync.test.js",
+    "test:chapter-stats": "node --test tests/chapter-edit-stats.test.js"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.10",
