@@ -11,7 +11,8 @@
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
     "test:sync": "node --test tests/lilybeta-sync.test.js",
-    "test:chapter-stats": "node --test tests/chapter-edit-stats.test.js"
+    "test:chapter-stats": "node --test tests/chapter-edit-stats.test.js",
+    "test:pronoun-inventory": "node --test tests/pronoun-inventory.test.js"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.10",

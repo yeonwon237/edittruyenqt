@@ -52,6 +52,7 @@ import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
 import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterEditStats";
+import { scanPronounInventory } from "@/lib/pronounInventory";
 import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -148,6 +149,8 @@ export default function Workspace() {
   const [checkingPronouns, setCheckingPronouns] = useState(false);
   const [pronounCheckDiff, setPronounCheckDiff] = useState(null);
   const [pronounCheckPreview, setPronounCheckPreview] = useState(null);
+  const [pronounInventory, setPronounInventory] = useState(null);
+  const [scanningPronounInventory, setScanningPronounInventory] = useState(false);
   const [selfTranslating, setSelfTranslating] = useState(false);
   const [showSidebar, setShowSidebar] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
@@ -1894,6 +1897,34 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
     setPronounCheckPreview(null);
     setPronounCheckDiff(null);
     toast({ title: "Đã bỏ đề xuất", description: "Bản Edit không bị thay đổi." });
+  };
+
+  const handleScanPronounInventory = async () => {
+    setScanningPronounInventory(true);
+    try {
+      const chapters = await fetchAllPages(
+        (limit, skip) => Chapter.filterNonEmpty({ project_id: projectId }, "edited", "chapter_order", limit, skip, ["title", "chapter_order", "edited"]),
+        { pageSize: 300, maxItems: CHAPTER_FETCH_CAP }
+      );
+      setPronounInventory(scanPronounInventory(chapters, project?.contextual_pronoun_rules || []));
+    } catch (error) {
+      toast({ title: "Không quét được xưng hô toàn truyện", description: error.message, variant: "destructive" });
+    } finally {
+      setScanningPronounInventory(false);
+    }
+  };
+
+  const handleOpenPronounOccurrence = async (item) => {
+    await switchChapter(item.chapterId);
+    setMobileActiveCol("edited");
+    setPanel3Mode("edit");
+    window.setTimeout(() => {
+      const textarea = document.querySelector("[data-etq-panel='final'] [data-etq-role='edit-content']");
+      if (!(textarea instanceof HTMLTextAreaElement)) return;
+      textarea.focus();
+      textarea.setSelectionRange(item.start, item.end);
+      textarea.scrollTop = Math.max(0, (item.line - 3) * 32);
+    }, 100);
   };
 
   // Self-translate (built-in Hán-Việt dictionary engine — free, client-side,
@@ -3647,6 +3678,10 @@ ${compact}`;
         hasPronounCheckPreview={Boolean(pronounCheckPreview)}
         onApplyPronounCheck={handleApplyPronounCheck}
         onDiscardPronounCheck={handleDiscardPronounCheck}
+        pronounInventory={pronounInventory}
+        scanningPronounInventory={scanningPronounInventory}
+        onScanPronounInventory={handleScanPronounInventory}
+        onOpenPronounOccurrence={handleOpenPronounOccurrence}
       />
       <QualityCheckDialog
         open={showQualityCheck}

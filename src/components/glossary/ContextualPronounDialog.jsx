@@ -7,10 +7,11 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X } from "lucide-react";
+import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X, SearchCheck } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { ruleSummary } from "@/lib/pronounMatrix";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
+import PronounInventoryDialog from "@/components/glossary/PronounInventoryDialog";
 
 const EMPTY_FORM = {
   speaker: "",
@@ -31,6 +32,10 @@ export default function ContextualPronounDialog({
   hasPronounCheckPreview,
   onApplyPronounCheck,
   onDiscardPronounCheck,
+  pronounInventory,
+  scanningPronounInventory,
+  onScanPronounInventory,
+  onOpenPronounOccurrence,
 }) {
   const { toast } = useToast();
   const [rules, setRules] = useState([]);
@@ -40,6 +45,7 @@ export default function ContextualPronounDialog({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIndices, setSelectedIndices] = useState(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -196,7 +202,7 @@ export default function ContextualPronounDialog({
         </DialogHeader>
 
         {onCheckPronouns && (
-          <button
+          <div className="grid gap-2 sm:grid-cols-2"><button
             onClick={onCheckPronouns}
             disabled={checkingPronouns}
             className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-50 to-pink-50 hover:from-violet-100 hover:to-pink-100 text-violet-700 text-xs font-medium border border-violet-100 transition-colors disabled:opacity-50"
@@ -208,7 +214,7 @@ export default function ContextualPronounDialog({
               <Sparkles className="w-3.5 h-3.5" />
             )}
             {checkingPronouns ? "Đang kiểm tra Bản Edit..." : "Kiểm tra xưng hô bằng AI (chỉ đề xuất)"}
-          </button>
+          </button><button type="button" onClick={()=>{setInventoryOpen(true);if(!pronounInventory&&!scanningPronounInventory)onScanPronounInventory?.();}} className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-emerald-100"><SearchCheck className="h-3.5 w-3.5"/>Bản đồ xưng hô toàn truyện · Không AI</button></div>
         )}
 
         {pronounCheckDiff && pronounCheckDiff.length > 0 && (
@@ -466,6 +472,7 @@ export default function ContextualPronounDialog({
           confirmLabel="Xóa tất cả"
           onConfirm={handleBulkDelete}
         />
+        <PronounInventoryDialog open={inventoryOpen} onOpenChange={setInventoryOpen} report={pronounInventory} running={scanningPronounInventory} onScan={onScanPronounInventory} onOpenOccurrence={(item)=>{setInventoryOpen(false);onOpenChange(false);onOpenPronounOccurrence?.(item);}} onUsePair={(group)=>{setForm({...EMPTY_FORM,speaker:group.speaker,listener:group.listener});setIsDefault(false);setEditingIndex(-1);setInventoryOpen(false);}} />
 
         <DialogFooter className="pt-2">
           <p className="text-xs text-slate-400 mr-auto max-w-md">

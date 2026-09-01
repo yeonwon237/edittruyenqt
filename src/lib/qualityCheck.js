@@ -196,6 +196,8 @@ const clauseEndPunctuation = (after) => {
 };
 const looksLikeQuestionAboutListener = (after) =>
   clauseEndPunctuation(after) === "?" && LISTENER_QUESTION_AFTER.test(after);
+const looksLikeDirectAddress = (after) =>
+  /^\s*(?:là\s+đồ(?=\s|[,.:;!?]|$)|đối\s+với\b|đừng\b|hãy\b)/iu.test(after);
 
 function resolveAddressRole(quoteText, relativeStart, relativeEnd, selfWordHint) {
   const before = quoteText.slice(0, relativeStart);
@@ -212,7 +214,7 @@ function resolveAddressRole(quoteText, relativeStart, relativeEnd, selfWordHint)
     ? new RegExp(`(?:^|[^\\p{L}])${escapeRegex(selfWordHint)}(?=$|[^\\p{L}])`, "iu").test(clauseBefore)
     : false;
   const targetCue = /(?:với|cho|gọi|hỏi|bảo|nhờ|giúp|cứu|đợi|chờ|tìm|theo|của|đến|về|nhìn|thấy|yêu|ghét)\s*$/iu.test(clauseBefore);
-  const listenerQuestion = atClauseStart && looksLikeQuestionAboutListener(after);
+  const listenerQuestion = atClauseStart && (looksLikeQuestionAboutListener(after) || looksLikeDirectAddress(after));
   const startsStatement = atClauseStart && !/^\s*[,!:?]/u.test(after) && !listenerQuestion;
   const vocative = (atClauseStart && /^\s*[,!:?]/u.test(after)) || targetCue || listenerQuestion;
   if (startsStatement && !vocative) return "self";
@@ -452,15 +454,16 @@ function scanContextualAddress(text, rules) {
         // apart from "Ta thật xin lỗi." (self-statement) — both are just a
         // leading pronoun + adjective. Guessing is only needed below, for a
         // word that matches NEITHER configured slot (a genuine mix-up).
+        const role = resolveAddressRole(quoteText, relativeStart, relativeEnd, rule?.self_word?.trim());
         if (rule) {
           const normFound = normalize(found);
-          if (normFound === normalize(rule.self_word) || normFound === normalize(rule.target_word)) {
+          const matchesSelf = normFound === normalize(rule.self_word);
+          const matchesTarget = normFound === normalize(rule.target_word);
+          if ((role === "self" && matchesSelf) || (role === "target" && matchesTarget) || (role === "unknown" && (matchesSelf || matchesTarget))) {
             confirmedSpans.add(dedupeKey);
             continue;
           }
         }
-
-        const role = resolveAddressRole(quoteText, relativeStart, relativeEnd, rule?.self_word?.trim());
         if (role === "unknown") continue;
 
         if (!rule) {
