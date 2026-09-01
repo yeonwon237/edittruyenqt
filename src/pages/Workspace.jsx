@@ -175,10 +175,12 @@ export default function Workspace() {
   const [storyQaRunning, setStoryQaRunning] = useState(false);
   const [storyQaReport, setStoryQaReport] = useState(null);
   const [qualityIssues, setQualityIssues] = useState([]);
+  const qualityScannedChapterRef = useRef(null);
   const [qualityUndo, setQualityUndo] = useState(null);
   const [showBetaCheck, setShowBetaCheck] = useState(false);
   const [showStoryBeta, setShowStoryBeta] = useState(false);
   const [betaIssues, setBetaIssues] = useState([]);
+  const betaScannedChapterRef = useRef(null);
   const [betaUndo, setBetaUndo] = useState(null);
   const [betaAiRunning, setBetaAiRunning] = useState(false);
   const [storyBetaRunning, setStoryBetaRunning] = useState(false);
@@ -1162,8 +1164,8 @@ export default function Workspace() {
   }, [projectId]);
 
   useEffect(() => {
-    if (!storyQaReport || !currentChapter?.id) return;
-    const issues = String(currentChapter.edited || "").trim() ? runQualityCheck(currentChapter.edited, qualityOptions()) : [];
+    if (!storyQaReport || !currentChapter?.id || qualityScannedChapterRef.current !== currentChapter.id) return;
+    const issues = qualityIssues;
     const summary = [...new Set(issues.map((issue) => issue.label))].slice(0,3).join(" · ");
     const old = storyQaReport.chapters.find((chapter) => chapter.id === currentChapter.id);
     if ((old?.count || 0) === issues.length && (old?.summary || "") === summary) return;
@@ -1175,13 +1177,14 @@ export default function Workspace() {
     setStoryQaReport(next);
     localStorage.setItem(`etq-story-qa:${projectId}`, JSON.stringify(next));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentChapter?.edited]);
+  }, [qualityIssues, currentChapter?.id]);
 
   // Keep the QA badge live even when the dialog has never been opened. A
   // short debounce avoids rescanning on every keystroke while the user types.
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const text = currentChapter?.edited || "";
+      qualityScannedChapterRef.current = currentChapter?.id || null;
       setQualityIssues(text.trim() ? runQualityCheck(text, qualityOptions()) : []);
     }, 350);
     return () => window.clearTimeout(timer);
@@ -1604,9 +1607,9 @@ export default function Workspace() {
   const handleStopBatchBetaAi = () => { batchBetaAiStopRef.current = true; };
 
   useEffect(()=>{try{setStoryBetaReport(JSON.parse(localStorage.getItem(`etq-story-beta:${projectId}`)||"null"));}catch{setStoryBetaReport(null);}},[projectId]);
-  useEffect(()=>{if(!storyBetaReport||!currentChapter?.id)return;const issues=scanCurrentBeta();const meta=chapterList.find(ch=>ch.id===currentChapter.id)||currentChapter;const chapters=storyBetaReport.chapters.filter(ch=>ch.id!==currentChapter.id);if(issues.length)chapters.push({id:currentChapter.id,title:meta.title,chapter_order:meta.chapter_order,count:issues.length});chapters.sort((a,b)=>(a.chapter_order||0)-(b.chapter_order||0));const next={...storyBetaReport,chapters,issueCount:chapters.reduce((sum,ch)=>sum+ch.count,0),groupsStale:true};setStoryBetaReport(next);localStorage.setItem(`etq-story-beta:${projectId}`,JSON.stringify(next));// eslint-disable-next-line react-hooks/exhaustive-deps
-  },[currentChapter?.edited]);
-  useEffect(()=>{const timer=window.setTimeout(()=>setBetaIssues(scanCurrentBeta()),450);return()=>window.clearTimeout(timer);// eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(()=>{if(!storyBetaReport||!currentChapter?.id||betaScannedChapterRef.current!==currentChapter.id)return;const issues=betaIssues;const meta=chapterList.find(ch=>ch.id===currentChapter.id)||currentChapter;const chapters=storyBetaReport.chapters.filter(ch=>ch.id!==currentChapter.id);if(issues.length)chapters.push({id:currentChapter.id,title:meta.title,chapter_order:meta.chapter_order,count:issues.length});chapters.sort((a,b)=>(a.chapter_order||0)-(b.chapter_order||0));const next={...storyBetaReport,chapters,issueCount:chapters.reduce((sum,ch)=>sum+ch.count,0),groupsStale:true};setStoryBetaReport(next);localStorage.setItem(`etq-story-beta:${projectId}`,JSON.stringify(next));// eslint-disable-next-line react-hooks/exhaustive-deps
+  },[betaIssues,currentChapter?.id]);
+  useEffect(()=>{const timer=window.setTimeout(()=>{betaScannedChapterRef.current=currentChapter?.id||null;setBetaIssues(scanCurrentBeta());},450);return()=>window.clearTimeout(timer);// eslint-disable-next-line react-hooks/exhaustive-deps
   },[currentChapter?.edited,project?.style_toggles?.beta_settings]);
 
   const buildEditPrompt = (sourceText) => {
