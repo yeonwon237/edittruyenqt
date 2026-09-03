@@ -1,6 +1,21 @@
 import { forwardRef, useImperativeHandle, useRef } from "react";
 import { X, FileText, WandSparkles, PenLine, Pencil, Eye } from "lucide-react";
 import { highlightTerms, highlightForeignChars, highlightQualityIssues } from "@/lib/highlight";
+import { textToParagraphHtml } from "@/lib/clipboardHtml";
+
+// A manual select-all + Ctrl+C only ever puts plain text (with \n line
+// breaks) on the clipboard, which most rich-text paste targets (Wattpad,
+// Google Docs...) collapse to a single run of text with no paragraph
+// spacing. Intercepting the copy event lets us also offer an HTML
+// alternative with real <p> blocks, so pasting elsewhere keeps the blank
+// line between paragraphs.
+const handleRichCopy = (event) => {
+  const selection = window.getSelection()?.toString();
+  if (!selection) return;
+  event.preventDefault();
+  event.clipboardData.setData("text/plain", selection);
+  event.clipboardData.setData("text/html", textToParagraphHtml(selection));
+};
 
 const EditorPanel = forwardRef(function EditorPanel(
   {
@@ -75,6 +90,7 @@ const EditorPanel = forwardRef(function EditorPanel(
           <div
             ref={scrollRef}
             onScroll={onScroll}
+            onCopy={handleRichCopy}
             className="h-full overflow-y-auto cute-scrollbar p-5 panel-scroll bg-slate-50/20"
           >
             <div data-etq-role="view-content" className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700 min-h-full">

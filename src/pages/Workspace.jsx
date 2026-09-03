@@ -50,6 +50,7 @@ import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
+import { copyRichText } from "@/lib/clipboardHtml";
 import { isDraftMode } from "@/lib/draftMode";
 import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterEditStats";
 import { scanPronounInventory } from "@/lib/pronounInventory";
@@ -2285,8 +2286,8 @@ ${sourceText}`;
       return;
     }
     try {
-      await navigator.clipboard.writeText(text);
-      toast({ title: `Đã sao chép ${label}! 📋` });
+      await copyRichText(text);
+      toast({ title: `Đã sao chép ${label}! 📋`, description: "Đã giữ khoảng cách đoạn văn khi dán sang nơi khác." });
     } catch (e) {
       toast({ title: "Lỗi sao chép", description: e.message, variant: "destructive" });
     }
