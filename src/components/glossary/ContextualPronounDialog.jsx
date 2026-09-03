@@ -7,11 +7,13 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X, SearchCheck } from "lucide-react";
+import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X, SearchCheck, Compass, Bot } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { ruleSummary } from "@/lib/pronounMatrix";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import PronounInventoryDialog from "@/components/glossary/PronounInventoryDialog";
+import PronounBootstrapDialog from "@/components/glossary/PronounBootstrapDialog";
+import StoryPronounAiDialog from "@/components/glossary/StoryPronounAiDialog";
 
 const EMPTY_FORM = {
   speaker: "",
@@ -36,6 +38,19 @@ export default function ContextualPronounDialog({
   scanningPronounInventory,
   onScanPronounInventory,
   onOpenPronounOccurrence,
+  pronounBootstrap,
+  runningPronounBootstrap,
+  onRunPronounBootstrap,
+  storyPronounAiReport,
+  runningStoryPronounAi,
+  storyPronounAiFinished,
+  storyPronounAiProgress,
+  storyPronounAiErrors,
+  onStartStoryPronounAi,
+  onStopStoryPronounAi,
+  onOpenStoryPronounAiChapter,
+  onApplyAllStoryPronounAi,
+  applyingStoryPronounAiAll,
 }) {
   const { toast } = useToast();
   const [rules, setRules] = useState([]);
@@ -46,6 +61,8 @@ export default function ContextualPronounDialog({
   const [selectedIndices, setSelectedIndices] = useState(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [bootstrapOpen, setBootstrapOpen] = useState(false);
+  const [storyPronounAiOpen, setStoryPronounAiOpen] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -102,6 +119,21 @@ export default function ContextualPronounDialog({
     } catch (e) {
       toast({ title: "Lỗi lưu ma trận", description: e.message, variant: "destructive" });
     }
+  };
+
+  const handleApplyBootstrap = async (rows) => {
+    if (!rows.length) return;
+    const key = (r) => `${r.speaker.trim().toLocaleLowerCase("vi")}${r.listener.trim().toLocaleLowerCase("vi")}`;
+    let next = [...rules];
+    rows.forEach((row) => {
+      const idx = next.findIndex((r) => key(r) === key(row));
+      if (idx >= 0) next[idx] = { ...next[idx], ...row };
+      else next = [...next, row];
+    });
+    setRules(next);
+    setBootstrapOpen(false);
+    toast({ title: `Đã thêm ${rows.length} quy tắc từ đề xuất khởi tạo` });
+    await persist(next);
   };
 
   const handleSubmit = async (e) => {
@@ -200,6 +232,28 @@ export default function ContextualPronounDialog({
             Chọn “Mọi người khác” để tạo quy tắc dự phòng; quy tắc người nghe cụ thể luôn được ưu tiên.
           </DialogDescription>
         </DialogHeader>
+
+        {onRunPronounBootstrap && (
+          <button
+            type="button"
+            onClick={() => { setBootstrapOpen(true); if (!pronounBootstrap && !runningPronounBootstrap) onRunPronounBootstrap(5); }}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100"
+          >
+            <Compass className="h-3.5 w-3.5" />
+            Khởi tạo Ma Trận từ chương đầu · Không AI
+          </button>
+        )}
+
+        {onStartStoryPronounAi && (
+          <button
+            type="button"
+            onClick={() => setStoryPronounAiOpen(true)}
+            className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100"
+          >
+            <Bot className="h-3.5 w-3.5" />
+            Kiểm tra AI xưng hô toàn truyện{storyPronounAiReport?.chapters.length ? ` · ${storyPronounAiReport.chapters.length} chương có đề xuất` : ""}
+          </button>
+        )}
 
         {onCheckPronouns && (
           <div className="grid gap-2 sm:grid-cols-2"><button
@@ -473,6 +527,21 @@ export default function ContextualPronounDialog({
           onConfirm={handleBulkDelete}
         />
         <PronounInventoryDialog open={inventoryOpen} onOpenChange={setInventoryOpen} report={pronounInventory} running={scanningPronounInventory} onScan={onScanPronounInventory} onOpenOccurrence={(item)=>{setInventoryOpen(false);onOpenChange(false);onOpenPronounOccurrence?.(item);}} onUsePair={(group)=>{setForm({...EMPTY_FORM,speaker:group.speaker,listener:group.listener});setIsDefault(false);setEditingIndex(-1);setInventoryOpen(false);}} />
+        <PronounBootstrapDialog open={bootstrapOpen} onOpenChange={setBootstrapOpen} report={pronounBootstrap} running={runningPronounBootstrap} onScan={onRunPronounBootstrap} onApply={handleApplyBootstrap} />
+        <StoryPronounAiDialog
+          open={storyPronounAiOpen}
+          onOpenChange={setStoryPronounAiOpen}
+          report={storyPronounAiReport}
+          running={runningStoryPronounAi}
+          finished={storyPronounAiFinished}
+          progress={storyPronounAiProgress}
+          errors={storyPronounAiErrors}
+          onStart={onStartStoryPronounAi}
+          onStop={onStopStoryPronounAi}
+          onOpenChapter={(chapterId) => { setStoryPronounAiOpen(false); onOpenStoryPronounAiChapter?.(chapterId); }}
+          onApplyAll={onApplyAllStoryPronounAi}
+          applyingAll={applyingStoryPronounAiAll}
+        />
 
         <DialogFooter className="pt-2">
           <p className="text-xs text-slate-400 mr-auto max-w-md">

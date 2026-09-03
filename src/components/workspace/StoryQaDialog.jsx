@@ -1,11 +1,23 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, ArrowRight, ExternalLink, Loader2, Plus, SearchCheck, Sparkles, Trash2, Zap } from "lucide-react";
+import { AlertTriangle, ArrowRight, ExternalLink, Loader2, MessageCircle, Plus, SearchCheck, Sparkles, Trash2, Zap } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 
 const isSafeGroup = (group) =>
   group.severity !== "review" &&
   !group.contextual &&
+  String(group.replacement || "").trim() &&
+  group.replacement !== group.value;
+
+// Pronoun groups are deliberately excluded from isSafeGroup (they're always
+// severity "review"), but scanContextualAddress already resolved self/target
+// role from sentence position before setting `replacement` — a pronoun group
+// with a concrete replacement here has already passed that context check.
+// Kept as its own predicate/button (not folded into "safe") since it rests
+// on the Ma Trận being correct and deserves an explicit confirm step.
+const isPronounFixable = (group) =>
+  group.type === "pronoun" &&
   String(group.replacement || "").trim() &&
   group.replacement !== group.value;
 
@@ -25,7 +37,7 @@ const GENRE_SUGGESTIONS = [
 ];
 const emptySettings = { era:"neutral", context:"", genres:[], forbiddenWords:[] };
 
-export default function StoryQaDialog({ open, onOpenChange, settings, report, running, onSaveSettings, onScan, onBulkReplace, onIgnoreGroup, onUndoBulkReplace, canUndoBulkReplace, qaWorkflow, onOpenChapter, onApplyAllSafe, onTranslate }) {
+export default function StoryQaDialog({ open, onOpenChange, settings, report, running, onSaveSettings, onScan, onBulkReplace, onIgnoreGroup, onUndoBulkReplace, canUndoBulkReplace, qaWorkflow, onOpenChapter, onApplyAllSafe, onApplyAllPronoun, onTranslate }) {
   const [form, setForm] = useState(emptySettings);
   const [genre, setGenre] = useState("");
   const [replacements, setReplacements] = useState({});
@@ -34,6 +46,7 @@ export default function StoryQaDialog({ open, onOpenChange, settings, report, ru
   const [resultView, setResultView] = useState("issues");
   const [translating, setTranslating] = useState(null);
   const [batchTranslating, setBatchTranslating] = useState(false);
+  const [confirmApplyPronoun, setConfirmApplyPronoun] = useState(false);
   useEffect(() => { if (open) setForm({ ...emptySettings, ...settings }); }, [open, settings]);
   const addGenre = () => { const value=genre.trim(); if(value&&!form.genres.includes(value))setForm({...form,genres:[...form.genres,value]}); setGenre(""); };
   const addForbidden = () => setForm({...form,forbiddenWords:[...form.forbiddenWords,{find:"",replace:""}]});
@@ -70,6 +83,9 @@ export default function StoryQaDialog({ open, onOpenChange, settings, report, ru
     }
   };
   const safeOccurrences = (report?.groups || []).filter(isSafeGroup).reduce((sum, group) => sum + (group.locations?.length || 0), 0);
+  const pronounGroups = (report?.groups || []).filter(isPronounFixable);
+  const pronounOccurrences = pronounGroups.reduce((sum, group) => sum + (group.locations?.length || 0), 0);
+  const pronounChapterCount = new Set(pronounGroups.flatMap((group) => (group.locations || []).map((item) => item.chapterId))).size;
   return <Dialog open={open} onOpenChange={onOpenChange}><DialogContent className="max-w-2xl max-h-[88vh] overflow-y-auto rounded-2xl">
     <DialogHeader><DialogTitle className="flex items-center gap-2 text-violet-700"><SearchCheck className="h-5 w-5"/> Trung tâm QA toàn truyện</DialogTitle></DialogHeader>
     <div className="space-y-4 text-sm">
@@ -80,7 +96,7 @@ export default function StoryQaDialog({ open, onOpenChange, settings, report, ru
         <div><div className="flex items-center justify-between"><label className="text-xs font-semibold text-slate-600">Từ/cụm từ cấm cần quét</label><button onClick={addForbidden} className="text-xs text-violet-600">+ Thêm từ cấm</button></div><div className="mt-2 space-y-2">{form.forbiddenWords.map((item,index)=>{const rule=typeof item==="string"?{find:item,replace:""}:item;return <div key={index} className="flex gap-2"><input value={rule.find||""} onChange={e=>updateForbidden(index,"find",e.target.value)} placeholder="Từ cần cảnh báo" className="min-w-0 flex-1 rounded-lg border px-2 py-1.5"/><input value={rule.replace||""} onChange={e=>updateForbidden(index,"replace",e.target.value)} placeholder="Gợi ý thay (không bắt buộc)" className="min-w-0 flex-1 rounded-lg border px-2 py-1.5"/><button onClick={()=>setForm({...form,forbiddenWords:form.forbiddenWords.filter((_,i)=>i!==index)})}><Trash2 className="h-4 w-4 text-red-400"/></button></div>})}</div></div>
         <div className="flex justify-end gap-2"><Button variant="outline" onClick={save}>Lưu cấu hình</Button><Button disabled={running} onClick={async()=>{await save();await onScan(form);}} className="bg-violet-600 hover:bg-violet-700">{running?<Loader2 className="mr-2 h-4 w-4 animate-spin"/>:<SearchCheck className="mr-2 h-4 w-4"/>}Quét QA toàn truyện</Button></div>
       </div>
-      {report&&<div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><b>Kết quả: {report.issueCount} lỗi/nghi vấn · {report.chapters.length} chương</b><div className="flex flex-wrap items-center gap-2">{untranslatedCjkEnglish.length>0&&<Button size="sm" variant="outline" disabled={batchTranslating} onClick={translateAll} className="border-violet-200 text-violet-700 hover:bg-violet-50">{batchTranslating?<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>:<Sparkles className="mr-1.5 h-3.5 w-3.5"/>}Dịch AI hàng loạt ({untranslatedCjkEnglish.length})</Button>}{safeOccurrences>0&&<Button size="sm" disabled={running} onClick={()=>onApplyAllSafe(form)} className="bg-emerald-600 hover:bg-emerald-700"><Zap className="mr-1.5 h-3.5 w-3.5"/>Sửa {safeOccurrences} vị trí an toàn</Button>}{canUndoBulkReplace&&<Button size="sm" variant="outline" disabled={running} onClick={async()=>{await onUndoBulkReplace();await onScan(form);}}>Hoàn tác thay hàng loạt</Button>}</div></div>
+      {report&&<div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><b>Kết quả: {report.issueCount} lỗi/nghi vấn · {report.chapters.length} chương</b><div className="flex flex-wrap items-center gap-2">{untranslatedCjkEnglish.length>0&&<Button size="sm" variant="outline" disabled={batchTranslating} onClick={translateAll} className="border-violet-200 text-violet-700 hover:bg-violet-50">{batchTranslating?<Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin"/>:<Sparkles className="mr-1.5 h-3.5 w-3.5"/>}Dịch AI hàng loạt ({untranslatedCjkEnglish.length})</Button>}{safeOccurrences>0&&<Button size="sm" disabled={running} onClick={()=>onApplyAllSafe(form)} className="bg-emerald-600 hover:bg-emerald-700"><Zap className="mr-1.5 h-3.5 w-3.5"/>Sửa {safeOccurrences} vị trí an toàn</Button>}{pronounOccurrences>0&&onApplyAllPronoun&&<Button size="sm" disabled={running} onClick={()=>setConfirmApplyPronoun(true)} className="bg-violet-600 hover:bg-violet-700"><MessageCircle className="mr-1.5 h-3.5 w-3.5"/>Sửa {pronounOccurrences} vị trí xưng hô có gợi ý</Button>}{canUndoBulkReplace&&<Button size="sm" variant="outline" disabled={running} onClick={async()=>{await onUndoBulkReplace();await onScan(form);}}>Hoàn tác thay hàng loạt</Button>}</div></div>
         <div className="flex gap-1 rounded-xl bg-slate-100 p-1"><button onClick={()=>setResultView("issues")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${resultView==="issues"?"bg-white text-violet-700 shadow-sm":"text-slate-500"}`}>Lỗi toàn truyện</button><button onClick={()=>setResultView("next")} className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${resultView==="next"?"bg-white text-violet-700 shadow-sm":"text-slate-500"}`}>Chương cần xử lý tiếp · {qaWorkflow?.pending?.length||0}</button></div>
         {report.groupsStale&&<div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Bạn vừa sửa nội dung một chương. Số lỗi của chương đã cập nhật, nhưng các nhóm tổng hợp cần bấm <b>Quét QA toàn truyện</b> để làm mới hoàn toàn.</div>}
         {resultView==="issues"?<div className="space-y-3">{(report.groups||[]).map(group=>{const selected=selectedLocations[group.key]||new Set();return <div key={group.key} className="overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -91,5 +107,14 @@ export default function StoryQaDialog({ open, onOpenChange, settings, report, ru
         {!(report.groups||[]).length&&<div className="rounded-xl bg-emerald-50 p-4 text-center text-emerald-700">Không phát hiện lỗi/nghi vấn nào.</div>}
       </div>}
     </div>
+    <ConfirmDialog
+      open={confirmApplyPronoun}
+      onOpenChange={setConfirmApplyPronoun}
+      title={`Sửa ${pronounOccurrences} vị trí xưng hô trong ${pronounChapterCount} chương?`}
+      description={`Sẽ ghi đè Bản Edit theo Ma Trận Xưng Hô hiện tại. Có thể hoàn tác ngay sau đó bằng nút "Hoàn tác thay hàng loạt".`}
+      confirmLabel="Sửa hàng loạt"
+      destructive={false}
+      onConfirm={() => { setConfirmApplyPronoun(false); onApplyAllPronoun(form); }}
+    />
   </DialogContent></Dialog>;
 }

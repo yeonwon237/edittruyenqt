@@ -8,7 +8,7 @@ export const ADDRESS_WORDS = [
 const escapeRegex = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const normalize = value => String(value || '').trim().toLocaleLowerCase('vi');
 
-function findSpeaker(text, quoteStart, quoteEnd, names) {
+export function findSpeaker(text, quoteStart, quoteEnd, names) {
   const from = Math.max(0, quoteStart - 140), to = Math.min(text.length, quoteEnd + 140);
   const nearby = text.slice(from, to);
   let best = null;

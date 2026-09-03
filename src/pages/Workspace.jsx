@@ -54,6 +54,7 @@ import { copyRichText } from "@/lib/clipboardHtml";
 import { isDraftMode } from "@/lib/draftMode";
 import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterEditStats";
 import { scanPronounInventory } from "@/lib/pronounInventory";
+import { discoverPronounRules } from "@/lib/pronounDiscovery";
 import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -152,6 +153,8 @@ export default function Workspace() {
   const [pronounCheckPreview, setPronounCheckPreview] = useState(null);
   const [pronounInventory, setPronounInventory] = useState(null);
   const [scanningPronounInventory, setScanningPronounInventory] = useState(false);
+  const [pronounBootstrap, setPronounBootstrap] = useState(null);
+  const [runningPronounBootstrap, setRunningPronounBootstrap] = useState(false);
   const [selfTranslating, setSelfTranslating] = useState(false);
   const [showSidebar, setShowSidebar] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
@@ -200,6 +203,12 @@ export default function Workspace() {
   const [batchBetaAiProgress, setBatchBetaAiProgress] = useState({ done: 0, total: 0, found: 0, skipped: 0, failed: 0, currentTitle: "" });
   const [batchBetaAiErrors, setBatchBetaAiErrors] = useState([]);
   const batchBetaAiStopRef = useRef(false);
+  const [runningStoryPronounAi, setRunningStoryPronounAi] = useState(false);
+  const [storyPronounAiFinished, setStoryPronounAiFinished] = useState(false);
+  const [storyPronounAiProgress, setStoryPronounAiProgress] = useState({ done: 0, total: 0, found: 0, skipped: 0, failed: 0, currentTitle: "" });
+  const [storyPronounAiErrors, setStoryPronounAiErrors] = useState([]);
+  const [storyPronounAiReport, setStoryPronounAiReport] = useState(null);
+  const storyPronounAiStopRef = useRef(false);
   const [showAISettings, setShowAISettings] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
   // Mobile-only "⋯" overflow menu for the header actions that don't fit a
@@ -1153,6 +1162,18 @@ export default function Workspace() {
     String(group.replacement || "").trim() &&
     group.replacement !== group.value;
 
+  // Pronoun groups are always severity "review" (excluded from
+  // isSafeStoryQaGroup on purpose — that predicate is for issues nobody
+  // needed to read context for). But scanContextualAddress already resolved
+  // self/target role from sentence position *before* setting `replacement`,
+  // so a pronoun group with a concrete replacement here has already passed
+  // that context check — it just needs its own bulk action, not the "safe"
+  // one, so it stays a deliberate, confirmable, separately-labeled step.
+  const isPronounFixableStoryQaGroup = (group) =>
+    group.type === "pronoun" &&
+    String(group.replacement || "").trim() &&
+    group.replacement !== group.value;
+
   // Applies every group with an unambiguous replacement across the whole
   // story in one DB pass, instead of the group-by-group "Thay N/M vị trí"
   // flow — same position-verify-before-write safety as handleStoryQaBulkReplace.
@@ -1196,6 +1217,57 @@ export default function Workspace() {
       patchStoryQaReportForChapters(updated, qaSettings);
     } catch (error) {
       toast({ title: "Không thể sửa tất cả lỗi an toàn", description: error.message, variant: "destructive" });
+    } finally {
+      setBatchReplaceRunning(false);
+    }
+  };
+
+  // Story-wide bulk fix for pronoun groups specifically — same mechanics as
+  // handleStoryQaApplyAllSafe (position-verify-before-write, bulkUpsert,
+  // undo snapshot, cache sync), just a different group filter. Kept as its
+  // own action (not folded into "safe") since the caller is expected to
+  // confirm explicitly before this runs — pronoun fixes rest on the Ma Trận
+  // being correct, which "safe" fixes (glossary/CJK/name typos) don't.
+  const handleStoryQaApplyAllPronoun = async (qaSettings) => {
+    const pronounGroups = (storyQaReport?.groups || []).filter(isPronounFixableStoryQaGroup);
+    if (!pronounGroups.length) {
+      toast({ title: "Không có gợi ý xưng hô nào để sửa hàng loạt" });
+      return;
+    }
+    setBatchReplaceRunning(true);
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      const byChapter = new Map();
+      pronounGroups.forEach((group) => {
+        (group.locations || []).forEach((location) => {
+          const list = byChapter.get(location.chapterId) || [];
+          list.push({ start: location.start, end: location.end, value: location.value, replacement: group.replacement });
+          byChapter.set(location.chapterId, list);
+        });
+      });
+      const ids = [...byChapter.keys()];
+      const chapters = await Chapter.getMany(ids);
+      setBatchReplaceUndo({ target: "edited", rows: chapters.map(chapterUpsertRow) });
+      const changedRows = chapters.map((chapter) => {
+        const positions = (byChapter.get(chapter.id) || []).sort((a, b) => b.start - a.start);
+        const edited = positions.reduce(
+          (text, item) => (text.slice(item.start, item.end) === item.value ? text.slice(0, item.start) + item.replacement + text.slice(item.end) : text),
+          chapter.edited || ""
+        );
+        return chapterUpsertRow({ ...chapter, edited });
+      });
+      let updated = [];
+      for (let index = 0; index < changedRows.length; index += 200) {
+        updated = updated.concat(await Chapter.bulkUpsert(changedRows.slice(index, index + 200)));
+      }
+      updated.forEach((chapter) => { chapterCacheRef.current.set(chapter.id, chapter); lastSavedRef.current.set(chapter.id, snapshotOf(chapter)); });
+      const active = updated.find((chapter) => chapter.id === currentChapter?.id);
+      if (active) setCurrentChapter(active);
+      const totalOccurrences = pronounGroups.reduce((sum, group) => sum + (group.locations?.length || 0), 0);
+      toast({ title: `Đã sửa ${totalOccurrences} vị trí xưng hô trong ${updated.length} chương`, description: "Có thể hoàn tác trong Trung tâm QA." });
+      patchStoryQaReportForChapters(updated, qaSettings);
+    } catch (error) {
+      toast({ title: "Không thể sửa hàng loạt xưng hô", description: error.message, variant: "destructive" });
     } finally {
       setBatchReplaceRunning(false);
     }
@@ -1697,6 +1769,8 @@ export default function Workspace() {
   };
   const handleStopBatchBetaAi = () => { batchBetaAiStopRef.current = true; };
 
+  useEffect(()=>{try{setStoryPronounAiReport(JSON.parse(localStorage.getItem(`etq-story-pronoun-ai:${projectId}`)||"null"));}catch{setStoryPronounAiReport(null);}},[projectId]);
+
   useEffect(()=>{try{setStoryBetaReport(JSON.parse(localStorage.getItem(`etq-story-beta:${projectId}`)||"null"));}catch{setStoryBetaReport(null);}},[projectId]);
   useEffect(()=>{if(!storyBetaReport||!currentChapter?.id||betaScannedChapterRef.current!==currentChapter.id)return;const issues=betaIssues;const meta=chapterList.find(ch=>ch.id===currentChapter.id)||currentChapter;const chapters=storyBetaReport.chapters.filter(ch=>ch.id!==currentChapter.id);if(issues.length)chapters.push({id:currentChapter.id,title:meta.title,chapter_order:meta.chapter_order,count:issues.length});chapters.sort((a,b)=>(a.chapter_order||0)-(b.chapter_order||0));const next={...storyBetaReport,chapters,issueCount:chapters.reduce((sum,ch)=>sum+ch.count,0),groupsStale:true};setStoryBetaReport(next);localStorage.setItem(`etq-story-beta:${projectId}`,JSON.stringify(next));// eslint-disable-next-line react-hooks/exhaustive-deps
   },[betaIssues,currentChapter?.id]);
@@ -2005,6 +2079,160 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
       toast({ title: "Không quét được xưng hô toàn truyện", description: error.message, variant: "destructive" });
     } finally {
       setScanningPronounInventory(false);
+    }
+  };
+
+  const handleRunPronounBootstrap = async (chapterCount) => {
+    setRunningPronounBootstrap(true);
+    try {
+      const chapters = await Chapter.filterNonEmpty(
+        { project_id: projectId }, "edited", "chapter_order", chapterCount, 0, ["title", "chapter_order", "edited"]
+      );
+      const knownNames = [...new Set(
+        (project?.contextual_pronoun_rules || []).flatMap((r) => [r.speaker, r.listener]).filter((n) => n && n !== "*")
+      )];
+      setPronounBootstrap(discoverPronounRules(chapters, { knownNames }));
+    } catch (error) {
+      toast({ title: "Không khởi tạo được Ma Trận", description: error.message, variant: "destructive" });
+    } finally {
+      setRunningPronounBootstrap(false);
+    }
+  };
+
+  // Batch counterpart of handleCheckPronouns — same per-chunk AI call +
+  // whole-chapter diff, just looped across every chapter with content and
+  // NEVER writing `edited` during the scan (mirrors handleStartBatchBetaAi's
+  // "suggestions only" safety: nothing is touched until the user opens a
+  // chapter and explicitly applies, or confirms the bulk-apply shortcut).
+  const handleStartStoryPronounAi = async () => {
+    const matrixText = buildPronounMatrixPrompt(project?.contextual_pronoun_rules || []);
+    if (!matrixText) {
+      toast({ title: "Chưa có quy tắc nào trong Ma Trận Xưng Hô!", variant: "destructive" });
+      return;
+    }
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return;
+    }
+    storyPronounAiStopRef.current = false;
+    setStoryPronounAiErrors([]);
+    setStoryPronounAiFinished(false);
+    if (currentChapter) await flushSave(currentChapter, true);
+    let chapters;
+    try {
+      chapters = await fetchAllPages(
+        (limit, skip) => Chapter.filterNonEmpty({ project_id: projectId }, "edited", "chapter_order", limit, skip, ["title", "chapter_order", "edited"]),
+        { pageSize: 300, maxItems: CHAPTER_FETCH_CAP }
+      );
+    } catch (error) {
+      toast({ title: "Không lấy được danh sách chương", description: error.message, variant: "destructive" });
+      return;
+    }
+    const ordered = [...chapters].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+    setStoryPronounAiProgress({ done: 0, total: ordered.length, found: 0, skipped: 0, failed: 0, currentTitle: "" });
+    setRunningStoryPronounAi(true);
+    let nextChapters = [];
+
+    for (let i = 0; i < ordered.length; i++) {
+      if (storyPronounAiStopRef.current) break;
+      const meta = ordered[i];
+      setStoryPronounAiProgress((p) => ({ ...p, currentTitle: meta.title }));
+      const sourceText = meta.edited || "";
+      if (!sourceText.trim()) {
+        setStoryPronounAiProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
+        continue;
+      }
+      try {
+        const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
+        let fixedText;
+        if (chunks.length <= 1) {
+          fixedText = await callLLM(buildPronounCheckPrompt(sourceText, matrixText));
+        } else {
+          const results = [];
+          for (let c = 0; c < chunks.length; c++) {
+            setStoryPronounAiProgress((p) => ({ ...p, currentTitle: `${meta.title} (đoạn ${c + 1}/${chunks.length})` }));
+            // eslint-disable-next-line no-await-in-loop
+            results.push(await callLLM(buildPronounCheckPrompt(chunks[c], matrixText)));
+          }
+          fixedText = results.join("\n\n");
+        }
+        const diff = diffTextChanges(sourceText, fixedText);
+        if (diff.length) {
+          nextChapters = [
+            ...nextChapters.filter((c) => c.id !== meta.id),
+            { id: meta.id, title: meta.title, chapter_order: meta.chapter_order, diff, originalText: sourceText, proposedText: fixedText },
+          ];
+          const report = { chapters: nextChapters, scannedAt: new Date().toISOString() };
+          setStoryPronounAiReport(report);
+          localStorage.setItem(`etq-story-pronoun-ai:${projectId}`, JSON.stringify(report));
+          setStoryPronounAiProgress((p) => ({ ...p, done: p.done + 1, found: p.found + 1 }));
+        } else {
+          setStoryPronounAiProgress((p) => ({ ...p, done: p.done + 1 }));
+        }
+      } catch (error) {
+        setStoryPronounAiErrors((prev) => [...prev, { title: meta.title, message: error.message }]);
+        setStoryPronounAiProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
+      }
+      if (!storyPronounAiStopRef.current && i < ordered.length - 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+    }
+
+    setRunningStoryPronounAi(false);
+    setStoryPronounAiFinished(true);
+    toast({ title: storyPronounAiStopRef.current ? "Đã dừng kiểm tra AI toàn truyện ⏸️" : "Hoàn tất kiểm tra AI toàn truyện! ✨" });
+  };
+  const handleStopStoryPronounAi = () => { storyPronounAiStopRef.current = true; };
+
+  // Lands the user on the chapter with the diff/apply UI already built for
+  // the single-chapter AI check (ContextualPronounDialog, pronounCheckDiff +
+  // handleApplyPronounCheck) — no new review UI, just hydrating that state
+  // from the stored batch result instead of requiring a fresh AI call.
+  const handleOpenStoryPronounAiChapter = async (chapterId) => {
+    const entry = storyPronounAiReport?.chapters.find((c) => c.id === chapterId);
+    if (!entry) return;
+    await switchChapter(chapterId);
+    setPronounCheckDiff(entry.diff);
+    setPronounCheckPreview({ chapterId: entry.id, original: entry.originalText, proposed: entry.proposedText });
+  };
+
+  // Optional shortcut once the user trusts the AI suggestions enough to skip
+  // opening every chapter individually — same bulkUpsert + undo mechanics as
+  // handleStoryQaApplyAllPronoun (Phần 2), just keyed by whole-chapter
+  // proposedText instead of per-location patches.
+  const handleApplyAllStoryPronounAi = async () => {
+    const entries = storyPronounAiReport?.chapters || [];
+    if (!entries.length) return;
+    setBatchReplaceRunning(true);
+    try {
+      const ids = entries.map((e) => e.id);
+      const chapters = await Chapter.getMany(ids);
+      const byId = new Map(entries.map((e) => [e.id, e]));
+      const eligible = chapters.filter((chapter) => (chapter.edited || "") === byId.get(chapter.id)?.originalText);
+      if (!eligible.length) {
+        toast({ title: "Không còn chương nào khớp để áp dụng", description: "Có thể các chương đã bị sửa khác từ lúc quét. Hãy quét lại.", variant: "destructive" });
+        return;
+      }
+      setBatchReplaceUndo({ target: "edited", rows: eligible.map(chapterUpsertRow) });
+      const changedRows = eligible.map((chapter) => chapterUpsertRow({ ...chapter, edited: byId.get(chapter.id).proposedText }));
+      let updated = [];
+      for (let index = 0; index < changedRows.length; index += 200) {
+        updated = updated.concat(await Chapter.bulkUpsert(changedRows.slice(index, index + 200)));
+      }
+      updated.forEach((chapter) => { chapterCacheRef.current.set(chapter.id, chapter); lastSavedRef.current.set(chapter.id, snapshotOf(chapter)); });
+      const active = updated.find((chapter) => chapter.id === currentChapter?.id);
+      if (active) setCurrentChapter(active);
+      const appliedIds = new Set(eligible.map((c) => c.id));
+      const remaining = entries.filter((e) => !appliedIds.has(e.id));
+      const report = { chapters: remaining, scannedAt: storyPronounAiReport?.scannedAt || new Date().toISOString() };
+      setStoryPronounAiReport(report);
+      localStorage.setItem(`etq-story-pronoun-ai:${projectId}`, JSON.stringify(report));
+      toast({ title: `Đã áp dụng đề xuất AI cho ${updated.length} chương`, description: "Có thể hoàn tác trong Trung tâm QA." });
+    } catch (error) {
+      toast({ title: "Không thể áp dụng hàng loạt", description: error.message, variant: "destructive" });
+    } finally {
+      setBatchReplaceRunning(false);
     }
   };
 
@@ -3840,6 +4068,19 @@ ${compact}`;
         scanningPronounInventory={scanningPronounInventory}
         onScanPronounInventory={handleScanPronounInventory}
         onOpenPronounOccurrence={handleOpenPronounOccurrence}
+        pronounBootstrap={pronounBootstrap}
+        runningPronounBootstrap={runningPronounBootstrap}
+        onRunPronounBootstrap={handleRunPronounBootstrap}
+        storyPronounAiReport={storyPronounAiReport}
+        runningStoryPronounAi={runningStoryPronounAi}
+        storyPronounAiFinished={storyPronounAiFinished}
+        storyPronounAiProgress={storyPronounAiProgress}
+        storyPronounAiErrors={storyPronounAiErrors}
+        onStartStoryPronounAi={handleStartStoryPronounAi}
+        onStopStoryPronounAi={handleStopStoryPronounAi}
+        onOpenStoryPronounAiChapter={handleOpenStoryPronounAiChapter}
+        onApplyAllStoryPronounAi={handleApplyAllStoryPronounAi}
+        applyingStoryPronounAiAll={batchReplaceRunning}
       />
       {issuePopover && (
         <div
@@ -3951,6 +4192,7 @@ ${compact}`;
         qaWorkflow={{ pending:chapterList.filter(ch=>editedChapterIds.has(ch.id)&&qaStatusOf(ch)!=="done"), stale:chapterList.filter(ch=>qaStatusOf(ch)==="stale") }}
         onOpenChapter={(id) => { switchChapter(id); setShowStoryQa(false); }}
         onApplyAllSafe={handleStoryQaApplyAllSafe}
+        onApplyAllPronoun={handleStoryQaApplyAllPronoun}
         onTranslate={handleTranslateStoryQaGroup}
       />
       <StoryBetaDialog open={showStoryBeta} onOpenChange={setShowStoryBeta} settings={betaSettings()} report={storyBetaReport} running={storyBetaRunning} onSaveSettings={handleSaveBetaSettings} onScan={handleScanStoryBeta} onBulkReplace={handleStoryBetaReplace} onIgnore={handleStoryBetaIgnore} pending={chapterList.filter(ch=>editedChapterIds.has(ch.id)&&betaStatusOf(ch)!=="done")} onOpenChapter={(id)=>{switchChapter(id);setShowStoryBeta(false);}} onApplyAllSafe={handleStoryBetaApplyAllSafe} onStartAiBatch={()=>setShowBatchBetaAi(true)} aiBatchPendingCount={aiBetaPendingCount}/>

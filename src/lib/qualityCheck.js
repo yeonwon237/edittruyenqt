@@ -199,7 +199,7 @@ const looksLikeQuestionAboutListener = (after) =>
 const looksLikeDirectAddress = (after) =>
   /^\s*(?:là\s+đồ(?=\s|[,.:;!?]|$)|đối\s+với\b|đừng\b|hãy\b)/iu.test(after);
 
-function resolveAddressRole(quoteText, relativeStart, relativeEnd, selfWordHint) {
+export function resolveAddressRole(quoteText, relativeStart, relativeEnd, selfWordHint) {
   const before = quoteText.slice(0, relativeStart);
   const after = quoteText.slice(relativeEnd);
   // A quote is often several sentences ("Ta yêu nàng, nàng biết không? Huynh
