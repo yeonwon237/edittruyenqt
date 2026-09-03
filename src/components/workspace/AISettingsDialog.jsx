@@ -7,13 +7,13 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Save, Trash2, ExternalLink, Loader2, Sparkles, Check, RotateCcw, Bot } from "lucide-react";
+import { Save, Trash2, ExternalLink, Loader2, Sparkles, Check, RotateCcw, Bot, Plus, Zap } from "lucide-react";
 import {
   getProvider,
   saveProvider,
-  getApiKey,
-  saveApiKey,
-  clearApiKey,
+  getApiKeys,
+  saveApiKeys,
+  getKeyCursor,
   testLLMKey,
   getModel,
   saveModel,
@@ -83,15 +83,19 @@ const PROVIDERS_INFO = {
 // Workspace (not the general Settings page) since it's specific to
 // editing a story, not app-wide appearance/behavior. Moved out of
 // Settings.jsx so that page can stay scoped to interface-only settings.
+const maskKey = (key) => (key.length <= 10 ? key : `${key.slice(0, 6)}…${key.slice(-4)}`);
+
 export default function AISettingsDialog({ open, onOpenChange }) {
   const { toast } = useToast();
   const [provider, setProvider] = useState(getProvider());
-  const [keyInputs, setKeyInputs] = useState({
-    gemini: getApiKey("gemini"),
-    openai: getApiKey("openai"),
-    claude: getApiKey("claude"),
-    stali: getApiKey("stali"),
+  const [keyLists, setKeyLists] = useState({
+    gemini: getApiKeys("gemini"),
+    openai: getApiKeys("openai"),
+    claude: getApiKeys("claude"),
+    stali: getApiKeys("stali"),
   });
+  const [newKeyInputs, setNewKeyInputs] = useState({ gemini: "", openai: "", claude: "", stali: "" });
+  const [testingKeyIdx, setTestingKeyIdx] = useState(null);
   const [modelInputs, setModelInputs] = useState({
     gemini: getModel("gemini"),
     openai: getModel("openai"),
@@ -100,7 +104,6 @@ export default function AISettingsDialog({ open, onOpenChange }) {
   });
   const [staliSearch, setStaliSearch] = useState("");
   const [staliTier, setStaliTier] = useState("all");
-  const [testing, setTesting] = useState(false);
 
   const filteredStaliModels = useMemo(() => {
     const query = staliSearch.trim().toLocaleLowerCase("vi");
@@ -120,28 +123,36 @@ export default function AISettingsDialog({ open, onOpenChange }) {
     toast({ title: `Đã chọn ${PROVIDERS_INFO[p].label} làm AI mặc định` });
   };
 
-  const handleSaveKey = (p) => {
-    saveApiKey(p, keyInputs[p].trim());
-    toast({ title: `Đã lưu API Key (${PROVIDERS_INFO[p].shortLabel}) 🔑` });
-  };
-
-  const handleClearKey = (p) => {
-    clearApiKey(p);
-    setKeyInputs((prev) => ({ ...prev, [p]: "" }));
-    toast({ title: `Đã xóa API Key (${PROVIDERS_INFO[p].shortLabel})` });
-  };
-
-  const handleTest = async (p) => {
-    setTesting(true);
-    try {
-      saveApiKey(p, keyInputs[p].trim());
-      saveModel(p, modelInputs[p]);
-      await testLLMKey(p, keyInputs[p].trim(), modelInputs[p].trim() || getDefaultModel(p));
-      toast({ title: `✅ Kết nối ${PROVIDERS_INFO[p].shortLabel} thành công!` });
-    } catch (e) {
-      toast({ title: "❌ Lỗi kết nối", description: e.message, variant: "destructive" });
+  const handleAddKey = (p) => {
+    const value = newKeyInputs[p].trim();
+    if (!value) return;
+    if (keyLists[p].includes(value)) {
+      toast({ title: "Key này đã có trong danh sách rồi", variant: "destructive" });
+      return;
     }
-    setTesting(false);
+    const next = [...keyLists[p], value];
+    saveApiKeys(p, next);
+    setKeyLists((prev) => ({ ...prev, [p]: next }));
+    setNewKeyInputs((prev) => ({ ...prev, [p]: "" }));
+    toast({ title: `Đã thêm key (${PROVIDERS_INFO[p].shortLabel}) 🔑 — ${next.length} key cho nhà cung cấp này` });
+  };
+
+  const handleRemoveKey = (p, idx) => {
+    const next = keyLists[p].filter((_, i) => i !== idx);
+    saveApiKeys(p, next);
+    setKeyLists((prev) => ({ ...prev, [p]: next }));
+    toast({ title: `Đã xóa key (${PROVIDERS_INFO[p].shortLabel})` });
+  };
+
+  const handleTestKey = async (p, idx) => {
+    setTestingKeyIdx(idx);
+    try {
+      await testLLMKey(p, keyLists[p][idx], modelInputs[p].trim() || getDefaultModel(p));
+      toast({ title: `✅ Key #${idx + 1} (${PROVIDERS_INFO[p].shortLabel}) kết nối thành công!` });
+    } catch (e) {
+      toast({ title: `❌ Key #${idx + 1} lỗi`, description: e.message, variant: "destructive" });
+    }
+    setTestingKeyIdx(null);
   };
 
   const handleSaveModel = (p) => {
@@ -173,7 +184,7 @@ export default function AISettingsDialog({ open, onOpenChange }) {
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-2">
           {Object.entries(PROVIDERS_INFO).map(([key, p]) => {
             const active = provider === key;
-            const hasKey = !!keyInputs[key].trim();
+            const hasKey = keyLists[key].length > 0;
             return (
               <button
                 key={key}
@@ -188,7 +199,7 @@ export default function AISettingsDialog({ open, onOpenChange }) {
                   <span className={`flex h-9 w-9 items-center justify-center rounded-xl ${p.accentBg} ${p.accentText}`}><Bot className="h-4 w-4" /></span>
                   {hasKey ? (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600 font-medium">
-                      ✓ có key
+                      ✓ {keyLists[key].length} key
                     </span>
                   ) : (
                     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400">
@@ -211,42 +222,72 @@ export default function AISettingsDialog({ open, onOpenChange }) {
         </div>
 
         <div className={`rounded-xl ${info.accentBg} border ${info.accentBorder} p-4`}>
-          <p className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+          <p className="text-sm font-semibold text-slate-700 mb-1 flex items-center gap-2">
             <Bot className="h-4 w-4" /> API Key — {info.label}
           </p>
-          <input
-            type="password"
-            value={keyInputs[provider]}
-            onChange={(e) => setKeyInputs((prev) => ({ ...prev, [provider]: e.target.value }))}
-            placeholder={info.placeholder}
-            className="w-full px-3.5 py-2.5 text-sm rounded-xl border border-violet-100 bg-white focus:outline-none focus:border-violet-400 transition-colors mb-3"
-            spellCheck={false}
-          />
+          <p className="text-xs text-slate-500 mb-3 leading-relaxed">
+            Nhập được nhiều key cùng lúc (ví dụ nhiều tài khoản {info.shortLabel} miễn phí). Hết
+            hạn mức hoặc lỗi ở key đang dùng, lần gọi AI kế tiếp tự chuyển sang key kế tiếp trong
+            danh sách — không phải dừng lại đổi key thủ công giữa chừng.
+          </p>
+
+          {keyLists[provider].length > 0 && (
+            <div className="mb-3 space-y-1.5">
+              {keyLists[provider].map((k, idx) => {
+                const isActive = idx === Math.min(getKeyCursor(provider), keyLists[provider].length - 1);
+                return (
+                  <div
+                    key={`${provider}-${idx}-${k.slice(-6)}`}
+                    className="flex items-center gap-2 rounded-xl border border-violet-100 bg-white px-3 py-2"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-600">
+                      {maskKey(k)}
+                    </span>
+                    {isActive && (
+                      <span className="shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-600 font-medium">
+                        <Zap className="w-2.5 h-2.5" /> đang dùng
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleTestKey(provider, idx)}
+                      disabled={testingKeyIdx === idx}
+                      className="shrink-0 p-1.5 rounded-lg text-violet-500 hover:bg-violet-50"
+                      title="Test key này"
+                    >
+                      {testingKeyIdx === idx ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveKey(provider, idx)}
+                      className="shrink-0 p-1.5 rounded-lg text-red-400 hover:bg-red-50"
+                      title="Xóa key này"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           <div className="flex flex-wrap gap-2">
+            <input
+              type="password"
+              value={newKeyInputs[provider]}
+              onChange={(e) => setNewKeyInputs((prev) => ({ ...prev, [provider]: e.target.value }))}
+              onKeyDown={(e) => { if (e.key === "Enter") handleAddKey(provider); }}
+              placeholder={info.placeholder}
+              className="flex-1 min-w-[180px] px-3.5 py-2.5 text-sm rounded-xl border border-violet-100 bg-white focus:outline-none focus:border-violet-400 transition-colors"
+              spellCheck={false}
+            />
             <Button
-              onClick={() => handleSaveKey(provider)}
+              onClick={() => handleAddKey(provider)}
+              disabled={!newKeyInputs[provider].trim()}
               className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
             >
-              <Save className="w-4 h-4 mr-1.5" /> Lưu Key
+              <Plus className="w-4 h-4 mr-1.5" /> Thêm key
             </Button>
-            <Button
-              onClick={() => handleTest(provider)}
-              disabled={testing || !keyInputs[provider].trim()}
-              variant="outline"
-              className="border-violet-200 text-violet-600 rounded-xl"
-            >
-              {testing ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Sparkles className="w-4 h-4 mr-1.5" />}
-              Test kết nối
-            </Button>
-            {keyInputs[provider] && (
-              <Button
-                onClick={() => handleClearKey(provider)}
-                variant="ghost"
-                className="text-red-500 hover:bg-red-50 rounded-xl"
-              >
-                <Trash2 className="w-4 h-4 mr-1.5" /> Xóa
-              </Button>
-            )}
           </div>
 
           <div className="mt-4 pt-4 border-t border-violet-100">
@@ -391,12 +432,12 @@ export default function AISettingsDialog({ open, onOpenChange }) {
                   {info.helpUrl.replace("https://", "")} <ExternalLink className="w-3 h-3" />
                 </a>
               </li>
-              <li>Sao chép key và dán vào ô trên.</li>
-              <li>Bấm "Lưu Key" rồi "Test kết nối".</li>
+              <li>Sao chép key và dán vào ô, bấm "Thêm key".</li>
+              <li>Lặp lại để thêm nhiều key — hết hạn mức key này, key kế tiếp tự được dùng.</li>
             </ol>
             <p className="text-slate-400 pt-1 border-t border-violet-100 mt-2">
-              Key lưu riêng trên trình duyệt (localStorage), không chia sẻ. Bạn có thể nhập key
-              cho cả 3 nhà cung cấp và chuyển đổi tuỳ ý.
+              Key lưu riêng trên trình duyệt (localStorage), không chia sẻ. Bạn có thể nhập nhiều
+              key cho mỗi nhà cung cấp, và nhập key cho cả 4 nhà cung cấp rồi chuyển đổi tuỳ ý.
             </p>
             {provider === "gemini" && (
               <p className="text-slate-400">

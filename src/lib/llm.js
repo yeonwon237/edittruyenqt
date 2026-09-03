@@ -9,6 +9,21 @@ const KEY_STORE = {
   claude: "claude_api_key",
   stali: "stali_api_key",
 };
+// A provider can have several keys (e.g. multiple free-tier Gemini accounts)
+// so callLLM can rotate to the next one when one hits its quota, instead of
+// the whole workflow stalling until the user notices and swaps keys by hand.
+const KEYS_STORE = {
+  gemini: "gemini_api_keys",
+  openai: "openai_api_keys",
+  claude: "claude_api_keys",
+  stali: "stali_api_keys",
+};
+const KEY_CURSOR_STORE = {
+  gemini: "gemini_api_key_cursor",
+  openai: "openai_api_key_cursor",
+  claude: "claude_api_key_cursor",
+  stali: "stali_api_key_cursor",
+};
 
 // Model IDs churn fast (providers rename/retire them every few months —
 // see git history for the number of times this exact file needed a fix).
@@ -84,8 +99,55 @@ export function clearApiKey(provider) {
   localStorage.removeItem(KEY_STORE[provider]);
 }
 
+// Full key pool for a provider. Falls back to the legacy single-key slot so
+// accounts that only ever set one key keep working unchanged.
+export function getApiKeys(provider) {
+  const p = provider || getProvider();
+  try {
+    const raw = localStorage.getItem(KEYS_STORE[p]);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const cleaned = [...new Set(parsed.map((k) => String(k || "").trim()).filter(Boolean))];
+        if (cleaned.length) return cleaned;
+      }
+    }
+  } catch {}
+  const legacy = getApiKey(p).trim();
+  return legacy ? [legacy] : [];
+}
+
+export function saveApiKeys(provider, keys) {
+  const cleaned = [...new Set((keys || []).map((k) => String(k || "").trim()).filter(Boolean))];
+  if (cleaned.length) {
+    localStorage.setItem(KEYS_STORE[provider], JSON.stringify(cleaned));
+  } else {
+    localStorage.removeItem(KEYS_STORE[provider]);
+  }
+  // Keep the legacy single-key slot in sync — other modules (video cover,
+  // TTS) read a single key directly rather than going through callLLM.
+  if (cleaned[0]) saveApiKey(provider, cleaned[0]);
+  else clearApiKey(provider);
+}
+
+export function getKeyCursor(provider) {
+  const p = provider || getProvider();
+  try {
+    const n = parseInt(localStorage.getItem(KEY_CURSOR_STORE[p]) || "0", 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function setKeyCursor(provider, idx) {
+  try {
+    localStorage.setItem(KEY_CURSOR_STORE[provider], String(idx));
+  } catch {}
+}
+
 export function hasCustomAI() {
-  return !!getApiKey(getProvider()).trim();
+  return getApiKeys(getProvider()).length > 0;
 }
 
 export function getDefaultModel(provider) {
@@ -118,19 +180,43 @@ export function resetModel(provider) {
 // payload plus its MIME type (e.g. "image/png"). Only Gemini/OpenAI/Claude
 // (this custom-key path) support image input; the Base44 managed AI path
 // (InvokeLLM) is text-only.
-export async function callLLM(prompt, image, options = {}) {
-  const provider = getProvider();
-  const key = getApiKey(provider).trim();
-  if (!key) {
-    throw new Error("Chưa cấu hình API Key. Vào Cài đặt (⚙️) để nhập key.");
-  }
-  const model = getModel(provider);
-  const maxTokens = options.maxTokens || 8192;
+function dispatchLLM(provider, key, prompt, image, model, maxTokens) {
   if (provider === "gemini") return callGeminiRaw(key, prompt, image, model, maxTokens);
   if (provider === "openai") return callOpenAI(key, prompt, image, model, maxTokens);
   if (provider === "claude") return callClaude(key, prompt, image, model, maxTokens);
   if (provider === "stali") return callOpenAICompatible(key, prompt, image, model, getEndpoint("stali"), "STALI", maxTokens);
   throw new Error("Provider AI không được hỗ trợ: " + provider);
+}
+
+// Rotates across every saved key for the current provider: starts at the
+// last key that worked (so a dead/exhausted key at the front of the list
+// doesn't get retried every single call), and on failure moves to the next
+// one instead of surfacing the error — the whole point being that a batch
+// job (beta reader, whole-story scan, ...) keeps running unattended past a
+// single key's rate limit.
+export async function callLLM(prompt, image, options = {}) {
+  const provider = getProvider();
+  const keys = getApiKeys(provider);
+  if (!keys.length) {
+    throw new Error("Chưa cấu hình API Key. Vào Cài đặt (⚙️) để nhập key.");
+  }
+  const model = getModel(provider);
+  const maxTokens = options.maxTokens || 8192;
+  const startIdx = Math.min(getKeyCursor(provider), keys.length - 1);
+
+  let lastError = null;
+  for (let i = 0; i < keys.length; i++) {
+    const idx = (startIdx + i) % keys.length;
+    try {
+      const result = await dispatchLLM(provider, keys[idx], prompt, image, model, maxTokens);
+      if (idx !== startIdx) setKeyCursor(provider, idx);
+      return result;
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  const suffix = keys.length > 1 ? ` (đã thử hết ${keys.length} key)` : "";
+  throw new Error((lastError?.message || "Lỗi gọi AI") + suffix);
 }
 
 export async function testLLMKey(provider, key, model) {

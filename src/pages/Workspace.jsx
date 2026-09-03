@@ -22,6 +22,8 @@ import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import QualityCheckDialog from "@/components/workspace/QualityCheckDialog";
 import StoryQaDialog from "@/components/workspace/StoryQaDialog";
 import BetaCheckDialog from "@/components/workspace/BetaCheckDialog";
+import BetaReaderDialog from "@/components/workspace/BetaReaderDialog";
+import StoryBetaReaderDialog from "@/components/workspace/StoryBetaReaderDialog";
 import StoryBetaDialog from "@/components/workspace/StoryBetaDialog";
 import BulkColumnMoveDialog from "@/components/workspace/BulkColumnMoveDialog";
 import ChapterPicker from "@/components/workspace/ChapterPicker";
@@ -55,7 +57,7 @@ import { isDraftMode } from "@/lib/draftMode";
 import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterEditStats";
 import { scanPronounInventory } from "@/lib/pronounInventory";
 import { discoverPronounRules } from "@/lib/pronounDiscovery";
-import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send } from "lucide-react";
+import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send, MessageSquareText } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -186,6 +188,26 @@ export default function Workspace() {
   const [betaIssues, setBetaIssues] = useState([]);
   const betaScannedChapterRef = useRef(null);
   const [betaUndo, setBetaUndo] = useState(null);
+  // "Beta reader AI" — free-form reading of the whole current chapter (not
+  // bound to code-detected candidates or a fixed rule table like the other
+  // AI checks): the model reads like an actual editor and can flag anything,
+  // optionally guided by what QA already flagged as a hint, not a filter.
+  const [showBetaReader, setShowBetaReader] = useState(false);
+  const [betaReaderRunning, setBetaReaderRunning] = useState(false);
+  const [betaReaderProgress, setBetaReaderProgress] = useState({ done: 0, total: 0 });
+  const [betaReaderNotes, setBetaReaderNotes] = useState(null);
+  const [betaReaderChapterId, setBetaReaderChapterId] = useState(null);
+  // Batch counterpart — same free-form reading, looped across "toàn truyện"
+  // or "N chương tiếp theo" from the chapter currently open. Suggestions
+  // only, same as the single-chapter version: nothing is written until the
+  // user opens a chapter from the report and applies a note there.
+  const [showStoryBetaReader, setShowStoryBetaReader] = useState(false);
+  const [runningStoryBetaReader, setRunningStoryBetaReader] = useState(false);
+  const [storyBetaReaderFinished, setStoryBetaReaderFinished] = useState(false);
+  const [storyBetaReaderProgress, setStoryBetaReaderProgress] = useState({ done: 0, total: 0, found: 0, skipped: 0, failed: 0, currentTitle: "" });
+  const [storyBetaReaderErrors, setStoryBetaReaderErrors] = useState([]);
+  const [storyBetaReaderReport, setStoryBetaReaderReport] = useState(null);
+  const storyBetaReaderStopRef = useRef(false);
   const [betaAiRunning, setBetaAiRunning] = useState(false);
   const [storyBetaRunning, setStoryBetaRunning] = useState(false);
   const [storyBetaReport, setStoryBetaReport] = useState(null);
@@ -1771,6 +1793,8 @@ export default function Workspace() {
 
   useEffect(()=>{try{setStoryPronounAiReport(JSON.parse(localStorage.getItem(`etq-story-pronoun-ai:${projectId}`)||"null"));}catch{setStoryPronounAiReport(null);}},[projectId]);
 
+  useEffect(()=>{try{setStoryBetaReaderReport(JSON.parse(localStorage.getItem(`etq-story-beta-reader:${projectId}`)||"null"));}catch{setStoryBetaReaderReport(null);}},[projectId]);
+
   useEffect(()=>{try{setStoryBetaReport(JSON.parse(localStorage.getItem(`etq-story-beta:${projectId}`)||"null"));}catch{setStoryBetaReport(null);}},[projectId]);
   useEffect(()=>{if(!storyBetaReport||!currentChapter?.id||betaScannedChapterRef.current!==currentChapter.id)return;const issues=betaIssues;const meta=chapterList.find(ch=>ch.id===currentChapter.id)||currentChapter;const chapters=storyBetaReport.chapters.filter(ch=>ch.id!==currentChapter.id);if(issues.length)chapters.push({id:currentChapter.id,title:meta.title,chapter_order:meta.chapter_order,count:issues.length});chapters.sort((a,b)=>(a.chapter_order||0)-(b.chapter_order||0));const next={...storyBetaReport,chapters,issueCount:chapters.reduce((sum,ch)=>sum+ch.count,0),groupsStale:true};setStoryBetaReport(next);localStorage.setItem(`etq-story-beta:${projectId}`,JSON.stringify(next));// eslint-disable-next-line react-hooks/exhaustive-deps
   },[betaIssues,currentChapter?.id]);
@@ -2065,6 +2089,237 @@ Xuất lại TOÀN BỘ văn bản trên, đã sửa đúng xưng hô:`;
     setPronounCheckPreview(null);
     setPronounCheckDiff(null);
     toast({ title: "Đã bỏ đề xuất", description: "Bản Edit không bị thay đổi." });
+  };
+
+  // Unlike buildPronounCheckPrompt (narrow: only fixes dialogue pronouns
+  // against a strict rule table) or the AI Beta pass (narrow: only reviews
+  // sentences code already flagged as "khó"), this asks the model to read
+  // the whole chapter freely and comment like a real beta reader — anything
+  // that would make it stumble, not just what fits a fixed category. QA
+  // hits are passed as a hint to double-check, not a filter on what it's
+  // allowed to notice — this is the whole point per the user's request.
+  const buildBetaReaderPrompt = (text, matrixText, qaHints) => `Bạn là một beta reader/biên tập viên giàu kinh nghiệm, KHÔNG PHẢI một công cụ dò lỗi máy móc. Đọc kỹ đoạn văn tiếng Việt sau như một độc giả thật sự, rồi góp ý như khi biên tập cho tác giả — chỉ ra những chỗ khiến bạn khựng lại khi đọc: xưng hô giữa hai nhân vật nghe không hợp bối cảnh, lời thoại/tường thuật gượng gạo hoặc không tự nhiên, mâu thuẫn logic/tình tiết ngay trong đoạn, lặp từ/lặp ý. Bỏ qua lỗi chính tả/dấu câu vụn vặt trừ khi thật sự đáng chú ý.
+
+${qaHints ? `GỢI Ý: một công cụ quét bằng luật đã nghi ngờ những chỗ sau — hãy tự đọc lại ngữ cảnh xem có thật sự sai không (công cụ đó không hiểu ngữ cảnh nên có thể sai), và tìm thêm chỗ tương tự nó có thể đã bỏ sót. Đây chỉ là gợi ý, không phải giới hạn — vẫn góp ý bất cứ chỗ nào khác bạn thấy đáng chú ý:\n${qaHints}\n\n` : ""}${matrixText ? `BẢNG QUY TẮC XƯNG HÔ (tham khảo để đối chiếu, không phải danh sách đầy đủ mọi nhân vật):\n${matrixText}\n\n` : ""}ĐOẠN VĂN CẦN ĐỌC:
+${text}
+
+Trả DUY NHẤT một JSON array (không markdown, không giải thích gì thêm ngoài JSON). Mỗi phần tử: {"quote": "trích nguyên văn cụm/câu có vấn đề, giữ đúng từng ký tự để định vị được trong đoạn trên", "comment": "nhận xét ngắn gọn của bạn, viết như đang góp ý cho tác giả, giải thích vì sao", "suggestion": "câu/cụm đề xuất thay thế nếu có — để chuỗi rỗng nếu chỉ là nhận xét, không cần sửa"}. Nếu đoạn văn ổn, không có gì đáng góp ý, trả về mảng rỗng [].`;
+
+  // Shared by the single-chapter and whole-story runs: chunk the text, ask
+  // the model per chunk, and turn its JSON reply into located notes. Kept
+  // as one function so the locate-by-quote logic (and its safety margin —
+  // only trust a quote as "located" when it's unambiguous in that chunk)
+  // can't drift between the two call sites.
+  const runBetaReaderOnText = async (sourceText, matrixText, qaHints, idPrefix, onChunkDone) => {
+    const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
+    let cursor = 0;
+    const notes = [];
+    for (let i = 0; i < chunks.length; i++) {
+      const chunk = chunks[i];
+      const chunkStart = sourceText.indexOf(chunk, cursor);
+      cursor = chunkStart + chunk.length;
+      // eslint-disable-next-line no-await-in-loop
+      const raw = await callLLM(buildBetaReaderPrompt(chunk, matrixText, qaHints));
+      let parsed;
+      try {
+        parsed = JSON.parse(String(raw).trim().replace(/^```(?:json)?\s*|\s*```$/g, ""));
+      } catch {
+        parsed = [];
+      }
+      if (Array.isArray(parsed)) {
+        parsed.forEach((item) => {
+          const quote = String(item?.quote || "").trim();
+          const comment = String(item?.comment || "").trim();
+          if (!quote || !comment) return;
+          const suggestion = String(item?.suggestion || "").trim();
+          const localIdx = chunk.indexOf(quote);
+          const occurrences = localIdx === -1 ? 0 : chunk.split(quote).length - 1;
+          const located = occurrences === 1;
+          notes.push({
+            id: `${idPrefix}-${chunkStart}-${notes.length}`,
+            quote, comment, suggestion, located,
+            start: located ? chunkStart + localIdx : null,
+            end: located ? chunkStart + localIdx + quote.length : null,
+          });
+        });
+      }
+      onChunkDone?.(i + 1, chunks.length);
+    }
+    return notes;
+  };
+
+  const handleRunBetaReader = async () => {
+    if (!currentChapter) {
+      toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
+      return;
+    }
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return;
+    }
+    const sourceText = currentChapter.edited || "";
+    if (!sourceText.trim()) {
+      toast({ title: "Bản Edit đang trống, chưa có gì để đọc!", variant: "destructive" });
+      return;
+    }
+    const chapterId = currentChapter.id;
+    const matrixText = buildPronounMatrixPrompt(project?.contextual_pronoun_rules || []);
+    const qaHints = qualityIssues
+      .slice(0, 25)
+      .map((issue) => `- "${issue.value}": ${issue.context}`.slice(0, 220))
+      .join("\n");
+    setBetaReaderRunning(true);
+    setBetaReaderNotes(null);
+    setBetaReaderChapterId(chapterId);
+    try {
+      setBetaReaderProgress({ done: 0, total: chunkText(sourceText, AI_CHUNK_CHARS).length });
+      const allNotes = await runBetaReaderOnText(sourceText, matrixText, qaHints, "beta-reader", (done, total) => {
+        setBetaReaderProgress({ done, total });
+      });
+      setBetaReaderNotes(allNotes);
+      toast({
+        title: allNotes.length ? `AI góp ý ${allNotes.length} chỗ` : "AI đọc xong, không có gì đáng góp ý",
+        description: allNotes.length ? "Xem từng chỗ và tự quyết định, không có gì bị tự sửa." : undefined,
+      });
+    } catch (e) {
+      toast({ title: "Lỗi khi đọc chương", description: e.message, variant: "destructive" });
+      setBetaReaderChapterId(null);
+    } finally {
+      setBetaReaderRunning(false);
+    }
+  };
+
+  // If the chapter currently open also has an entry in the whole-story
+  // report, keep that entry's note list in sync so re-opening it later
+  // (or the "found" count in StoryBetaReaderDialog) doesn't still show
+  // notes already applied/dismissed here.
+  const syncStoryBetaReaderNotes = (chapterId, remainingNotes) => {
+    setStoryBetaReaderReport((report) => {
+      if (!report?.chapters.some((c) => c.id === chapterId)) return report;
+      const chapters = remainingNotes.length
+        ? report.chapters.map((c) => (c.id === chapterId ? { ...c, notes: remainingNotes } : c))
+        : report.chapters.filter((c) => c.id !== chapterId);
+      const next = { ...report, chapters };
+      localStorage.setItem(`etq-story-beta-reader:${projectId}`, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const handleApplyBetaReaderNote = (note) => {
+    if (!currentChapter || !note.suggestion.trim()) return;
+    const edited = currentChapter.edited || "";
+    const idx = edited.indexOf(note.quote);
+    if (idx === -1) {
+      toast({ title: "Không tìm thấy đoạn này trong Bản Edit hiện tại", description: "Bản Edit có thể đã đổi từ lúc đọc — hãy đọc lại.", variant: "destructive" });
+      return;
+    }
+    const previous = edited;
+    const next = edited.slice(0, idx) + note.suggestion + edited.slice(idx + note.quote.length);
+    setCurrentChapter((chapter) => ({ ...chapter, edited: next }));
+    setAiUndo({ chapterId: currentChapter.id, previous });
+    const remaining = (betaReaderNotes || []).filter((n) => n.id !== note.id);
+    setBetaReaderNotes(remaining);
+    syncStoryBetaReaderNotes(currentChapter.id, remaining);
+    toast({ title: "Đã áp dụng đề xuất ✅", description: "Có thể hoàn tác bằng nút Hoàn tác AI." });
+  };
+
+  const handleDismissBetaReaderNote = (noteId) => {
+    const remaining = (betaReaderNotes || []).filter((n) => n.id !== noteId);
+    setBetaReaderNotes(remaining);
+    if (currentChapter) syncStoryBetaReaderNotes(currentChapter.id, remaining);
+  };
+
+  const handleStartStoryBetaReader = async (scope) => {
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return;
+    }
+    storyBetaReaderStopRef.current = false;
+    setStoryBetaReaderErrors([]);
+    setStoryBetaReaderFinished(false);
+    if (currentChapter) await flushSave(currentChapter, true);
+    let chapters;
+    try {
+      chapters = await fetchAllPages(
+        (limit, skip) => Chapter.filterNonEmpty({ project_id: projectId }, "edited", "chapter_order", limit, skip, ["title", "chapter_order", "edited"]),
+        { pageSize: 300, maxItems: CHAPTER_FETCH_CAP }
+      );
+    } catch (error) {
+      toast({ title: "Không lấy được danh sách chương", description: error.message, variant: "destructive" });
+      return;
+    }
+    let ordered = [...chapters].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+    if (scope.type === "next") {
+      const fromOrder = currentChapter?.chapter_order ?? -Infinity;
+      ordered = ordered.filter((c) => (c.chapter_order ?? 0) >= fromOrder).slice(0, scope.count);
+    }
+    if (!ordered.length) {
+      toast({ title: "Không có chương nào để quét", variant: "destructive" });
+      return;
+    }
+    const matrixText = buildPronounMatrixPrompt(project?.contextual_pronoun_rules || []);
+    const qaOptions = qualityOptions();
+    setStoryBetaReaderProgress({ done: 0, total: ordered.length, found: 0, skipped: 0, failed: 0, currentTitle: "" });
+    setRunningStoryBetaReader(true);
+    let nextChapters = [];
+
+    for (let i = 0; i < ordered.length; i++) {
+      if (storyBetaReaderStopRef.current) break;
+      const meta = ordered[i];
+      setStoryBetaReaderProgress((p) => ({ ...p, currentTitle: meta.title }));
+      try {
+        let chapter = chapterCacheRef.current.get(meta.id);
+        if (!chapter) {
+          chapter = await Chapter.get(meta.id);
+          chapterCacheRef.current.set(meta.id, chapter);
+          capCache(chapterCacheRef.current);
+        }
+        const sourceText = chapter.edited || "";
+        if (!sourceText.trim()) {
+          setStoryBetaReaderProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
+        } else {
+          const qaHints = runQualityCheck(sourceText, qaOptions)
+            .slice(0, 25)
+            .map((issue) => `- "${issue.value}": ${issue.context}`.slice(0, 220))
+            .join("\n");
+          const notes = await runBetaReaderOnText(sourceText, matrixText, qaHints, `story-beta-reader-${meta.id}`);
+          if (notes.length) {
+            nextChapters = [...nextChapters.filter((c) => c.id !== meta.id), { id: meta.id, title: meta.title, chapter_order: meta.chapter_order, notes }];
+            setStoryBetaReaderReport(() => {
+              const next = { chapters: nextChapters, scannedAt: Date.now() };
+              localStorage.setItem(`etq-story-beta-reader:${projectId}`, JSON.stringify(next));
+              return next;
+            });
+            setStoryBetaReaderProgress((p) => ({ ...p, done: p.done + 1, found: p.found + 1 }));
+          } else {
+            setStoryBetaReaderProgress((p) => ({ ...p, done: p.done + 1 }));
+          }
+        }
+      } catch (e) {
+        setStoryBetaReaderErrors((prev) => [...prev, { title: meta.title, message: e.message }]);
+        setStoryBetaReaderProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
+      }
+      if (!storyBetaReaderStopRef.current && i < ordered.length - 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+    }
+
+    setRunningStoryBetaReader(false);
+    setStoryBetaReaderFinished(true);
+    toast({ title: storyBetaReaderStopRef.current ? "Đã dừng Beta reader hàng loạt ⏸️" : "Hoàn tất Beta reader hàng loạt! ✨" });
+  };
+
+  const handleStopStoryBetaReader = () => { storyBetaReaderStopRef.current = true; };
+
+  const handleOpenStoryBetaReaderChapter = async (chapterId) => {
+    const entry = storyBetaReaderReport?.chapters.find((c) => c.id === chapterId);
+    if (!entry) return;
+    await switchChapter(chapterId);
+    setBetaReaderNotes(entry.notes);
+    setBetaReaderChapterId(chapterId);
+    setShowStoryBetaReader(false);
+    setShowBetaReader(true);
   };
 
   const handleScanPronounInventory = async () => {
@@ -3977,6 +4232,14 @@ ${compact}`;
                             {qualityGroupCount > 0 ? `QA · ${qualityGroupCount} nhóm lỗi` : "QA · Không thấy lỗi"}
                           </button>
                           <button onClick={handleOpenBetaCheck} className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors ${betaIssues.length?"border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700":"border-emerald-100 bg-emerald-50 text-emerald-700"}`} title="Beta văn phong, câu và trình bày"><PenTool className="h-3.5 w-3.5"/>{betaIssues.length?`Beta · ${betaIssues.length} nghi vấn`:"Beta · Sạch"}</button>
+                          <button
+                            onClick={() => setShowBetaReader(true)}
+                            className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors ${betaReaderChapterId===currentChapter.id&&betaReaderNotes?.length?"border-indigo-200 bg-indigo-50 text-indigo-700":"border-violet-100 bg-violet-50/60 text-violet-600"}`}
+                            title="AI đọc toàn chương và góp ý tự do như biên tập viên thật, không chỉ đối chiếu luật"
+                          >
+                            <MessageSquareText className="h-3.5 w-3.5"/>
+                            {betaReaderChapterId===currentChapter.id&&betaReaderNotes?.length?`Beta reader AI · ${betaReaderNotes.length}`:"Beta reader AI"}
+                          </button>
                           {foreignCharCount > 0 && (
                             <button
                               onClick={() => setPanel3Mode("view")}
@@ -4149,6 +4412,31 @@ ${compact}`;
         onApplyAllSafe={handleApplyAllSafeQuality}
       />
       <BetaCheckDialog open={showBetaCheck} onOpenChange={setShowBetaCheck} issues={betaIssues} onApply={handleApplyBeta} onLocate={handleLocateBeta} onIgnore={handleIgnoreBeta} onAiCheck={handleAiBeta} aiRunning={betaAiRunning} onUndo={handleUndoBeta} canUndo={betaUndo?.chapterId===currentChapter?.id} onApplyAllSafe={handleApplyAllSafeBeta}/>
+      <BetaReaderDialog
+        open={showBetaReader}
+        onOpenChange={setShowBetaReader}
+        running={betaReaderRunning}
+        progress={betaReaderProgress}
+        notes={betaReaderChapterId === currentChapter?.id ? betaReaderNotes : null}
+        onScan={handleRunBetaReader}
+        onApply={handleApplyBetaReaderNote}
+        onDismiss={handleDismissBetaReaderNote}
+        canUndo={aiUndo?.chapterId === currentChapter?.id}
+        onUndo={handleUndoAiEdit}
+        onOpenStoryScan={() => { setShowBetaReader(false); setShowStoryBetaReader(true); }}
+      />
+      <StoryBetaReaderDialog
+        open={showStoryBetaReader}
+        onOpenChange={setShowStoryBetaReader}
+        report={storyBetaReaderReport}
+        running={runningStoryBetaReader}
+        finished={storyBetaReaderFinished}
+        progress={storyBetaReaderProgress}
+        errors={storyBetaReaderErrors}
+        onStart={handleStartStoryBetaReader}
+        onStop={handleStopStoryBetaReader}
+        onOpenChapter={handleOpenStoryBetaReaderChapter}
+      />
       <AISettingsDialog open={showAISettings} onOpenChange={setShowAISettings} />
       <ChapterManagerDialog
         open={showChapterManager}
