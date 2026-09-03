@@ -202,9 +202,9 @@ export default function StoryLibrary() {
           <div className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-violet-500/25 blur-2xl" />
           <div className="relative flex flex-col justify-between gap-6 sm:flex-row sm:items-end">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[.18em] text-violet-300">Thư viện cá nhân</p>
-              <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Những câu chuyện của bạn</h2>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-white/55">Quản lý bản thảo, thuật ngữ và tiến độ biên tập trong từng bộ truyện.</p>
+              <p className="text-xs font-bold uppercase tracking-[.18em] text-violet-300">Thư viện</p>
+              <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">Kệ sách của bạn</h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-white/55">Mỗi bộ truyện là một cuốn sách — chọn một cuốn để tiếp tục biên tập.</p>
             </div>
             <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[.06] px-4 py-3 backdrop-blur">
               <BookOpen className="h-5 w-5 text-violet-300" />
@@ -254,26 +254,30 @@ export default function StoryLibrary() {
             Không tìm thấy bộ truyện phù hợp.
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-8 sm:grid-cols-3 sm:gap-x-5 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
             {filtered.map((proj) => (
-              <div
-                key={proj.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => navigate(`/workspace/${proj.id}`)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") navigate(`/workspace/${proj.id}`);
-                }}
-                className="group text-left rounded-3xl bg-white/90 border border-white hover:border-violet-200 shadow-[0_1px_2px_rgba(15,23,42,.04),0_16px_40px_-30px_rgba(39,24,77,.3)] hover:shadow-xl hover:-translate-y-1 transition-all duration-300 overflow-hidden cursor-pointer"
-              >
+              <div key={proj.id} className="group">
                 <div
-                  className={`relative h-24 bg-gradient-to-br ${gradientFor(proj.cover_emoji || "📚")} flex items-center justify-center`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => navigate(`/workspace/${proj.id}`)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") navigate(`/workspace/${proj.id}`);
+                  }}
+                  title={proj.description || proj.title}
+                  className={`relative aspect-[2/3] w-full cursor-pointer overflow-hidden rounded-r-lg rounded-l-sm bg-gradient-to-br ${gradientFor(proj.cover_emoji || "📚")} shadow-[3px_4px_10px_-2px_rgba(15,23,42,.35),0_16px_30px_-20px_rgba(39,24,77,.55)] transition-all duration-300 will-change-transform hover:-translate-y-1.5 hover:rotate-[.5deg] hover:shadow-[4px_10px_24px_-6px_rgba(15,23,42,.45),0_24px_45px_-24px_rgba(39,24,77,.6)]`}
                 >
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent" />
-                  <span className="relative text-5xl drop-shadow-md">
+                  {/* Spine */}
+                  <div className="absolute inset-y-0 left-0 z-10 w-2.5 bg-gradient-to-r from-black/40 to-transparent" />
+                  {/* Glossy cover sheen */}
+                  <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-white/25 via-transparent to-black/25" />
+                  <div className="pointer-events-none absolute -inset-y-4 left-1/4 w-1/3 -rotate-12 bg-white/10 blur-md" />
+
+                  <span className="absolute inset-0 flex items-center justify-center text-6xl drop-shadow-[0_6px_10px_rgba(0,0,0,.35)] sm:text-7xl">
                     {proj.cover_emoji || "📚"}
                   </span>
-                  <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-white/85 text-[10px] font-medium text-slate-600 flex items-center gap-1 backdrop-blur-sm">
+
+                  <span className="absolute top-2 right-2 z-10 inline-flex items-center gap-1 rounded-full bg-white/85 px-2 py-0.5 text-[10px] font-medium text-slate-600 backdrop-blur-sm">
                     <Languages className="w-2.5 h-2.5" />
                     {proj.source_language || "Trung"}
                   </span>
@@ -282,22 +286,23 @@ export default function StoryLibrary() {
                       e.stopPropagation();
                       setDeleteTarget(proj);
                     }}
-                    className="absolute top-2.5 left-2.5 p-1.5 rounded-full bg-white/85 text-slate-500 hover:bg-red-500 hover:text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute top-2 left-4 z-10 p-1.5 rounded-full bg-white/85 text-slate-500 opacity-0 backdrop-blur-sm transition-opacity hover:bg-red-500 hover:text-white group-hover:opacity-100"
                     title="Xóa bộ truyện này"
                   >
                     <Trash2 className="w-3 h-3" />
                   </button>
+
+                  {/* Title label, printed on the lower third of the cover */}
+                  <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/75 via-black/35 to-transparent px-3 pb-2.5 pt-8">
+                    <h3 className="line-clamp-2 text-sm font-bold leading-snug text-white drop-shadow">
+                      {proj.title}
+                    </h3>
+                  </div>
                 </div>
-                <div className="p-4">
-                  <h3 className="font-bold text-slate-800 mb-1 line-clamp-1 group-hover:text-violet-600 transition-colors">
-                    {proj.title}
-                  </h3>
-                  <p className="text-sm text-slate-400 line-clamp-2 mb-3 min-h-[2.5rem]">
-                    {proj.description || "Chưa có mô tả"}
-                  </p>
-                  <div className="flex items-center justify-between text-xs text-slate-400">
-                    <span className="inline-flex items-center gap-1">
-                      <Clock className="w-3 h-3" />
+                <div className="mt-2 flex items-center justify-between gap-2 px-0.5 text-[11px] text-slate-400">
+                  <span className="inline-flex min-w-0 items-center gap-1">
+                    <Clock className="h-3 w-3 shrink-0" />
+                    <span className="truncate">
                       {proj.updated_date || proj.created_date
                         ? formatDistanceToNow(
                             new Date(proj.updated_date || proj.created_date),
@@ -305,10 +310,10 @@ export default function StoryLibrary() {
                           )
                         : "—"}
                     </span>
-                    <span className="inline-flex items-center gap-1 text-violet-500 group-hover:text-violet-700 group-hover:gap-2 transition-all font-medium">
-                      Mở <ArrowRight className="w-3.5 h-3.5" />
-                    </span>
-                  </div>
+                  </span>
+                  <span className="inline-flex shrink-0 items-center gap-0.5 font-medium text-violet-400 opacity-0 transition-all group-hover:gap-1.5 group-hover:text-violet-600 group-hover:opacity-100">
+                    Mở <ArrowRight className="h-3 w-3" />
+                  </span>
                 </div>
               </div>
             ))}

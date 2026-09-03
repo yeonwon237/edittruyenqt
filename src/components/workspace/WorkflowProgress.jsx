@@ -55,7 +55,7 @@ export default function WorkflowProgress({
           <div className="mb-1 flex items-center justify-between gap-2 text-[11px]"><span className="font-semibold text-fuchsia-700">Beta · {betaCount}/{total} ({betaPercent}%)</span><span className="truncate text-slate-400">Liên tục: {betaThrough || "chưa có"}</span></div>
           <ProgressBar value={betaCount} total={total} color="bg-fuchsia-500" />
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
           {qaNeedsRecheck > 0 && <span className="rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-medium text-amber-700">{qaNeedsRecheck} cần kiểm lại</span>}
           {betaNeedsRecheck > 0 && <span className="rounded-lg bg-fuchsia-50 px-2 py-1 text-[10px] font-medium text-fuchsia-700">{betaNeedsRecheck} cần Beta lại</span>}
           <button onClick={onNextEdit} className="inline-flex items-center gap-1 rounded-lg border border-violet-100 bg-violet-50 px-2 py-1 text-[10px] font-medium text-violet-700 hover:bg-violet-100">Edit tiếp <ChevronRight className="h-3 w-3" /></button>

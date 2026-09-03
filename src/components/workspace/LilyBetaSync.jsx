@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { chapterIdsForMode, selectChapterRange } from './lilybetaSelection';
 import { supabase } from '@/api/supabaseClient';
 
-export default function LilyBetaSync({ projectId, currentChapterId, beforeSync }) {
+export default function LilyBetaSync({ projectId, currentChapterId, beforeSync, triggerClassName, triggerIcon = null }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
@@ -105,7 +105,7 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync }
   }
 
   return <>
-    <button type="button" onClick={() => setOpen(true)} className="px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold">{busy ? `Đang gửi ${progress.done}/${progress.total}` : 'Gửi sang LilyBeta'}</button>
+    <button type="button" onClick={() => setOpen(true)} className={triggerClassName || "px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold"}>{triggerIcon}{busy ? `Đang gửi ${progress.done}/${progress.total}` : 'Gửi sang LilyBeta'}</button>
     {open && createPortal(<div className="fixed inset-0 z-[100] bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="lilybeta-sync-title">
       <div className="bg-white rounded-2xl p-5 w-full max-w-2xl max-h-[90dvh] overflow-y-auto space-y-4 text-slate-800 shadow-xl">
         <h2 id="lilybeta-sync-title" className="font-bold text-lg">Gửi bản edit sang LilyBeta</h2>

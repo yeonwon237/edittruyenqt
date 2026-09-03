@@ -219,7 +219,10 @@ export default function EditorToolbar({
         </div>}
       </div>
 
-      <div className="flex-1" />
+      {/* Only acts as a spacer on desktop (single row) — on mobile the row
+          already wraps, so an empty flex-1 here would claim a whole row of
+          its own between the two button groups. */}
+      <div className="hidden sm:block sm:flex-1" />
 
       {/* Self-translate (built-in dictionary engine, free, 0 network cost) */}
       <button

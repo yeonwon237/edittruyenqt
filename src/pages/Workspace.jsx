@@ -53,7 +53,7 @@ import { fetchAllPages } from "@/lib/paginate";
 import { isDraftMode } from "@/lib/draftMode";
 import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterEditStats";
 import { scanPronounInventory } from "@/lib/pronounInventory";
-import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool } from "lucide-react";
+import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -195,6 +195,11 @@ export default function Workspace() {
   const batchBetaAiStopRef = useRef(false);
   const [showAISettings, setShowAISettings] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
+  // Mobile-only "⋯" overflow menu for the header actions that don't fit a
+  // 375px-wide row (QA/Beta scan, chapter manager, create, export, LilyBeta
+  // sync, logout) — desktop keeps showing them inline.
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const headerMenuRef = useRef(null);
   const [showColumnMove, setShowColumnMove] = useState(false);
   const [movingColumns, setMovingColumns] = useState(false);
   const [columnMoveUndo, setColumnMoveUndo] = useState(null);
@@ -266,6 +271,14 @@ export default function Workspace() {
     loadProjectData();
     // eslint-disable-next-line
   }, [projectId]);
+
+  useEffect(() => {
+    const onDocClick = (e) => {
+      if (headerMenuRef.current && !headerMenuRef.current.contains(e.target)) setShowHeaderMenu(false);
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
   // Fast pass: which chapters have a non-empty "edited" column — id-only
   // select, needed immediately for nav/progress UI (no chapter bodies).
@@ -3091,6 +3104,18 @@ ${compact}`;
     window.location.href = "/login";
   };
 
+  // Shared by both the desktop and mobile-menu LilyBetaSync trigger — saves
+  // the current chapter's pending edits before a sync run starts.
+  const handleBeforeLilyBetaSync = async () => {
+    if (!currentChapter?.id) return;
+    const changes = changedContentFields(currentChapter, lastSavedRef.current.get(currentChapter.id));
+    if (Object.keys(changes).length) {
+      await Chapter.update(currentChapter.id, changes, { returning: false });
+      lastSavedRef.current.set(currentChapter.id, snapshotOf(currentChapter));
+      chapterCacheRef.current.set(currentChapter.id, currentChapter);
+    }
+  };
+
   const handleOpenPronoun = () => {
     const panel3 = panelRefs[2].current;
     const textarea = panel3?.getScrollElement();
@@ -3355,20 +3380,75 @@ ${compact}`;
 
           {/* Chapter selector */}
           <ChapterPicker chapters={chapterList} currentChapterId={currentChapter?.id} onSelect={switchChapter} wordCounts={editedWordCounts} averageWords={editedWordSummary.average} editedSampleSize={editedWordSummary.sampleSize} editedChapterIds={editedChapterIds} qaIssueIds={qaIssueIds} betaIssueIds={betaIssueIds} onOpen={ensureWordCountsLoaded} />
-          <button onClick={() => setShowStoryQa(true)} className={`flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyQaReport?.chapters.length ? "bg-amber-100 text-amber-800" : "bg-white/10 text-violet-200 hover:bg-white/15"}`} title="Cấu hình và quét QA toàn truyện">
+
+          {/* Mobile-only overflow menu — everything below this doesn't fit a
+              375px header row, so on phones it collapses behind one "⋯"
+              button instead of overflowing off-screen. Desktop (md+) keeps
+              every action visible inline as before. */}
+          <div ref={headerMenuRef} className="relative shrink-0 md:hidden">
+            <button
+              onClick={() => setShowHeaderMenu((v) => !v)}
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/15 text-violet-300 transition-colors"
+              title="Thêm thao tác"
+              aria-haspopup="menu"
+              aria-expanded={showHeaderMenu}
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            {showHeaderMenu && (
+              <div role="menu" className="absolute right-0 top-full z-40 mt-2 w-64 rounded-xl border border-violet-100 bg-white p-1.5 text-slate-700 shadow-2xl">
+                <button onClick={() => { setShowStoryQa(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
+                  <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-amber-600" /> QA toàn truyện{storyQaReport?.chapters.length ? ` · ${storyQaReport.chapters.length}` : ""}
+                </button>
+                <button onClick={() => { setShowStoryBeta(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
+                  <PenTool className="h-3.5 w-3.5 shrink-0 text-fuchsia-600" /> Beta toàn truyện{storyBetaReport?.chapters.length ? ` · ${storyBetaReport.chapters.length}` : ""}
+                </button>
+                <button onClick={() => { setShowChapterManager(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
+                  <ListIcon className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Quản lý chương
+                </button>
+                <button onClick={() => { handleCreateChapter(); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
+                  <Plus className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Tạo chương mới
+                </button>
+                {draftMode && (
+                  <button onClick={() => { handleManualSave(); setShowHeaderMenu(false); }} disabled={saving} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-amber-700 transition-colors hover:bg-amber-50 disabled:opacity-50">
+                    <Check className="h-3.5 w-3.5 shrink-0" /> {saving ? "Đang lưu..." : "Chế độ nháp · Lưu chương này"}
+                  </button>
+                )}
+                <div className="my-1 h-px bg-slate-100" />
+                <button onClick={() => { handleExport("txt"); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">Xuất bản Edit — TXT</button>
+                <button onClick={() => { handleExport("doc"); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">Xuất bản Edit — DOCX</button>
+                <button onClick={() => { handleExport("json"); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">Xuất bản Edit — JSON</button>
+                <div className="my-1 h-px bg-slate-100" />
+                <LilyBetaSync
+                  key={`${projectId}-mobile`}
+                  projectId={projectId}
+                  currentChapterId={currentChapter?.id}
+                  beforeSync={handleBeforeLilyBetaSync}
+                  triggerIcon={<Send className="h-3.5 w-3.5 shrink-0 text-violet-600" />}
+                  triggerClassName="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50"
+                />
+                <div className="my-1 h-px bg-slate-100" />
+                <button onClick={() => { setShowHeaderMenu(false); handleLogout(); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-red-600 transition-colors hover:bg-red-50">
+                  <LogOut className="h-3.5 w-3.5 shrink-0" /> Đăng xuất
+                </button>
+              </div>
+            )}
+          </div>
+
+          <button onClick={() => setShowStoryQa(true)} className={`hidden md:flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyQaReport?.chapters.length ? "bg-amber-100 text-amber-800" : "bg-white/10 text-violet-200 hover:bg-white/15"}`} title="Cấu hình và quét QA toàn truyện">
             <ShieldCheck className="h-4 w-4"/><span className="hidden lg:inline">QA toàn truyện{storyQaReport?.chapters.length ? ` · ${storyQaReport.chapters.length}` : ""}</span>
           </button>
-          <button onClick={()=>setShowStoryBeta(true)} className={`flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyBetaReport?.chapters.length?"bg-fuchsia-100 text-fuchsia-800":"bg-white/10 text-fuchsia-200 hover:bg-white/15"}`} title="Quét Beta câu văn toàn truyện"><PenTool className="h-4 w-4"/><span className="hidden lg:inline">Beta toàn truyện{storyBetaReport?.chapters.length?` · ${storyBetaReport.chapters.length}`:""}</span></button>
+          <button onClick={()=>setShowStoryBeta(true)} className={`hidden md:flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyBetaReport?.chapters.length?"bg-fuchsia-100 text-fuchsia-800":"bg-white/10 text-fuchsia-200 hover:bg-white/15"}`} title="Quét Beta câu văn toàn truyện"><PenTool className="h-4 w-4"/><span className="hidden lg:inline">Beta toàn truyện{storyBetaReport?.chapters.length?` · ${storyBetaReport.chapters.length}`:""}</span></button>
           <button
             onClick={() => setShowChapterManager(true)}
-            className="p-2 rounded-xl bg-white/10 hover:bg-white/15 text-violet-300 transition-colors"
+            className="hidden md:inline-flex p-2 rounded-xl bg-white/10 hover:bg-white/15 text-violet-300 transition-colors"
             title="Quản lý chương"
           >
             <ListIcon className="w-4 h-4" />
           </button>
           <button
             onClick={handleCreateChapter}
-            className="p-2 rounded-xl bg-violet-500 hover:bg-violet-400 text-white transition-colors shadow-lg"
+            className="hidden md:inline-flex p-2 rounded-xl bg-violet-500 hover:bg-violet-400 text-white transition-colors shadow-lg"
             title="Tạo chương mới"
           >
             <Plus className="w-4 h-4" />
@@ -3414,19 +3494,12 @@ ${compact}`;
             key={projectId}
             projectId={projectId}
             currentChapterId={currentChapter?.id}
-            beforeSync={async () => {
-              if (!currentChapter?.id) return;
-              const changes = changedContentFields(currentChapter, lastSavedRef.current.get(currentChapter.id));
-              if (Object.keys(changes).length) {
-                await Chapter.update(currentChapter.id, changes, { returning: false });
-                lastSavedRef.current.set(currentChapter.id, snapshotOf(currentChapter));
-                chapterCacheRef.current.set(currentChapter.id, currentChapter);
-              }
-            }}
+            beforeSync={handleBeforeLilyBetaSync}
+            triggerClassName="hidden md:inline-flex px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold"
           />
           <button
             onClick={handleLogout}
-            className="p-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
+            className="hidden md:inline-flex p-2 rounded-xl bg-violet-50 hover:bg-violet-100 text-violet-600 transition-colors"
             title="Đăng xuất"
           >
             <LogOut className="w-4 h-4" />
