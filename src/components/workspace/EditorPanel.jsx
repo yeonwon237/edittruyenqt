@@ -17,6 +17,7 @@ const EditorPanel = forwardRef(function EditorPanel(
     extra,
     flagForeignChars = false,
     qualityIssues = [],
+    onIssueClick,
     onHide,
   },
   ref
@@ -80,7 +81,7 @@ const EditorPanel = forwardRef(function EditorPanel(
               {value ? (
                 flagForeignChars ? (
                   qualityIssues.length
-                    ? highlightQualityIssues(value, qualityIssues)
+                    ? highlightQualityIssues(value, qualityIssues, { onIssueClick })
                     : highlightForeignChars(highlightTerms(value, terms, onTermClick))
                 ) : (
                   highlightTerms(value, terms, onTermClick)

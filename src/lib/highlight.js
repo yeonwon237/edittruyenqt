@@ -93,18 +93,24 @@ export function countForeignChars(text) {
 }
 
 /** UI-only QA decoration. It never mutates the source string, so exports and
- * saved chapter content remain plain text. Overlapping findings are merged. */
-export function highlightQualityIssues(text, issues, { overlay = false } = {}) {
+ * saved chapter content remain plain text. Overlapping findings are merged.
+ * In view mode (overlay=false), spans use the same clickable "chip" look as
+ * .glossary-highlight (see index.css) instead of a plain hover tooltip, so
+ * tapping a suspected error surfaces its fix the same way tapping a
+ * glossary term does — pass onIssueClick to receive the underlying issue(s)
+ * for that range plus the click event (for positioning a popover). */
+export function highlightQualityIssues(text, issues, { overlay = false, onIssueClick } = {}) {
   if (!text || !issues?.length) return text;
   const ranges = issues
     .filter((issue) => Number.isInteger(issue.start) && Number.isInteger(issue.end) && issue.end > issue.start)
-    .map((issue) => ({ start: issue.start, end: issue.end, labels: [issue.label] }))
+    .map((issue) => ({ start: issue.start, end: issue.end, labels: [issue.label], items: [issue] }))
     .sort((a, b) => a.start - b.start || b.end - a.end)
     .reduce((merged, range) => {
       const last = merged.at(-1);
       if (last && range.start < last.end) {
         last.end = Math.max(last.end, range.end);
         last.labels.push(...range.labels);
+        last.items.push(...range.items);
       } else merged.push(range);
       return merged;
     }, []);
@@ -116,8 +122,9 @@ export function highlightQualityIssues(text, issues, { overlay = false } = {}) {
       key: `qa-${range.start}-${index}`,
       className: overlay
         ? "rounded-sm bg-violet-300/20 text-transparent underline decoration-dotted decoration-violet-600 decoration-2 underline-offset-2"
-        : "rounded-sm bg-violet-100 text-violet-900 underline decoration-dotted decoration-violet-500 underline-offset-2",
-      title: [...new Set(range.labels)].join(" · ")
+        : "rounded px-0.5 mx-0.5 cursor-pointer bg-violet-100 text-violet-900 underline decoration-dotted decoration-violet-500 underline-offset-2 transition-all hover:bg-violet-200",
+      title: overlay ? undefined : [...new Set(range.labels)].join(" · "),
+      onClick: overlay || !onIssueClick ? undefined : (e) => { e.stopPropagation(); onIssueClick(range.items, e); },
     }, text.slice(range.start, range.end)));
     cursor = range.end;
   });
