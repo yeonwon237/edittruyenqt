@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronDown, Search } from 'lucide-react';
 import { chapterLengthWarning } from '@/lib/chapterEditStats';
 
-export default function ChapterPicker({ chapters, currentChapterId, onSelect, wordCounts, averageWords, editedSampleSize, qaIssueIds, betaIssueIds }) {
+export default function ChapterPicker({ chapters, currentChapterId, onSelect, wordCounts, averageWords, editedSampleSize, editedChapterIds, qaIssueIds, betaIssueIds, onOpen }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const rootRef = useRef(null);
@@ -31,7 +31,7 @@ export default function ChapterPicker({ chapters, currentChapterId, onSelect, wo
   }, [open, normalizedQuery, currentChapterId]);
 
   return <div ref={rootRef} className="relative shrink-0">
-    <button type="button" onClick={() => setOpen(value => !value)} className="flex max-w-[230px] items-center gap-2 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-left text-sm text-white hover:bg-white/15" aria-haspopup="listbox" aria-expanded={open}>
+    <button type="button" onClick={() => setOpen(value => { const next = !value; if (next) onOpen?.(); return next; })} className="flex max-w-[230px] items-center gap-2 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-left text-sm text-white hover:bg-white/15" aria-haspopup="listbox" aria-expanded={open}>
       <span className="truncate">{current?.title || 'Chọn chương'}</span><ChevronDown className="h-4 w-4 shrink-0 text-violet-300" />
     </button>
     {open && <div className="absolute right-0 top-full z-[80] mt-2 w-[min(440px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
@@ -46,11 +46,11 @@ export default function ChapterPicker({ chapters, currentChapterId, onSelect, wo
         {filtered.map((chapter) => {
           const wordCount = wordCounts[chapter.id] || 0;
           const warning = chapterLengthWarning(wordCount, averageWords, editedSampleSize);
-          const hasEdit = wordCount > 0;
+          const hasEdit = editedChapterIds.has(chapter.id);
           return <button ref={chapter.id === currentChapterId ? currentOptionRef : null} key={chapter.id} type="button" role="option" aria-selected={chapter.id === currentChapterId} onClick={() => { onSelect(chapter.id); setOpen(false); setQuery(''); }} className={`flex w-full items-start gap-2 rounded-xl px-3 py-2.5 text-left transition ${chapter.id === currentChapterId ? 'bg-violet-100 ring-1 ring-violet-300' : hasEdit ? 'bg-emerald-50/70 hover:bg-emerald-100' : 'hover:bg-slate-50'}`}>
             <span className="mt-0.5 w-5 shrink-0 text-xs font-semibold text-slate-400">{chapterNumbers.get(chapter.id)}</span>
             {hasEdit ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" /> : <span className="mt-1 h-3.5 w-3.5 shrink-0 rounded-full border-2 border-slate-300" />}
-            <span className="min-w-0 flex-1"><span className={`block truncate text-sm ${hasEdit ? 'font-semibold text-emerald-950' : 'text-slate-700'}`}>{qaIssueIds.has(chapter.id) ? '⚠ ' : ''}{betaIssueIds.has(chapter.id) ? '✍ ' : ''}{chapter.title}</span><span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs"><span className={hasEdit ? 'font-medium text-emerald-700' : 'text-slate-400'}>{hasEdit ? `Đã edit · ${wordCount.toLocaleString('vi-VN')} chữ` : 'Chưa có Bản edit'}</span>{warning && <span className="inline-flex items-center gap-1 font-semibold text-amber-700" title={`Trung bình truyện là ${averageWords.toLocaleString('vi-VN')} chữ`}><AlertTriangle className="h-3.5 w-3.5" />{warning.label}</span>}</span></span>
+            <span className="min-w-0 flex-1"><span className={`block truncate text-sm ${hasEdit ? 'font-semibold text-emerald-950' : 'text-slate-700'}`}>{qaIssueIds.has(chapter.id) ? '⚠ ' : ''}{betaIssueIds.has(chapter.id) ? '✍ ' : ''}{chapter.title}</span><span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs"><span className={hasEdit ? 'font-medium text-emerald-700' : 'text-slate-400'}>{hasEdit ? (wordCount ? `Đã edit · ${wordCount.toLocaleString('vi-VN')} chữ` : 'Đã edit') : 'Chưa có Bản edit'}</span>{warning && <span className="inline-flex items-center gap-1 font-semibold text-amber-700" title={`Trung bình truyện là ${averageWords.toLocaleString('vi-VN')} chữ`}><AlertTriangle className="h-3.5 w-3.5" />{warning.label}</span>}</span></span>
           </button>;
         })}
         {!filtered.length && <p className="p-6 text-center text-sm text-slate-500">Không tìm thấy chương phù hợp.</p>}

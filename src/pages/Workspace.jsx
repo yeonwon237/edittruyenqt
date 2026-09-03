@@ -267,22 +267,53 @@ export default function Workspace() {
     // eslint-disable-next-line
   }, [projectId]);
 
+  // Fast pass: which chapters have a non-empty "edited" column — id-only
+  // select, needed immediately for nav/progress UI (no chapter bodies).
+  const loadEditedChapterIds = async () => {
+    const edited = await fetchAllPages(
+      (limit, skip) => Chapter.filterNonEmpty(
+        { project_id: projectId },
+        "edited",
+        "chapter_order",
+        limit,
+        skip,
+        ["chapter_order"]
+      ),
+      { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
+    );
+    setEditedChapterIds(new Set(edited.map((chapter) => chapter.id)));
+  };
+
+  // Heavy pass: actual word counts per edited chapter — this downloads the
+  // full "edited" text column, so it's only run on demand (chapter picker
+  // opened, or explicit "refresh progress" click), never on initial load.
+  const wordCountsLoadedRef = useRef(false);
+  const loadEditedWordCounts = async () => {
+    const edited = await fetchAllPages(
+      (limit, skip) => Chapter.filterNonEmpty(
+        { project_id: projectId },
+        "edited",
+        "chapter_order",
+        limit,
+        skip,
+        ["chapter_order", "edited"]
+      ),
+      { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
+    );
+    setEditedWordCounts(Object.fromEntries(edited.map((chapter) => [chapter.id, countVietnameseWords(chapter.edited)])));
+    wordCountsLoadedRef.current = true;
+  };
+
+  const ensureWordCountsLoaded = () => {
+    if (wordCountsLoadedRef.current) return;
+    wordCountsLoadedRef.current = true;
+    loadEditedWordCounts().catch(() => { wordCountsLoadedRef.current = false; });
+  };
+
   const loadEditedProgress = async (showToast = false) => {
     setRefreshingProgress(true);
     try {
-      const edited = await fetchAllPages(
-        (limit, skip) => Chapter.filterNonEmpty(
-          { project_id: projectId },
-          "edited",
-          "chapter_order",
-          limit,
-          skip,
-          ["chapter_order", "edited"]
-        ),
-        { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
-      );
-      setEditedChapterIds(new Set(edited.map((chapter) => chapter.id)));
-      setEditedWordCounts(Object.fromEntries(edited.map((chapter) => [chapter.id, countVietnameseWords(chapter.edited)])));
+      await Promise.all([loadEditedChapterIds(), loadEditedWordCounts()]);
       if (showToast) toast({ title: "Đã làm mới tiến độ" });
     } catch (error) {
       if (showToast) toast({ title: "Không tải được tiến độ", description: error.message, variant: "destructive" });
@@ -304,22 +335,44 @@ export default function Workspace() {
 
       chapterCacheRef.current.clear();
       lastSavedRef.current.clear();
+      wordCountsLoadedRef.current = false;
+      setEditedWordCounts({});
 
-      // Lightweight pass: only id/title/chapter_order, never the (potentially
-      // huge) chapter bodies — this is the main egress fix for large novels.
-      const lightChapters = await fetchAllPages(
-        (limit, skip) =>
-          Chapter.filter(
-            { project_id: projectId },
-            "chapter_order",
-            limit,
-            skip,
-            ["title", "chapter_order", "updated_date"]
-          ),
-        { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
-      );
+      // Chapter list (lightweight: id/title/chapter_order only, never the
+      // potentially-huge chapter bodies), glossary and presets are mutually
+      // independent — fetch them concurrently instead of one after another.
+      const [lightChapters, terms, presetList] = await Promise.all([
+        fetchAllPages(
+          (limit, skip) =>
+            Chapter.filter(
+              { project_id: projectId },
+              "chapter_order",
+              limit,
+              skip,
+              ["title", "chapter_order", "updated_date"]
+            ),
+          { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
+        ),
+        // Glossary must be loaded in full (not just the first page) — it's
+        // used both for on-screen highlighting and injected into every AI
+        // prompt, so a silently-truncated glossary would break the "AI must
+        // follow 100% of glossary terms" guarantee. Paginating internally
+        // keeps this correct without adding UI complexity.
+        fetchAllPages(
+          (limit, skip) =>
+            GlossaryTerm.filter(
+              { project_id: projectId },
+              "-created_date",
+              limit,
+              skip
+            ),
+          { pageSize: 1000, maxItems: GLOSSARY_FETCH_CAP }
+        ),
+        // Prompt presets: a small personal library shared across all projects.
+        PromptPreset.list("-created_date", 200),
+      ]);
+
       setChapterList(lightChapters);
-      await loadEditedProgress();
       if (lightChapters.length === CHAPTER_FETCH_CAP) {
         toast({
           title: "Dự án có rất nhiều chương",
@@ -327,30 +380,6 @@ export default function Workspace() {
         });
       }
 
-      if (lightChapters.length > 0) {
-        const first = await Chapter.get(lightChapters[0].id);
-        chapterCacheRef.current.set(first.id, first);
-        lastSavedRef.current.set(first.id, snapshotOf(first));
-        setCurrentChapter(first);
-      } else {
-        setCurrentChapter(null);
-      }
-
-      // Glossary must be loaded in full (not just the first page) — it's
-      // used both for on-screen highlighting and injected into every AI
-      // prompt, so a silently-truncated glossary would break the "AI must
-      // follow 100% of glossary terms" guarantee. Paginating internally
-      // keeps this correct without adding UI complexity.
-      const terms = await fetchAllPages(
-        (limit, skip) =>
-          GlossaryTerm.filter(
-            { project_id: projectId },
-            "-created_date",
-            limit,
-            skip
-          ),
-        { pageSize: 1000, maxItems: GLOSSARY_FETCH_CAP }
-      );
       setGlossaryTerms(terms);
       if (terms.length === GLOSSARY_FETCH_CAP) {
         toast({
@@ -359,14 +388,26 @@ export default function Workspace() {
         });
       }
 
-      // Prompt presets: a small personal library shared across all projects.
-      const presetList = await PromptPreset.list("-created_date", 200);
       setPresets(presetList);
       if (proj.active_preset_id) {
         const active = presetList.find((p) => p.id === proj.active_preset_id);
         setActivePreset(active || null);
       } else {
         setActivePreset(null);
+      }
+
+      // First chapter body and the (id-only) edited-chapter set are also
+      // independent — fetch them together.
+      const [first] = await Promise.all([
+        lightChapters.length > 0 ? Chapter.get(lightChapters[0].id) : Promise.resolve(null),
+        loadEditedChapterIds(),
+      ]);
+      if (first) {
+        chapterCacheRef.current.set(first.id, first);
+        lastSavedRef.current.set(first.id, snapshotOf(first));
+        setCurrentChapter(first);
+      } else {
+        setCurrentChapter(null);
       }
     } catch (e) {
       toast({
@@ -3313,7 +3354,7 @@ ${compact}`;
           <div className="flex-1" />
 
           {/* Chapter selector */}
-          <ChapterPicker chapters={chapterList} currentChapterId={currentChapter?.id} onSelect={switchChapter} wordCounts={editedWordCounts} averageWords={editedWordSummary.average} editedSampleSize={editedWordSummary.sampleSize} qaIssueIds={qaIssueIds} betaIssueIds={betaIssueIds} />
+          <ChapterPicker chapters={chapterList} currentChapterId={currentChapter?.id} onSelect={switchChapter} wordCounts={editedWordCounts} averageWords={editedWordSummary.average} editedSampleSize={editedWordSummary.sampleSize} editedChapterIds={editedChapterIds} qaIssueIds={qaIssueIds} betaIssueIds={betaIssueIds} onOpen={ensureWordCountsLoaded} />
           <button onClick={() => setShowStoryQa(true)} className={`flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyQaReport?.chapters.length ? "bg-amber-100 text-amber-800" : "bg-white/10 text-violet-200 hover:bg-white/15"}`} title="Cấu hình và quét QA toàn truyện">
             <ShieldCheck className="h-4 w-4"/><span className="hidden lg:inline">QA toàn truyện{storyQaReport?.chapters.length ? ` · ${storyQaReport.chapters.length}` : ""}</span>
           </button>
