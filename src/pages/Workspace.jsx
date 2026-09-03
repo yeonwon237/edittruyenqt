@@ -185,6 +185,12 @@ export default function Workspace() {
   const [betaAiRunning, setBetaAiRunning] = useState(false);
   const [storyBetaRunning, setStoryBetaRunning] = useState(false);
   const [storyBetaReport, setStoryBetaReport] = useState(null);
+  // Popover shown when tapping a highlighted "lỗi nghi vấn" span in the
+  // Bản Edit column — { items, x, y } | null. items are the (possibly
+  // stacked) QA/Beta issue objects covering that text range, each tagged
+  // with __kind so we know which apply handler to call.
+  const [issuePopover, setIssuePopover] = useState(null);
+  const issuePopoverRef = useRef(null);
   const [markingBeta, setMarkingBeta] = useState(false);
   const [aiBetaFindings, setAiBetaFindings] = useState({});
   const [showBatchBetaAi, setShowBatchBetaAi] = useState(false);
@@ -275,9 +281,17 @@ export default function Workspace() {
   useEffect(() => {
     const onDocClick = (e) => {
       if (headerMenuRef.current && !headerMenuRef.current.contains(e.target)) setShowHeaderMenu(false);
+      if (issuePopoverRef.current && !issuePopoverRef.current.contains(e.target)) setIssuePopover(null);
+    };
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") setIssuePopover(null);
     };
     document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, []);
 
   // Fast pass: which chapters have a non-empty "edited" column — id-only
@@ -1466,6 +1480,28 @@ export default function Workspace() {
     const settings=betaSettings();const ignored=[...new Set([...(settings.ignored||[]),group.value])];await handleSaveBetaSettings({...settings,ignored});
   };
   const handleLocateBeta = (item) => {setShowBetaCheck(false);setMobileActiveCol("edited");setPanel3Mode("edit");window.setTimeout(()=>{const textarea=document.querySelector("[data-etq-panel='final'] [data-etq-role='edit-content']");if(!(textarea instanceof HTMLTextAreaElement))return;textarea.focus();textarea.setSelectionRange(item.start,item.end);textarea.scrollTop=Math.max(0,(item.line-3)*32);},80);};
+
+  // Tapping a highlighted "lỗi nghi vấn" span in the Bản Edit column — same
+  // tap-to-fix affordance the glossary highlight already has, instead of a
+  // hover-only browser tooltip. `items` are the (possibly stacked) issue
+  // objects covering that text range, tagged with __kind by the qualityIssues
+  // prop above so we know whether to call the QA or Beta apply handler.
+  const handleIssueSpanClick = (items, event) => {
+    const margin = 12;
+    const x = Math.min(event.clientX, window.innerWidth - 320 - margin);
+    const y = Math.min(event.clientY + 12, window.innerHeight - 220 - margin);
+    setIssuePopover({ items, x: Math.max(margin, x), y: Math.max(margin, y) });
+  };
+
+  const handleApplyIssuePopoverItem = (item, replacement) => {
+    if (item.__kind === "beta") handleApplyBeta([item], replacement);
+    else handleApplyQualitySuggestion([item], replacement);
+    setIssuePopover((current) => {
+      if (!current) return current;
+      const remaining = current.items.filter((i) => i.id !== item.id);
+      return remaining.length ? { ...current, items: remaining } : null;
+    });
+  };
   const handleUndoBeta = () => {if(!currentChapter||betaUndo?.chapterId!==currentChapter.id)return;setCurrentChapter({...currentChapter,edited:betaUndo.previous});setBetaIssues(runBetaCheck(betaUndo.previous,{settings:betaSettings()}));setBetaUndo(null);};
   const handleAiBeta = async () => {
     if(!hasCustomAI()){toast({title:"Cần cấu hình AI trước",description:"Beta bằng code vẫn dùng được mà không cần AI.",variant:"destructive"});return;}
@@ -3363,10 +3399,10 @@ ${compact}`;
                     setTitleDraft(project.title || "");
                     setEditingTitle(true);
                   }}
-                  className="text-sm font-bold text-white leading-tight truncate cursor-pointer hover:text-violet-300 transition-colors flex items-center gap-1 group"
+                  className="text-sm font-bold text-white leading-tight cursor-pointer hover:text-violet-300 transition-colors flex items-center gap-1 group"
                   title="Bấm để đổi tên bộ truyện"
                 >
-                  <span className="truncate">{project.title}</span>
+                  <span>{project.title}</span>
                   <Pencil className="w-3 h-3 text-slate-300 group-hover:text-violet-400 shrink-0" />
                 </h1>
               )}
@@ -3693,7 +3729,11 @@ ${compact}`;
                         setPanel3Mode(panel3Mode === "view" ? "edit" : "view")
                       }
                       flagForeignChars
-                      qualityIssues={[...qualityIssues,...betaIssues]}
+                      qualityIssues={[
+                        ...qualityIssues.map((issue) => ({ ...issue, __kind: "quality" })),
+                        ...betaIssues.map((issue) => ({ ...issue, __kind: "beta" })),
+                      ]}
+                      onIssueClick={handleIssueSpanClick}
                       onScroll={() => handlePanelScroll(2)}
                       placeholder="Bản edit hoàn chỉnh sẽ hiện ở đây..."
                       onHide={() => handleToggleColumn("edited")}
@@ -3800,6 +3840,61 @@ ${compact}`;
         onScanPronounInventory={handleScanPronounInventory}
         onOpenPronounOccurrence={handleOpenPronounOccurrence}
       />
+      {issuePopover && (
+        <div
+          ref={issuePopoverRef}
+          role="dialog"
+          aria-label="Cách sửa lỗi nghi vấn"
+          className="fixed z-[90] w-80 max-w-[calc(100vw-24px)] rounded-2xl border border-violet-100 bg-white p-3 shadow-2xl"
+          style={{ left: issuePopover.x, top: issuePopover.y }}
+        >
+          <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+            <p className="text-xs font-bold uppercase tracking-wide text-violet-600">
+              {issuePopover.items.length > 1 ? `${issuePopover.items.length} lỗi nghi vấn` : "Lỗi nghi vấn"}
+            </p>
+            <button onClick={() => setIssuePopover(null)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+              <XIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="mt-2 max-h-72 space-y-2.5 overflow-y-auto cute-scrollbar pr-0.5">
+            {issuePopover.items.map((item) => (
+              <div key={item.id} className="rounded-xl border border-slate-100 bg-slate-50/70 p-2.5">
+                <div className="flex items-center gap-1.5">
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${item.__kind === "beta" ? "bg-fuchsia-100 text-fuchsia-700" : "bg-amber-100 text-amber-700"}`}>
+                    {item.__kind === "beta" ? "Beta" : "QA"}
+                  </span>
+                  <p className="text-xs font-semibold text-slate-800">{item.label}</p>
+                </div>
+                {item.detail && <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{item.detail}</p>}
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {item.replacement && item.replacement !== item.value ? (
+                    <button onClick={() => handleApplyIssuePopoverItem(item, item.replacement)} className="inline-flex items-center gap-1 rounded-lg bg-violet-600 px-2.5 py-1.5 text-[11px] font-medium text-white hover:bg-violet-700">
+                      <Check className="h-3 w-3" /> Áp dụng: “{item.replacement}”
+                    </button>
+                  ) : item.suggestions?.length ? (
+                    item.suggestions.map((suggestion) => (
+                      <button key={suggestion} onClick={() => handleApplyIssuePopoverItem(item, suggestion)} className="rounded-lg border border-violet-200 bg-white px-2 py-1 text-[11px] text-violet-700 hover:bg-violet-50">
+                        {suggestion}
+                      </button>
+                    ))
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setIssuePopover(null);
+                        if (item.__kind === "beta") setShowBetaCheck(true);
+                        else setShowQualityCheck(true);
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] text-slate-600 hover:bg-slate-50"
+                    >
+                      Cần xem kỹ hơn — mở {item.__kind === "beta" ? "Beta" : "QA"} toàn diện
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <QualityCheckDialog
         open={showQualityCheck}
         onOpenChange={setShowQualityCheck}
