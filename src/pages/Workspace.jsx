@@ -4600,6 +4600,7 @@ ${compact}`;
                       title="Bản Edit"
                       emoji="✨"
                       variant="final"
+                      searchable
                       value={currentChapter.edited}
                       onChange={(v) =>
                         setCurrentChapter({ ...currentChapter, edited: v })

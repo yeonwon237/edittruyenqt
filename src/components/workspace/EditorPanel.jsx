@@ -1,7 +1,8 @@
-import { forwardRef, useImperativeHandle, useRef } from "react";
-import { X, FileText, WandSparkles, PenLine, Pencil, Eye } from "lucide-react";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { X, FileText, WandSparkles, PenLine, Pencil, Eye, Search, ChevronUp, ChevronDown } from "lucide-react";
 import { highlightTerms, highlightForeignChars, highlightQualityIssues } from "@/lib/highlight";
 import { textToParagraphHtml } from "@/lib/clipboardHtml";
+import { findTextMatches } from "@/lib/textSearch";
 
 // A manual select-all + Ctrl+C only ever puts plain text (with \n line
 // breaks) on the clipboard, which most rich-text paste targets (Wattpad,
@@ -34,17 +35,54 @@ const EditorPanel = forwardRef(function EditorPanel(
     qualityIssues = [],
     onIssueClick,
     onHide,
+    searchable = false,
   },
   ref
 ) {
   const scrollRef = useRef(null);
+  const panelRef = useRef(null);
   const qaOverlayRef = useRef(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeMatch, setActiveMatch] = useState(-1);
+  const matches = useMemo(() => findTextMatches(value, searchQuery), [value, searchQuery]);
   const panelMeta = {
     source: { Icon: FileText, label: "Nguồn", tone: "text-slate-500 bg-slate-100" },
     draft: { Icon: WandSparkles, label: "Chuyển ngữ", tone: "text-blue-600 bg-blue-50" },
     final: { Icon: PenLine, label: "Thành phẩm", tone: "text-violet-600 bg-violet-50" },
   }[variant] || { Icon: FileText, label: "Văn bản", tone: "text-slate-500 bg-slate-100" };
   const PanelIcon = panelMeta.Icon;
+
+  useEffect(() => {
+    setActiveMatch(matches.length ? 0 : -1);
+  }, [searchQuery, matches.length]);
+
+  const selectMatch = (index) => {
+    if (!matches.length) return;
+    const normalizedIndex = (index + matches.length) % matches.length;
+    const match = matches[normalizedIndex];
+    const reveal = () => {
+      const textarea = panelRef.current?.querySelector("[data-etq-role='edit-content']");
+      if (!(textarea instanceof HTMLTextAreaElement)) return;
+      textarea.focus();
+      textarea.setSelectionRange(match.start, match.end);
+      const line = String(value || "").slice(0, match.start).split("\n").length;
+      textarea.scrollTop = Math.max(0, (line - 4) * 32);
+    };
+    setActiveMatch(normalizedIndex);
+    if (mode === "view") {
+      onToggleMode?.();
+      window.setTimeout(reveal, 80);
+    } else {
+      reveal();
+    }
+  };
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+    setActiveMatch(-1);
+  };
 
   useImperativeHandle(ref, () => ({
     getScrollElement: () => scrollRef.current,
@@ -57,13 +95,22 @@ const EditorPanel = forwardRef(function EditorPanel(
   }));
 
   return (
-    <div data-etq-panel={variant} className="flex-1 flex flex-col min-w-0 rounded-[1.25rem] bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.04),0_16px_40px_-34px_rgba(15,23,42,.35)] overflow-hidden">
+    <div ref={panelRef} data-etq-panel={variant} className="flex-1 flex flex-col min-w-0 rounded-[1.25rem] bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.04),0_16px_40px_-34px_rgba(15,23,42,.35)] overflow-hidden">
       <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-white">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${panelMeta.tone}`}><PanelIcon className="h-4 w-4" /></span>
           <div className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-800">{title}</span><span className="block text-[10px] font-medium uppercase tracking-[.12em] text-slate-400">{panelMeta.label}</span></div>
         </div>
         <div className="flex items-center gap-1.5">
+          {searchable && (
+            <button
+              onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}
+              className={`p-1.5 rounded-lg border transition-colors ${searchOpen ? "border-violet-200 bg-violet-50 text-violet-700" : "border-violet-100 bg-white/70 text-slate-400 hover:text-violet-600"}`}
+              title="Tìm câu hoặc đoạn trong Bản Edit"
+            >
+              <Search className="h-3.5 w-3.5" />
+            </button>
+          )}
           {extra}
           {onToggleMode && (
             <button
@@ -85,6 +132,37 @@ const EditorPanel = forwardRef(function EditorPanel(
           )}
         </div>
       </div>
+      {searchable && searchOpen && (
+        <div className="shrink-0 flex items-center gap-1.5 border-b border-violet-100 bg-violet-50/50 px-3 py-2">
+          <Search className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+          <input
+            autoFocus
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                selectMatch(activeMatch + (event.shiftKey ? -1 : 1));
+              }
+              if (event.key === "Escape") closeSearch();
+            }}
+            placeholder="Tìm câu hoặc đoạn bị lỗi..."
+            className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
+          />
+          <span className="shrink-0 text-[11px] tabular-nums text-slate-500">
+            {searchQuery ? (matches.length ? `${activeMatch + 1}/${matches.length}` : "0 kết quả") : ""}
+          </span>
+          <button onClick={() => selectMatch(activeMatch - 1)} disabled={!matches.length} className="rounded p-1 text-slate-500 hover:bg-white hover:text-violet-700 disabled:opacity-30" title="Kết quả trước">
+            <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={() => selectMatch(activeMatch + 1)} disabled={!matches.length} className="rounded p-1 text-slate-500 hover:bg-white hover:text-violet-700 disabled:opacity-30" title="Kết quả tiếp theo">
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={closeSearch} className="rounded p-1 text-slate-400 hover:bg-white hover:text-red-500" title="Đóng tìm kiếm">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
       <div className="flex-1 overflow-hidden">
         {mode === "view" ? (
           <div
