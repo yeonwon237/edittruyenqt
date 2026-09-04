@@ -58,7 +58,8 @@ import { isDraftMode } from "@/lib/draftMode";
 import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterEditStats";
 import { scanPronounInventory } from "@/lib/pronounInventory";
 import { discoverPronounRules } from "@/lib/pronounDiscovery";
-import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send, MessageSquareText } from "lucide-react";
+import { buildStoryLearningPrompt, mergeStoryLearning, parseStoryLearningResult } from "@/lib/storyLearning";
+import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send, MessageSquareText, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -274,6 +275,7 @@ export default function Workspace() {
     edited: 0,
     skipped: 0,
     failed: 0,
+    currentChapterId: null,
     currentTitle: "",
   });
   const [batchErrors, setBatchErrors] = useState([]);
@@ -1819,8 +1821,10 @@ export default function Workspace() {
   useEffect(()=>{const timer=window.setTimeout(()=>{betaScannedChapterRef.current=currentChapter?.id||null;setBetaIssues(scanCurrentBeta());},450);return()=>window.clearTimeout(timer);// eslint-disable-next-line react-hooks/exhaustive-deps
   },[currentChapter?.edited,project?.style_toggles?.beta_settings]);
 
-  const buildEditPrompt = (sourceText) => {
-    const glossaryText = glossaryTerms
+  const buildEditPrompt = (sourceText, context = {}) => {
+    const activeGlossaryTerms = context.glossaryTerms || glossaryTerms;
+    const activePronounRules = context.pronounRules || project?.contextual_pronoun_rules || [];
+    const glossaryText = activeGlossaryTerms
       .map((t) => `- "${t.source_term}" → "${t.translation}"`)
       .join("\n");
     const batchRulesText = (project?.batch_rules || [])
@@ -1828,7 +1832,7 @@ export default function Workspace() {
       .map((r) => `- Thay "${r.find}" bằng "${r.replace}"`)
       .join("\n");
     const pronounMatrixText = buildPronounMatrixPrompt(
-      project?.contextual_pronoun_rules || []
+      activePronounRules
     );
 
     const toggles = project?.style_toggles || {};
@@ -1887,6 +1891,9 @@ ${batchRulesText || "(không có)"}
 MA TRẬN XƯNG HÔ THEO NGỮ CẢNH (AI tự nhận diện người nói ↔ người nghe, áp dụng chính xác đại từ):
 ${pronounMatrixText || "(không có quy tắc cụ thể — dùng ngữ cảm tự nhiên theo văn bản gốc)"}
 
+${context.previousSummary ? `TÓM TẮT CHƯƠNG TRƯỚC (chỉ dùng để giữ mạch truyện, không được chép vào đầu ra):
+${context.previousSummary}` : ""}
+
 VĂN BẢN CẦN BIÊN TẬP:
 ${sourceText}
 
@@ -1924,18 +1931,93 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
   // Runs one call per chunk (sequentially, to stay within provider rate
   // limits) and stitches the results back together. Chapters usually fit in
   // a single chunk; this only kicks in for unusually long ones.
-  const runChunkedEdit = async (sourceText, callFn, onProgress) => {
+  const runChunkedEdit = async (sourceText, callFn, onProgress, context = {}) => {
     const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
     if (chunks.length <= 1) {
-      return await callFn(buildEditPrompt(sourceText));
+      return await callFn(buildEditPrompt(sourceText, context));
     }
     const results = [];
     for (let i = 0; i < chunks.length; i++) {
       onProgress?.(i + 1, chunks.length);
       // eslint-disable-next-line no-await-in-loop
-      results.push(await callFn(buildEditPrompt(chunks[i])));
+      results.push(await callFn(buildEditPrompt(chunks[i], context)));
     }
     return results.join("\n\n");
+  };
+
+  const learnSingleChapter = async (chapter, editedText) => {
+    const existingRules = [...(project?.contextual_pronoun_rules || [])];
+    const existingTerms = [...glossaryTerms];
+    const memory = {
+      candidates: [],
+      summaries: [],
+      learnedRuleCount: 0,
+      learnedTermCount: 0,
+      ...(project?.style_toggles?.story_memory || {}),
+    };
+    const raw = await callLLM(buildStoryLearningPrompt({
+      title: chapter.title,
+      sourceText: chapter.raw_original || chapter.qt_raw || "",
+      editedText,
+      existingRules,
+      existingTerms,
+    }));
+    const learned = parseStoryLearningResult(raw);
+    const merged = mergeStoryLearning({
+      existingRules,
+      existingTerms,
+      learned,
+      chapter,
+    });
+
+    let nextTerms = existingTerms;
+    if (merged.acceptedTerms.length) {
+      const created = await GlossaryTerm.bulkCreate(
+        merged.acceptedTerms.map((term) => ({
+          project_id: projectId,
+          source_term: term.source_term,
+          translation: term.translation,
+          category: term.category,
+          notes: `AI tự học từ ${chapter.title} · độ tin cậy ${Math.round(term.confidence * 100)}% · ${term.evidence}`,
+          custom_fields: {
+            source: term.source,
+            confidence: term.confidence,
+            learned_from_chapter_id: chapter.id,
+          },
+        }))
+      );
+      nextTerms = [...existingTerms, ...created];
+      setGlossaryTerms(nextTerms);
+    }
+
+    const nextMemory = {
+      ...memory,
+      candidates: [...(memory.candidates || []), ...merged.candidates].slice(-300),
+      summaries: learned.summary
+        ? [...(memory.summaries || []).filter((item) => item.chapter_id !== chapter.id), {
+            chapter_id: chapter.id,
+            chapter_title: chapter.title,
+            summary: learned.summary,
+            learned_at: new Date().toISOString(),
+          }].slice(-30)
+        : memory.summaries || [],
+      learnedRuleCount: (memory.learnedRuleCount || 0) + merged.acceptedRules.length,
+      learnedTermCount: (memory.learnedTermCount || 0) + merged.acceptedTerms.length,
+      lastLearnedAt: new Date().toISOString(),
+    };
+    const updatedProject = await Project.update(projectId, {
+      contextual_pronoun_rules: merged.rules,
+      style_toggles: {
+        ...(project?.style_toggles || {}),
+        story_memory: nextMemory,
+      },
+    });
+    setProject(updatedProject);
+    return {
+      ruleCount: merged.acceptedRules.length,
+      termCount: merged.acceptedTerms.length,
+      candidateCount: merged.candidates.length,
+    };
   };
 
   // Custom AI edit (Gemini / GPT / Claude, user's own key)
@@ -1977,6 +2059,23 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
       );
       setAiUndo({ chapterId, previous: prevEdited });
       checkLineAlignment(sourceText, finalText);
+      try {
+        const learned = await learnSingleChapter(currentChapter, finalText);
+        toast({
+          title: learned.ruleCount + learned.termCount
+            ? `AI đã học thêm ${learned.ruleCount + learned.termCount} quy tắc/thuật ngữ 🧠`
+            : "AI đã cập nhật bộ nhớ chương 🧠",
+          description: learned.candidateCount
+            ? `${learned.candidateCount} dữ kiện chưa đủ chắc chắn được giữ lại để đối chiếu.`
+            : "Kiến thức sẽ được dùng cho các chương dịch tiếp theo.",
+        });
+      } catch (learningError) {
+        toast({
+          title: "Bản Edit đã tạo, nhưng bước tự học gặp lỗi",
+          description: learningError.message,
+          variant: "destructive",
+        });
+      }
       const providerLabel =
         ({ gemini: "Gemini", openai: "GPT", claude: "Claude", stali:"STALI" }[provider] || "AI");
       toast({
@@ -3536,7 +3635,10 @@ ${sourceText}`;
   // end) so a stopped/interrupted run never loses already-finished work, and
   // a chapter with existing Bản Edit content is skipped so re-running after
   // a stop or a rate-limit error only processes what's left.
-  const handleStartBatchEdit = async () => {
+  const handleStartBatchEdit = async (
+    selectedIds = [],
+    { overwriteExisting = false } = {}
+  ) => {
     if (!hasCustomAI()) {
       toast({
         title: "Cần cấu hình AI trước",
@@ -3545,26 +3647,104 @@ ${sourceText}`;
       });
       return;
     }
-    if (chapterList.length === 0) return;
+    if (chapterList.length === 0 || selectedIds.length === 0) return;
 
     batchStopRef.current = false;
     setBatchErrors([]);
     setBatchFinished(false);
-    const ordered = [...chapterList].sort((a, b) => a.chapter_order - b.chapter_order);
+    const selected = new Set(selectedIds);
+    const ordered = [...chapterList]
+      .filter((chapter) => selected.has(chapter.id))
+      .sort((a, b) => a.chapter_order - b.chapter_order);
     setBatchProgress({
       done: 0,
       total: ordered.length,
       edited: 0,
       skipped: 0,
       failed: 0,
+      currentChapterId: null,
       currentTitle: "",
     });
     setBatchRunning(true);
+    let batchGlossaryTerms = [...glossaryTerms];
+    let batchPronounRules = [...(project?.contextual_pronoun_rules || [])];
+    let storyMemory = {
+      candidates: [],
+      summaries: [],
+      learnedRuleCount: 0,
+      learnedTermCount: 0,
+      ...(project?.style_toggles?.story_memory || {}),
+    };
+    let previousSummary = storyMemory.summaries?.at(-1)?.summary || "";
+
+    const learnFromChapter = async (chapter, meta, editedText) => {
+      setBatchProgress((p) => ({ ...p, currentTitle: `${meta.title} · đang học xưng hô` }));
+      const learningRaw = await callLLM(buildStoryLearningPrompt({
+        title: meta.title,
+        sourceText: chapter.raw_original || chapter.qt_raw || "",
+        editedText,
+        existingRules: batchPronounRules,
+        existingTerms: batchGlossaryTerms,
+      }));
+      const learned = parseStoryLearningResult(learningRaw);
+      const merged = mergeStoryLearning({
+        existingRules: batchPronounRules,
+        existingTerms: batchGlossaryTerms,
+        learned,
+        chapter: meta,
+      });
+
+      if (merged.acceptedTerms.length) {
+        const createdTerms = await GlossaryTerm.bulkCreate(
+          merged.acceptedTerms.map((term) => ({
+            project_id: projectId,
+            source_term: term.source_term,
+            translation: term.translation,
+            category: term.category,
+            notes: `AI tự học từ ${meta.title} · độ tin cậy ${Math.round(term.confidence * 100)}% · ${term.evidence}`,
+            custom_fields: {
+              source: term.source,
+              confidence: term.confidence,
+              learned_from_chapter_id: meta.id,
+            },
+          }))
+        );
+        batchGlossaryTerms = [...batchGlossaryTerms, ...createdTerms];
+        setGlossaryTerms(batchGlossaryTerms);
+      }
+
+      batchPronounRules = merged.rules;
+      previousSummary = learned.summary || previousSummary;
+      storyMemory = {
+        ...storyMemory,
+        candidates: [...(storyMemory.candidates || []), ...merged.candidates].slice(-300),
+        summaries: learned.summary
+          ? [...(storyMemory.summaries || []), {
+              chapter_id: meta.id,
+              chapter_title: meta.title,
+              summary: learned.summary,
+              learned_at: new Date().toISOString(),
+            }].slice(-30)
+          : storyMemory.summaries || [],
+        learnedRuleCount: (storyMemory.learnedRuleCount || 0) + merged.acceptedRules.length,
+        learnedTermCount: (storyMemory.learnedTermCount || 0) + merged.acceptedTerms.length,
+        lastLearnedAt: new Date().toISOString(),
+      };
+
+      const updatedProject = await Project.update(projectId, {
+        contextual_pronoun_rules: batchPronounRules,
+        style_toggles: {
+          ...(project?.style_toggles || {}),
+          story_memory: storyMemory,
+        },
+      });
+      setProject(updatedProject);
+    };
 
     for (let i = 0; i < ordered.length; i++) {
       if (batchStopRef.current) break;
       const meta = ordered[i];
-      setBatchProgress((p) => ({ ...p, currentTitle: meta.title }));
+      setBatchProgress((p) => ({ ...p, currentChapterId: meta.id, currentTitle: meta.title }));
       try {
         let chapter = chapterCacheRef.current.get(meta.id);
         if (!chapter) {
@@ -3573,7 +3753,17 @@ ${sourceText}`;
           capCache(chapterCacheRef.current);
         }
 
-        if (chapter.edited?.trim()) {
+        if (!overwriteExisting && chapter.edited?.trim()) {
+          try {
+            await learnFromChapter(chapter, meta, chapter.edited);
+          } catch (learningError) {
+            setBatchErrors((prev) => [...prev, {
+              id: meta.id,
+              title: `${meta.title} (tự học)`,
+              message: learningError.message,
+              kind: "learning",
+            }]);
+          }
           setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
           continue;
         }
@@ -3591,7 +3781,12 @@ ${sourceText}`;
             setBatchProgress((p) => ({
               ...p,
               currentTitle: `${meta.title} (đoạn ${chunkI}/${chunkTotal})`,
-            }))
+            })),
+          {
+            glossaryTerms: batchGlossaryTerms,
+            pronounRules: batchPronounRules,
+            previousSummary,
+          }
         );
         const finalText = applyHardRules(editedText);
 
@@ -3604,9 +3799,20 @@ ${sourceText}`;
         if (currentChapter?.id === meta.id) {
           setCurrentChapter(updatedChapter);
         }
+
+        try {
+          await learnFromChapter(chapter, meta, finalText);
+        } catch (learningError) {
+          setBatchErrors((prev) => [...prev, {
+            id: meta.id,
+            title: `${meta.title} (tự học)`,
+            message: learningError.message,
+            kind: "learning",
+          }]);
+        }
         setBatchProgress((p) => ({ ...p, done: p.done + 1, edited: p.edited + 1 }));
       } catch (e) {
-        setBatchErrors((prev) => [...prev, { title: meta.title, message: e.message }]);
+        setBatchErrors((prev) => [...prev, { id: meta.id, title: meta.title, message: e.message }]);
         setBatchProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
       }
       // Small gap between chapters — 190 back-to-back calls can trip a
@@ -3620,6 +3826,7 @@ ${sourceText}`;
 
     setBatchRunning(false);
     setBatchFinished(true);
+    setBatchProgress((p) => ({ ...p, currentChapterId: null, currentTitle: "" }));
     toast({
       title: batchStopRef.current
         ? "Đã dừng edit hàng loạt ⏸️"
@@ -4084,6 +4291,9 @@ ${compact}`;
                 <button onClick={() => { setShowChapterManager(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
                   <ListIcon className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Quản lý chương
                 </button>
+                <button onClick={() => { setShowBatchEdit(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-50">
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" /> Edit AI hàng loạt
+                </button>
                 <button onClick={() => { handleCreateChapter(); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
                   <Plus className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Tạo chương mới
                 </button>
@@ -4117,6 +4327,14 @@ ${compact}`;
             <ShieldCheck className="h-4 w-4"/><span className="hidden lg:inline">QA toàn truyện{storyQaReport?.chapters.length ? ` · ${storyQaReport.chapters.length}` : ""}</span>
           </button>
           <button onClick={()=>setShowStoryBeta(true)} className={`hidden md:flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyBetaReport?.chapters.length?"bg-fuchsia-100 text-fuchsia-800":"bg-white/10 text-fuchsia-200 hover:bg-white/15"}`} title="Quét Beta câu văn toàn truyện"><PenTool className="h-4 w-4"/><span className="hidden lg:inline">Beta toàn truyện{storyBetaReport?.chapters.length?` · ${storyBetaReport.chapters.length}`:""}</span></button>
+          <button
+            onClick={() => setShowBatchEdit(true)}
+            className="hidden md:flex items-center gap-1.5 rounded-xl bg-violet-500 px-3 py-2 text-xs font-bold text-white shadow-lg transition-colors hover:bg-violet-400"
+            title="Mở xưởng Edit AI hàng loạt"
+          >
+            <Sparkles className="h-4 w-4" />
+            <span className="hidden lg:inline">Edit hàng loạt</span>
+          </button>
           <button
             onClick={() => setShowChapterManager(true)}
             className="hidden md:inline-flex p-2 rounded-xl bg-white/10 hover:bg-white/15 text-violet-300 transition-colors"
@@ -4683,7 +4901,9 @@ ${compact}`;
       <BatchEditDialog
         open={showBatchEdit}
         onOpenChange={setShowBatchEdit}
-        totalChapters={chapterList.length}
+        chapters={chapterList}
+        editedChapterIds={editedChapterIds}
+        storyMemory={project?.style_toggles?.story_memory || {}}
         running={batchRunning}
         finished={batchFinished}
         progress={batchProgress}
