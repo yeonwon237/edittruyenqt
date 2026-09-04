@@ -7,7 +7,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X, SearchCheck, Compass, Bot } from "lucide-react";
+import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X, SearchCheck, Compass, Bot, BookOpen } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { ruleSummary } from "@/lib/pronounMatrix";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
@@ -63,6 +63,8 @@ export default function ContextualPronounDialog({
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [bootstrapOpen, setBootstrapOpen] = useState(false);
   const [storyPronounAiOpen, setStoryPronounAiOpen] = useState(false);
+  const [narrativeRules, setNarrativeRules] = useState([]);
+  const [narrativeForm, setNarrativeForm] = useState({ character: "", pronoun: "", note: "" });
 
   useEffect(() => {
     if (open) {
@@ -72,12 +74,65 @@ export default function ContextualPronounDialog({
       setIsDefault(false);
       setSelectMode(false);
       setSelectedIndices(new Set());
+      setNarrativeRules(project?.style_toggles?.story_memory?.narrativeRules || []);
+      setNarrativeForm({ character: "", pronoun: "", note: "" });
     }
   }, [open, project]);
 
   const toggleSelectMode = () => {
     setSelectMode((prev) => !prev);
     setSelectedIndices(new Set());
+  };
+
+  const persistNarrativeRules = async (next) => {
+    setNarrativeRules(next);
+    await onUpdateProject({
+      style_toggles: {
+        ...(project?.style_toggles || {}),
+        story_memory: {
+          ...(project?.style_toggles?.story_memory || {}),
+          narrativeRules: next,
+        },
+      },
+    });
+  };
+
+  const handleAddNarrativeRule = async () => {
+    const character = narrativeForm.character.trim();
+    const pronoun = narrativeForm.pronoun.trim();
+    if (!character || !pronoun) {
+      toast({ title: "Nhập tên nhân vật và ngôi lời dẫn", variant: "destructive" });
+      return;
+    }
+    const normalized = character.toLocaleLowerCase("vi");
+    const rule = {
+      character,
+      pronoun,
+      note: narrativeForm.note.trim(),
+      source: "manual",
+      confidence: 1,
+    };
+    const existingIndex = narrativeRules.findIndex(
+      (item) => item.character?.trim().toLocaleLowerCase("vi") === normalized
+    );
+    const next = existingIndex >= 0
+      ? narrativeRules.map((item, index) => index === existingIndex ? rule : item)
+      : [...narrativeRules, rule];
+    try {
+      await persistNarrativeRules(next);
+      setNarrativeForm({ character: "", pronoun: "", note: "" });
+      toast({ title: existingIndex >= 0 ? "Đã cập nhật ngôi lời dẫn" : "Đã thêm ngôi lời dẫn" });
+    } catch (error) {
+      toast({ title: "Không lưu được ngôi lời dẫn", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const handleDeleteNarrativeRule = async (index) => {
+    try {
+      await persistNarrativeRules(narrativeRules.filter((_, itemIndex) => itemIndex !== index));
+    } catch (error) {
+      toast({ title: "Không xóa được ngôi lời dẫn", description: error.message, variant: "destructive" });
+    }
   };
 
   const toggleSelected = (idx) => {
@@ -232,6 +287,58 @@ export default function ContextualPronounDialog({
             Chọn “Mọi người khác” để tạo quy tắc dự phòng; quy tắc người nghe cụ thể luôn được ưu tiên.
           </DialogDescription>
         </DialogHeader>
+
+        <section className="space-y-2 rounded-2xl border border-indigo-100 bg-indigo-50/50 p-3">
+          <div className="flex items-center gap-2">
+            <BookOpen className="h-4 w-4 text-indigo-600" />
+            <div>
+              <p className="text-sm font-semibold text-indigo-800">Ngôi Lời Dẫn (Tự do nhập)</p>
+              <p className="text-[11px] text-slate-500">Quy định đại từ ngôi thứ ba ngoài lời thoại, ví dụ: A → cô, B → nàng.</p>
+            </div>
+          </div>
+          {narrativeRules.length > 0 && (
+            <div className="space-y-1">
+              {narrativeRules.map((rule, index) => (
+                <div key={`${rule.character}-${index}`} className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-white px-2.5 py-2 text-xs">
+                  <span className="min-w-0 flex-1">
+                    <strong className="text-slate-700">{rule.character}</strong>
+                    <span className="mx-1.5 text-slate-300">→</span>
+                    <strong className="text-indigo-700">{rule.pronoun}</strong>
+                    {rule.note ? <span className="ml-2 text-slate-400">({rule.note})</span> : null}
+                  </span>
+                  {rule.source === "ai_chapter_learning" && <span className="rounded bg-fuchsia-50 px-1.5 py-0.5 text-[10px] text-fuchsia-600">AI học</span>}
+                  <button type="button" onClick={() => handleDeleteNarrativeRule(index)} className="text-slate-400 hover:text-red-500" title="Xóa quy tắc lời dẫn">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="grid gap-2 sm:grid-cols-[1fr_120px_1fr_auto]">
+            <input
+              value={narrativeForm.character}
+              onChange={(event) => setNarrativeForm((form) => ({ ...form, character: event.target.value }))}
+              placeholder="Tên nhân vật"
+              className="rounded-lg border border-indigo-100 bg-white px-2.5 py-2 text-xs outline-none focus:border-indigo-400"
+            />
+            <input
+              value={narrativeForm.pronoun}
+              onChange={(event) => setNarrativeForm((form) => ({ ...form, pronoun: event.target.value }))}
+              placeholder="cô / nàng..."
+              className="rounded-lg border border-indigo-100 bg-white px-2.5 py-2 text-xs outline-none focus:border-indigo-400"
+            />
+            <input
+              value={narrativeForm.note}
+              onChange={(event) => setNarrativeForm((form) => ({ ...form, note: event.target.value }))}
+              onKeyDown={(event) => event.key === "Enter" && handleAddNarrativeRule()}
+              placeholder="Ghi chú/điều kiện (không bắt buộc)"
+              className="rounded-lg border border-indigo-100 bg-white px-2.5 py-2 text-xs outline-none focus:border-indigo-400"
+            />
+            <button type="button" onClick={handleAddNarrativeRule} className="flex items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700">
+              <Plus className="mr-1 h-3.5 w-3.5" /> Thêm
+            </button>
+          </div>
+        </section>
 
         {onRunPronounBootstrap && (
           <button

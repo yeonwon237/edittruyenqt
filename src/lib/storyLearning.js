@@ -20,6 +20,7 @@ QUY TẮC AN TOÀN:
 4. Không lặp lại dữ liệu đã có. Nếu dữ kiện mới mâu thuẫn dữ liệu cũ, vẫn trả về nhưng đặt confidence <= 0.80 và giải thích trong note.
 5. Thuật ngữ chỉ lấy tên riêng/địa danh/tông môn/cảnh giới/vật phẩm quan trọng có dạng nguồn và bản dịch tương ứng rõ ràng.
 6. Tóm tắt đúng 1-2 câu, không thêm diễn biến không có trong chương.
+7. "narrativePronouns" là đại từ NGÔI THỨ BA trong lời kể dùng để chỉ một nhân vật, ví dụ A → "cô", B → "nàng". Không lấy cách nhân vật tự xưng trong lời thoại cho mục này.
 
 MA TRẬN ĐÃ CÓ:
 ${rules || "(trống)"}
@@ -38,6 +39,15 @@ ${String(editedText || "").slice(0, 7000)}
 Trả về DUY NHẤT JSON hợp lệ, không markdown:
 {
   "summary": "...",
+  "narrativePronouns": [
+    {
+      "character": "tên nhân vật trong bản Edit",
+      "pronoun": "cô/nàng/hắn/y/bà/ông/nó...",
+      "note": "điều kiện áp dụng nếu có",
+      "evidence": "câu lời dẫn nguyên văn cho thấy đại từ này chỉ nhân vật",
+      "confidence": 0.0
+    }
+  ],
   "pronounRules": [
     {
       "speaker": "tên nhân vật nói trong bản Edit",
@@ -69,19 +79,61 @@ export function parseStoryLearningResult(raw) {
   const parsed = JSON.parse(text.slice(start, end + 1));
   return {
     summary: clean(parsed.summary),
+    narrativePronouns: Array.isArray(parsed.narrativePronouns) ? parsed.narrativePronouns : [],
     pronounRules: Array.isArray(parsed.pronounRules) ? parsed.pronounRules : [],
     terms: Array.isArray(parsed.terms) ? parsed.terms : [],
   };
 }
 
-export function mergeStoryLearning({ existingRules = [], existingTerms = [], learned, chapter }) {
+export function mergeStoryLearning({
+  existingRules = [],
+  existingTerms = [],
+  existingNarrativeRules = [],
+  learned,
+  chapter,
+}) {
   const rules = [...existingRules];
   const terms = [...existingTerms];
+  const narrativeRules = [...existingNarrativeRules];
   const candidates = [];
   const acceptedRules = [];
   const acceptedTerms = [];
+  const acceptedNarrativeRules = [];
   const ruleByPair = new Map(rules.map((rule) => [keyOf(rule.speaker, rule.listener || "*"), rule]));
   const termBySource = new Map(terms.map((term) => [keyOf(term.source_term), term]));
+  const narrativeByCharacter = new Map(
+    narrativeRules.map((rule) => [keyOf(rule.character), rule])
+  );
+
+  for (const raw of learned.narrativePronouns || []) {
+    const item = {
+      character: clean(raw.character),
+      pronoun: clean(raw.pronoun),
+      note: clean(raw.note),
+      evidence: clean(raw.evidence),
+      confidence: Number(raw.confidence) || 0,
+    };
+    if (!item.character || !item.pronoun || !item.evidence) continue;
+    const characterKey = keyOf(item.character);
+    const existing = narrativeByCharacter.get(characterKey);
+    const conflicts = existing && keyOf(existing.pronoun) !== keyOf(item.pronoun);
+    if (existing && !conflicts) continue;
+    const enriched = {
+      ...item,
+      source: "ai_chapter_learning",
+      chapter_id: chapter.id,
+      chapter_title: chapter.title,
+      detected_at: new Date().toISOString(),
+      status: conflicts ? "conflict" : item.confidence >= 0.9 ? "confirmed" : "candidate",
+    };
+    if (!conflicts && item.confidence >= 0.9) {
+      narrativeRules.push(enriched);
+      narrativeByCharacter.set(characterKey, enriched);
+      acceptedNarrativeRules.push(enriched);
+    } else {
+      candidates.push({ type: "narrative_pronoun", ...enriched });
+    }
+  }
 
   for (const raw of learned.pronounRules || []) {
     const item = {
@@ -158,5 +210,13 @@ export function mergeStoryLearning({ existingRules = [], existingTerms = [], lea
     }
   }
 
-  return { rules, terms, acceptedRules, acceptedTerms, candidates };
+  return {
+    rules,
+    terms,
+    narrativeRules,
+    acceptedRules,
+    acceptedTerms,
+    acceptedNarrativeRules,
+    candidates,
+  };
 }

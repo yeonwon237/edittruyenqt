@@ -1824,6 +1824,8 @@ export default function Workspace() {
   const buildEditPrompt = (sourceText, context = {}) => {
     const activeGlossaryTerms = context.glossaryTerms || glossaryTerms;
     const activePronounRules = context.pronounRules || project?.contextual_pronoun_rules || [];
+    const activeNarrativeRules = context.narrativeRules ||
+      project?.style_toggles?.story_memory?.narrativeRules || [];
     const glossaryText = activeGlossaryTerms
       .map((t) => `- "${t.source_term}" → "${t.translation}"`)
       .join("\n");
@@ -1834,6 +1836,10 @@ export default function Workspace() {
     const pronounMatrixText = buildPronounMatrixPrompt(
       activePronounRules
     );
+    const narrativePronounText = activeNarrativeRules
+      .filter((rule) => rule.character?.trim() && rule.pronoun?.trim())
+      .map((rule) => `- Khi lời dẫn nhắc đến "${rule.character.trim()}": bắt buộc dùng đại từ "${rule.pronoun.trim()}"${rule.note ? ` (${rule.note})` : ""}`)
+      .join("\n");
 
     const toggles = project?.style_toggles || {};
     const extraRules = [];
@@ -1890,6 +1896,9 @@ ${batchRulesText || "(không có)"}
 
 MA TRẬN XƯNG HÔ THEO NGỮ CẢNH (AI tự nhận diện người nói ↔ người nghe, áp dụng chính xác đại từ):
 ${pronounMatrixText || "(không có quy tắc cụ thể — dùng ngữ cảm tự nhiên theo văn bản gốc)"}
+
+NGÔI LỜI DẪN / ĐẠI TỪ NGÔI THỨ BA (BẮT BUỘC TUÂN THỦ, không áp dụng vào lời thoại):
+${narrativePronounText || "(chưa có quy tắc riêng)"}
 
 ${context.previousSummary ? `TÓM TẮT CHƯƠNG TRƯỚC (chỉ dùng để giữ mạch truyện, không được chép vào đầu ra):
 ${context.previousSummary}` : ""}
@@ -1951,8 +1960,10 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     const memory = {
       candidates: [],
       summaries: [],
+      narrativeRules: [],
       learnedRuleCount: 0,
       learnedTermCount: 0,
+      learnedNarrativeCount: 0,
       ...(project?.style_toggles?.story_memory || {}),
     };
     const raw = await callLLM(buildStoryLearningPrompt({
@@ -1966,6 +1977,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     const merged = mergeStoryLearning({
       existingRules,
       existingTerms,
+      existingNarrativeRules: memory.narrativeRules || [],
       learned,
       chapter,
     });
@@ -2003,6 +2015,8 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
         : memory.summaries || [],
       learnedRuleCount: (memory.learnedRuleCount || 0) + merged.acceptedRules.length,
       learnedTermCount: (memory.learnedTermCount || 0) + merged.acceptedTerms.length,
+      learnedNarrativeCount: (memory.learnedNarrativeCount || 0) + merged.acceptedNarrativeRules.length,
+      narrativeRules: merged.narrativeRules,
       lastLearnedAt: new Date().toISOString(),
     };
     const updatedProject = await Project.update(projectId, {
@@ -2014,7 +2028,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     });
     setProject(updatedProject);
     return {
-      ruleCount: merged.acceptedRules.length,
+      ruleCount: merged.acceptedRules.length + merged.acceptedNarrativeRules.length,
       termCount: merged.acceptedTerms.length,
       candidateCount: merged.candidates.length,
     };
@@ -3671,8 +3685,10 @@ ${sourceText}`;
     let storyMemory = {
       candidates: [],
       summaries: [],
+      narrativeRules: [],
       learnedRuleCount: 0,
       learnedTermCount: 0,
+      learnedNarrativeCount: 0,
       ...(project?.style_toggles?.story_memory || {}),
     };
     let previousSummary = storyMemory.summaries?.at(-1)?.summary || "";
@@ -3690,6 +3706,7 @@ ${sourceText}`;
       const merged = mergeStoryLearning({
         existingRules: batchPronounRules,
         existingTerms: batchGlossaryTerms,
+        existingNarrativeRules: storyMemory.narrativeRules || [],
         learned,
         chapter: meta,
       });
@@ -3728,6 +3745,8 @@ ${sourceText}`;
           : storyMemory.summaries || [],
         learnedRuleCount: (storyMemory.learnedRuleCount || 0) + merged.acceptedRules.length,
         learnedTermCount: (storyMemory.learnedTermCount || 0) + merged.acceptedTerms.length,
+        learnedNarrativeCount: (storyMemory.learnedNarrativeCount || 0) + merged.acceptedNarrativeRules.length,
+        narrativeRules: merged.narrativeRules,
         lastLearnedAt: new Date().toISOString(),
       };
 
@@ -3785,6 +3804,7 @@ ${sourceText}`;
           {
             glossaryTerms: batchGlossaryTerms,
             pronounRules: batchPronounRules,
+            narrativeRules: storyMemory.narrativeRules || [],
             previousSummary,
           }
         );

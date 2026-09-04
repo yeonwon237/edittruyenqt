@@ -180,7 +180,7 @@ export default function GlossarySidebar({
             {Array.isArray(project?.contextual_pronoun_rules)
               ? project.contextual_pronoun_rules.length
               : 0}{" "}
-            quy tắc
+            đối thoại · {project?.style_toggles?.story_memory?.narrativeRules?.length || 0} lời dẫn
           </span>
         </button>
         <button

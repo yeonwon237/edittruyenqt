@@ -121,7 +121,9 @@ export default function BatchEditDialog({
           <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/60 px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-slate-400">AI đã học</p>
             <p className="text-lg font-bold text-fuchsia-700">
-              {(storyMemory.learnedRuleCount || 0) + (storyMemory.learnedTermCount || 0)}
+              {(storyMemory.learnedRuleCount || 0) +
+                (storyMemory.learnedTermCount || 0) +
+                (storyMemory.learnedNarrativeCount || 0)}
             </p>
             <p className="text-[10px] text-slate-400">
               {(storyMemory.candidates || []).length} đề xuất cần thêm bằng chứng
