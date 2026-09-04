@@ -24,6 +24,7 @@ import StoryQaDialog from "@/components/workspace/StoryQaDialog";
 import BetaCheckDialog from "@/components/workspace/BetaCheckDialog";
 import BetaReaderDialog from "@/components/workspace/BetaReaderDialog";
 import StoryBetaReaderDialog from "@/components/workspace/StoryBetaReaderDialog";
+import TargetedFixDialog from "@/components/workspace/TargetedFixDialog";
 import StoryBetaDialog from "@/components/workspace/StoryBetaDialog";
 import BulkColumnMoveDialog from "@/components/workspace/BulkColumnMoveDialog";
 import ChapterPicker from "@/components/workspace/ChapterPicker";
@@ -197,6 +198,10 @@ export default function Workspace() {
   const [betaReaderProgress, setBetaReaderProgress] = useState({ done: 0, total: 0 });
   const [betaReaderNotes, setBetaReaderNotes] = useState(null);
   const [betaReaderChapterId, setBetaReaderChapterId] = useState(null);
+  // Set when the notes currently loaded came from the targeted-fix scan
+  // below rather than a free read — shown above the note list so the user
+  // remembers which description these matches are answering.
+  const [betaReaderContextNote, setBetaReaderContextNote] = useState(null);
   // Batch counterpart — same free-form reading, looped across "toàn truyện"
   // or "N chương tiếp theo" from the chapter currently open. Suggestions
   // only, same as the single-chapter version: nothing is written until the
@@ -208,6 +213,17 @@ export default function Workspace() {
   const [storyBetaReaderErrors, setStoryBetaReaderErrors] = useState([]);
   const [storyBetaReaderReport, setStoryBetaReaderReport] = useState(null);
   const storyBetaReaderStopRef = useRef(false);
+  // "Sửa theo mô tả" — the user states one specific correction in plain
+  // language (an example they just read); AI finds and fixes only the
+  // matching instances across the chosen scope, unlike the free-form Beta
+  // reader above which reads everything for anything worth flagging.
+  const [showTargetedFix, setShowTargetedFix] = useState(false);
+  const [runningTargetedFix, setRunningTargetedFix] = useState(false);
+  const [targetedFixFinished, setTargetedFixFinished] = useState(false);
+  const [targetedFixProgress, setTargetedFixProgress] = useState({ done: 0, total: 0, found: 0, skipped: 0, failed: 0, currentTitle: "" });
+  const [targetedFixErrors, setTargetedFixErrors] = useState([]);
+  const [targetedFixReport, setTargetedFixReport] = useState(null);
+  const targetedFixStopRef = useRef(false);
   const [betaAiRunning, setBetaAiRunning] = useState(false);
   const [storyBetaRunning, setStoryBetaRunning] = useState(false);
   const [storyBetaReport, setStoryBetaReport] = useState(null);
@@ -1795,6 +1811,8 @@ export default function Workspace() {
 
   useEffect(()=>{try{setStoryBetaReaderReport(JSON.parse(localStorage.getItem(`etq-story-beta-reader:${projectId}`)||"null"));}catch{setStoryBetaReaderReport(null);}},[projectId]);
 
+  useEffect(()=>{try{setTargetedFixReport(JSON.parse(localStorage.getItem(`etq-targeted-fix:${projectId}`)||"null"));}catch{setTargetedFixReport(null);}},[projectId]);
+
   useEffect(()=>{try{setStoryBetaReport(JSON.parse(localStorage.getItem(`etq-story-beta:${projectId}`)||"null"));}catch{setStoryBetaReport(null);}},[projectId]);
   useEffect(()=>{if(!storyBetaReport||!currentChapter?.id||betaScannedChapterRef.current!==currentChapter.id)return;const issues=betaIssues;const meta=chapterList.find(ch=>ch.id===currentChapter.id)||currentChapter;const chapters=storyBetaReport.chapters.filter(ch=>ch.id!==currentChapter.id);if(issues.length)chapters.push({id:currentChapter.id,title:meta.title,chapter_order:meta.chapter_order,count:issues.length});chapters.sort((a,b)=>(a.chapter_order||0)-(b.chapter_order||0));const next={...storyBetaReport,chapters,issueCount:chapters.reduce((sum,ch)=>sum+ch.count,0),groupsStale:true};setStoryBetaReport(next);localStorage.setItem(`etq-story-beta:${projectId}`,JSON.stringify(next));// eslint-disable-next-line react-hooks/exhaustive-deps
   },[betaIssues,currentChapter?.id]);
@@ -2105,12 +2123,31 @@ ${text}
 
 Trả DUY NHẤT một JSON array (không markdown, không giải thích gì thêm ngoài JSON). Mỗi phần tử: {"quote": "trích nguyên văn cụm/câu có vấn đề, giữ đúng từng ký tự để định vị được trong đoạn trên", "comment": "nhận xét ngắn gọn của bạn, viết như đang góp ý cho tác giả, giải thích vì sao", "suggestion": "câu/cụm đề xuất thay thế nếu có — để chuỗi rỗng nếu chỉ là nhận xét, không cần sửa"}. Nếu đoạn văn ổn, không có gì đáng góp ý, trả về mảng rỗng [].`;
 
-  // Shared by the single-chapter and whole-story runs: chunk the text, ask
-  // the model per chunk, and turn its JSON reply into located notes. Kept
-  // as one function so the locate-by-quote logic (and its safety margin —
-  // only trust a quote as "located" when it's unambiguous in that chunk)
-  // can't drift between the two call sites.
-  const runBetaReaderOnText = async (sourceText, matrixText, qaHints, idPrefix, onChunkDone) => {
+  // Case the user asked for directly: they read one specific mistake ("Hà
+  // đại nương phải gọi là bà, không phải nàng") and want ONLY that fixed
+  // everywhere it recurs — not a general read-through. The prompt makes
+  // this a narrow find-and-fix pass instead of Beta reader's open one, but
+  // the output shape matches it exactly (quote/comment/suggestion) so the
+  // rest of the pipeline — locate, single-chapter review dialog, apply,
+  // undo — is reused as-is.
+  const buildTargetedFixPrompt = (text, description) => `Người dùng vừa nêu MỘT loại lỗi cụ thể cần tìm và sửa trong truyện — đây KHÔNG phải yêu cầu rà soát mọi lỗi, chỉ đúng loại lỗi này thôi:
+
+"${description}"
+
+Đọc đoạn văn tiếng Việt sau, tìm những chỗ mắc ĐÚNG loại lỗi vừa mô tả. Tự suy luận theo ngữ cảnh để xác định đúng chỗ nào thật sự khớp — ví dụ nếu mô tả nói về cách gọi một nhân vật cụ thể, chỉ tính những chỗ đang thật sự nói về đúng nhân vật đó, không phải nhân vật khác vô tình dùng từ giống vậy. Nếu đoạn văn này không có chỗ nào khớp, trả về mảng rỗng — đừng cố tìm bừa cho có.
+
+ĐOẠN VĂN:
+${text}
+
+Trả DUY NHẤT một JSON array (không markdown, không giải thích gì thêm ngoài JSON). Mỗi phần tử: {"quote": "trích nguyên văn cụm/câu mắc lỗi, giữ đúng từng ký tự để định vị được trong đoạn trên", "comment": "vì sao chỗ này khớp với mô tả lỗi ở trên", "suggestion": "câu/cụm đã sửa đúng theo mô tả"}. Nếu không có chỗ nào khớp, trả về mảng rỗng [].`;
+
+  // Shared by every "AI reads a chunk, replies with a JSON list of {quote,
+  // comment, suggestion} notes" flow — the free-form Beta reader (single
+  // chapter and whole-story) and the targeted "sửa theo mô tả" pass below.
+  // Kept as one function so the locate-by-quote logic (and its safety
+  // margin — only trust a quote as "located" when it's unambiguous in that
+  // chunk) can't drift between call sites; only the prompt differs.
+  const runNoteScanOnText = async (sourceText, buildPromptForChunk, idPrefix, onChunkDone) => {
     const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
     let cursor = 0;
     const notes = [];
@@ -2119,7 +2156,7 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
       const chunkStart = sourceText.indexOf(chunk, cursor);
       cursor = chunkStart + chunk.length;
       // eslint-disable-next-line no-await-in-loop
-      const raw = await callLLM(buildBetaReaderPrompt(chunk, matrixText, qaHints));
+      const raw = await callLLM(buildPromptForChunk(chunk));
       let parsed;
       try {
         parsed = JSON.parse(String(raw).trim().replace(/^```(?:json)?\s*|\s*```$/g, ""));
@@ -2171,11 +2208,15 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
     setBetaReaderRunning(true);
     setBetaReaderNotes(null);
     setBetaReaderChapterId(chapterId);
+    setBetaReaderContextNote(null);
     try {
       setBetaReaderProgress({ done: 0, total: chunkText(sourceText, AI_CHUNK_CHARS).length });
-      const allNotes = await runBetaReaderOnText(sourceText, matrixText, qaHints, "beta-reader", (done, total) => {
-        setBetaReaderProgress({ done, total });
-      });
+      const allNotes = await runNoteScanOnText(
+        sourceText,
+        (chunk) => buildBetaReaderPrompt(chunk, matrixText, qaHints),
+        "beta-reader",
+        (done, total) => setBetaReaderProgress({ done, total })
+      );
       setBetaReaderNotes(allNotes);
       toast({
         title: allNotes.length ? `AI góp ý ${allNotes.length} chỗ` : "AI đọc xong, không có gì đáng góp ý",
@@ -2189,20 +2230,24 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
     }
   };
 
-  // If the chapter currently open also has an entry in the whole-story
-  // report, keep that entry's note list in sync so re-opening it later
-  // (or the "found" count in StoryBetaReaderDialog) doesn't still show
-  // notes already applied/dismissed here.
+  // If the chapter currently open also has an entry in one of the batch
+  // reports (whole-story Beta reader, or the targeted-fix scan below), keep
+  // that entry's note list in sync so re-opening it later (or the "found"
+  // count in the batch dialog) doesn't still show notes already
+  // applied/dismissed here.
+  const syncReportChapterNotes = (report, storageKey, chapterId, remainingNotes) => {
+    if (!report?.chapters.some((c) => c.id === chapterId)) return report;
+    const chapters = remainingNotes.length
+      ? report.chapters.map((c) => (c.id === chapterId ? { ...c, notes: remainingNotes } : c))
+      : report.chapters.filter((c) => c.id !== chapterId);
+    const next = { ...report, chapters };
+    localStorage.setItem(storageKey, JSON.stringify(next));
+    return next;
+  };
+
   const syncStoryBetaReaderNotes = (chapterId, remainingNotes) => {
-    setStoryBetaReaderReport((report) => {
-      if (!report?.chapters.some((c) => c.id === chapterId)) return report;
-      const chapters = remainingNotes.length
-        ? report.chapters.map((c) => (c.id === chapterId ? { ...c, notes: remainingNotes } : c))
-        : report.chapters.filter((c) => c.id !== chapterId);
-      const next = { ...report, chapters };
-      localStorage.setItem(`etq-story-beta-reader:${projectId}`, JSON.stringify(next));
-      return next;
-    });
+    setStoryBetaReaderReport((report) => syncReportChapterNotes(report, `etq-story-beta-reader:${projectId}`, chapterId, remainingNotes));
+    setTargetedFixReport((report) => syncReportChapterNotes(report, `etq-targeted-fix:${projectId}`, chapterId, remainingNotes));
   };
 
   const handleApplyBetaReaderNote = (note) => {
@@ -2282,7 +2327,11 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
             .slice(0, 25)
             .map((issue) => `- "${issue.value}": ${issue.context}`.slice(0, 220))
             .join("\n");
-          const notes = await runBetaReaderOnText(sourceText, matrixText, qaHints, `story-beta-reader-${meta.id}`);
+          const notes = await runNoteScanOnText(
+            sourceText,
+            (chunk) => buildBetaReaderPrompt(chunk, matrixText, qaHints),
+            `story-beta-reader-${meta.id}`
+          );
           if (notes.length) {
             nextChapters = [...nextChapters.filter((c) => c.id !== meta.id), { id: meta.id, title: meta.title, chapter_order: meta.chapter_order, notes }];
             setStoryBetaReaderReport(() => {
@@ -2318,7 +2367,116 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
     await switchChapter(chapterId);
     setBetaReaderNotes(entry.notes);
     setBetaReaderChapterId(chapterId);
+    setBetaReaderContextNote(null);
     setShowStoryBetaReader(false);
+    setShowBetaReader(true);
+  };
+
+  const handleStartTargetedFix = async (description, scope) => {
+    const trimmedDescription = description.trim();
+    if (!trimmedDescription) {
+      toast({ title: "Hãy mô tả lỗi cần tìm trước", variant: "destructive" });
+      return;
+    }
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return;
+    }
+    targetedFixStopRef.current = false;
+    setTargetedFixErrors([]);
+    setTargetedFixFinished(false);
+    if (currentChapter) await flushSave(currentChapter, true);
+
+    let ordered;
+    if (scope.type === "current") {
+      if (!currentChapter) {
+        toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
+        return;
+      }
+      ordered = [currentChapter];
+    } else {
+      let chapters;
+      try {
+        chapters = await fetchAllPages(
+          (limit, skip) => Chapter.filterNonEmpty({ project_id: projectId }, "edited", "chapter_order", limit, skip, ["title", "chapter_order", "edited"]),
+          { pageSize: 300, maxItems: CHAPTER_FETCH_CAP }
+        );
+      } catch (error) {
+        toast({ title: "Không lấy được danh sách chương", description: error.message, variant: "destructive" });
+        return;
+      }
+      ordered = [...chapters].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+      if (scope.type === "next") {
+        const fromOrder = currentChapter?.chapter_order ?? -Infinity;
+        ordered = ordered.filter((c) => (c.chapter_order ?? 0) >= fromOrder).slice(0, scope.count);
+      }
+    }
+    if (!ordered.length) {
+      toast({ title: "Không có chương nào để quét", variant: "destructive" });
+      return;
+    }
+
+    setTargetedFixProgress({ done: 0, total: ordered.length, found: 0, skipped: 0, failed: 0, currentTitle: "" });
+    setRunningTargetedFix(true);
+    let nextChapters = [];
+
+    for (let i = 0; i < ordered.length; i++) {
+      if (targetedFixStopRef.current) break;
+      const meta = ordered[i];
+      setTargetedFixProgress((p) => ({ ...p, currentTitle: meta.title }));
+      try {
+        let chapter = chapterCacheRef.current.get(meta.id);
+        if (!chapter) {
+          chapter = await Chapter.get(meta.id);
+          chapterCacheRef.current.set(meta.id, chapter);
+          capCache(chapterCacheRef.current);
+        }
+        const sourceText = chapter.edited || "";
+        if (!sourceText.trim()) {
+          setTargetedFixProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
+        } else {
+          const notes = await runNoteScanOnText(
+            sourceText,
+            (chunk) => buildTargetedFixPrompt(chunk, trimmedDescription),
+            `targeted-fix-${meta.id}`
+          );
+          if (notes.length) {
+            nextChapters = [...nextChapters.filter((c) => c.id !== meta.id), { id: meta.id, title: meta.title, chapter_order: meta.chapter_order, notes }];
+            setTargetedFixReport(() => {
+              const next = { description: trimmedDescription, chapters: nextChapters, scannedAt: Date.now() };
+              localStorage.setItem(`etq-targeted-fix:${projectId}`, JSON.stringify(next));
+              return next;
+            });
+            setTargetedFixProgress((p) => ({ ...p, done: p.done + 1, found: p.found + 1 }));
+          } else {
+            setTargetedFixProgress((p) => ({ ...p, done: p.done + 1 }));
+          }
+        }
+      } catch (e) {
+        setTargetedFixErrors((prev) => [...prev, { title: meta.title, message: e.message }]);
+        setTargetedFixProgress((p) => ({ ...p, done: p.done + 1, failed: p.failed + 1 }));
+      }
+      if (!targetedFixStopRef.current && i < ordered.length - 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+    }
+
+    setRunningTargetedFix(false);
+    setTargetedFixFinished(true);
+    toast({ title: targetedFixStopRef.current ? "Đã dừng tìm & sửa ⏸️" : "Đã tìm xong! ✨" });
+  };
+
+  const handleStopTargetedFix = () => { targetedFixStopRef.current = true; };
+
+  const handleOpenTargetedFixChapter = async (chapterId) => {
+    const entry = targetedFixReport?.chapters.find((c) => c.id === chapterId);
+    if (!entry) return;
+    await switchChapter(chapterId);
+    setBetaReaderNotes(entry.notes);
+    setBetaReaderChapterId(chapterId);
+    setBetaReaderContextNote(targetedFixReport?.description ? `Đang xem theo mô tả: "${targetedFixReport.description}"` : null);
+    setShowTargetedFix(false);
     setShowBetaReader(true);
   };
 
@@ -4424,6 +4582,8 @@ ${compact}`;
         canUndo={aiUndo?.chapterId === currentChapter?.id}
         onUndo={handleUndoAiEdit}
         onOpenStoryScan={() => { setShowBetaReader(false); setShowStoryBetaReader(true); }}
+        onOpenTargetedFix={() => { setShowBetaReader(false); setShowTargetedFix(true); }}
+        contextNote={betaReaderChapterId === currentChapter?.id ? betaReaderContextNote : null}
       />
       <StoryBetaReaderDialog
         open={showStoryBetaReader}
@@ -4436,6 +4596,18 @@ ${compact}`;
         onStart={handleStartStoryBetaReader}
         onStop={handleStopStoryBetaReader}
         onOpenChapter={handleOpenStoryBetaReaderChapter}
+      />
+      <TargetedFixDialog
+        open={showTargetedFix}
+        onOpenChange={setShowTargetedFix}
+        report={targetedFixReport}
+        running={runningTargetedFix}
+        finished={targetedFixFinished}
+        progress={targetedFixProgress}
+        errors={targetedFixErrors}
+        onStart={handleStartTargetedFix}
+        onStop={handleStopTargetedFix}
+        onOpenChapter={handleOpenTargetedFixChapter}
       />
       <AISettingsDialog open={showAISettings} onOpenChange={setShowAISettings} />
       <ChapterManagerDialog

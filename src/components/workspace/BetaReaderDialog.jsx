@@ -26,6 +26,8 @@ export default function BetaReaderDialog({
   canUndo,
   onUndo,
   onOpenStoryScan,
+  onOpenTargetedFix,
+  contextNote,
 }) {
   const pct = progress?.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
 
@@ -70,6 +72,9 @@ export default function BetaReaderDialog({
 
         {!running && !!notes?.length && (
           <div className="space-y-2.5">
+            {contextNote && (
+              <p className="rounded-lg bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700">{contextNote}</p>
+            )}
             <p className="text-xs font-semibold text-slate-500">{notes.length} chỗ AI góp ý — mỗi chỗ tự quyết định riêng</p>
             <div className="max-h-[55vh] space-y-2.5 overflow-y-auto cute-scrollbar pr-1">
               {notes.map((note) => (
@@ -118,6 +123,11 @@ export default function BetaReaderDialog({
             {onOpenStoryScan && (
               <Button variant="ghost" onClick={onOpenStoryScan} className="rounded-xl text-indigo-600 hover:bg-indigo-50">
                 📚 Quét nhiều chương
+              </Button>
+            )}
+            {onOpenTargetedFix && (
+              <Button variant="ghost" onClick={onOpenTargetedFix} className="rounded-xl text-violet-600 hover:bg-violet-50">
+                🎯 Sửa theo mô tả
               </Button>
             )}
             {canUndo && (
