@@ -16,6 +16,7 @@ import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog"
 import ChapterManagerDialog from "@/components/workspace/ChapterManagerDialog";
 import ImportChaptersDialog from "@/components/workspace/ImportChaptersDialog";
 import BatchEditDialog from "@/components/workspace/BatchEditDialog";
+import TranslationWorkflowDialog from "@/components/workspace/TranslationWorkflowDialog";
 import BatchBetaAiDialog from "@/components/workspace/BatchBetaAiDialog";
 import BatchTitleEditDialog from "@/components/workspace/BatchTitleEditDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
@@ -59,6 +60,7 @@ import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterE
 import { scanPronounInventory } from "@/lib/pronounInventory";
 import { discoverPronounRules } from "@/lib/pronounDiscovery";
 import { buildStoryLearningPrompt, mergeStoryLearning, parseStoryLearningResult } from "@/lib/storyLearning";
+import { buildTranslationBootstrapPrompt, dedupeTranslationBootstrap, parseTranslationBootstrapResult } from "@/lib/translationBootstrap";
 import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send, MessageSquareText, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -267,6 +269,15 @@ export default function Workspace() {
   const [exportingEdited, setExportingEdited] = useState(false);
   const [exportingSelected, setExportingSelected] = useState(false);
   const [showBatchEdit, setShowBatchEdit] = useState(false);
+  const [showTranslationWorkflow, setShowTranslationWorkflow] = useState(false);
+  const [translationBootstrapRunning, setTranslationBootstrapRunning] = useState(false);
+  const [translationBootstrapSaving, setTranslationBootstrapSaving] = useState(false);
+  const [translationBootstrapResult, setTranslationBootstrapResult] = useState(null);
+  const [batchQtRunning, setBatchQtRunning] = useState(false);
+  const [batchQtFinished, setBatchQtFinished] = useState(false);
+  const [batchQtProgress, setBatchQtProgress] = useState({ done: 0, total: 0, translated: 0, skipped: 0, failed: 0, currentTitle: "" });
+  const [batchQtErrors, setBatchQtErrors] = useState([]);
+  const batchQtStopRef = useRef(false);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchFinished, setBatchFinished] = useState(false);
   const [batchProgress, setBatchProgress] = useState({
@@ -1826,6 +1837,7 @@ export default function Workspace() {
     const activePronounRules = context.pronounRules || project?.contextual_pronoun_rules || [];
     const activeNarrativeRules = context.narrativeRules ||
       project?.style_toggles?.story_memory?.narrativeRules || [];
+    const characterProfiles = project?.style_toggles?.story_memory?.characterProfiles || [];
     const glossaryText = activeGlossaryTerms
       .map((t) => `- "${t.source_term}" → "${t.translation}"`)
       .join("\n");
@@ -1839,6 +1851,10 @@ export default function Workspace() {
     const narrativePronounText = activeNarrativeRules
       .filter((rule) => rule.character?.trim() && rule.pronoun?.trim())
       .map((rule) => `- Khi lời dẫn nhắc đến "${rule.character.trim()}": bắt buộc dùng đại từ "${rule.pronoun.trim()}"${rule.note ? ` (${rule.note})` : ""}`)
+      .join("\n");
+    const characterProfileText = characterProfiles
+      .filter((character) => character.name?.trim())
+      .map((character) => `- ${character.name.trim()}: giới tính ${character.gender || "không rõ"}; thân phận ${character.identity || "chưa rõ"}${character.evidence ? ` (căn cứ: ${character.evidence})` : ""}`)
       .join("\n");
 
     const toggles = project?.style_toggles || {};
@@ -1899,6 +1915,9 @@ ${pronounMatrixText || "(không có quy tắc cụ thể — dùng ngữ cảm t
 
 NGÔI LỜI DẪN / ĐẠI TỪ NGÔI THỨ BA (BẮT BUỘC TUÂN THỦ, không áp dụng vào lời thoại):
 ${narrativePronounText || "(chưa có quy tắc riêng)"}
+
+HỒ SƠ NHÂN VẬT ĐÃ DUYỆT (dùng để hiểu giới tính, thân phận và chọn xưng hô; không bịa thêm dữ kiện):
+${characterProfileText || "(chưa có hồ sơ riêng)"}
 
 ${context.previousSummary ? `TÓM TẮT CHƯƠNG TRƯỚC (chỉ dùng để giữ mạch truyện, không được chép vào đầu ra):
 ${context.previousSummary}` : ""}
@@ -3640,6 +3659,175 @@ ${sourceText}`;
     setExportingSelected(false);
   };
 
+  const handleAnalyzeTranslationWorkflow = async (sampleSize = 5) => {
+    if (!hasCustomAI()) {
+      toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
+      return;
+    }
+    if (!supportsSelfTranslate(project?.source_language)) {
+      toast({ title: "Quy trình này hiện dành cho truyện nguồn tiếng Trung", variant: "destructive" });
+      return;
+    }
+    const ordered = [...chapterList].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+    if (!ordered.length) return;
+    setTranslationBootstrapRunning(true);
+    setTranslationBootstrapResult(null);
+    try {
+      // Spread samples across the whole book instead of reading only the opening,
+      // which catches later cast/identity changes while keeping one reviewable AI call.
+      const count = Math.max(1, Math.min(Number(sampleSize) || 5, ordered.length));
+      const indices = count === 1
+        ? [0]
+        : Array.from({ length: count }, (_, index) => Math.round(index * (ordered.length - 1) / (count - 1)));
+      const sampleMeta = [...new Set(indices)].map((index) => ordered[index]);
+      const samples = await Promise.all(sampleMeta.map(async (meta) => {
+        const cached = chapterCacheRef.current.get(meta.id);
+        const chapter = cached || await Chapter.get(meta.id);
+        if (!cached) {
+          chapterCacheRef.current.set(meta.id, chapter);
+          capCache(chapterCacheRef.current);
+        }
+        return chapter;
+      }));
+      const withSource = samples.filter((chapter) => chapter.raw_original?.trim());
+      if (!withSource.length) throw new Error("Các chương mẫu chưa có Văn bản gốc tiếng Trung.");
+      const raw = await callLLM(buildTranslationBootstrapPrompt(
+        withSource,
+        glossaryTerms,
+        project?.contextual_pronoun_rules || []
+      ));
+      const parsed = parseTranslationBootstrapResult(raw);
+      const result = dedupeTranslationBootstrap(parsed, glossaryTerms, project?.contextual_pronoun_rules || []);
+      setTranslationBootstrapResult(result);
+      toast({
+        title: "AI đã lập bộ quy ước",
+        description: `Tìm thấy ${result.glossaryTerms.length} mục Glossary, ${result.characters.length} nhân vật và ${result.pronounRules.length} quy tắc. Hãy duyệt trước khi lưu.`,
+      });
+    } catch (error) {
+      toast({ title: "Không thể lập bộ quy ước", description: error.message, variant: "destructive" });
+    } finally {
+      setTranslationBootstrapRunning(false);
+    }
+  };
+
+  const handleSaveTranslationBootstrap = async (approved) => {
+    if (!approved) return;
+    setTranslationBootstrapSaving(true);
+    try {
+      const existingTermsToUpdate = approved.glossaryTerms.filter((term) => term.existing_id);
+      const newTerms = approved.glossaryTerms.filter((term) => !term.existing_id);
+      const updatedTerms = await Promise.all(existingTermsToUpdate.map(async (term) => {
+        const current = glossaryTerms.find((item) => item.id === term.existing_id);
+        return await GlossaryTerm.update(term.existing_id, {
+          source_term: term.source_term,
+          translation: term.translation,
+          category: term.category || current?.category || "Xưng hô",
+          notes: current?.notes || "",
+          custom_fields: { ...(current?.custom_fields || {}), source: "ai_translation_bootstrap", confidence: term.confidence, evidence: term.evidence, approved: true },
+        });
+      }));
+      let createdTerms = [];
+      if (newTerms.length) {
+        createdTerms = await GlossaryTerm.bulkCreate(newTerms.map((term) => ({
+          project_id: projectId,
+          source_term: term.source_term,
+          translation: term.translation,
+          category: term.category,
+          notes: `AI lập bộ dịch · độ tin cậy ${Math.round(term.confidence * 100)}%${term.evidence ? ` · ${term.evidence}` : ""}`,
+          custom_fields: { source: "ai_translation_bootstrap", confidence: term.confidence, evidence: term.evidence, approved: true },
+        })));
+      }
+      setGlossaryTerms((current) => {
+        const updatedById = new Map(updatedTerms.map((term) => [term.id, term]));
+        return [...createdTerms, ...current.map((term) => updatedById.get(term.id) || term)];
+      });
+
+      const existingRules = project?.contextual_pronoun_rules || [];
+      const approvedRules = approved.pronounRules.map((rule) => ({
+        speaker: rule.speaker, listener: rule.listener || "*", self_word: rule.self_word,
+        target_word: rule.target_word, note: rule.note, source: "ai_translation_bootstrap",
+        confidence: rule.confidence, evidence: rule.evidence, approved: true,
+      }));
+      const memory = { candidates: [], summaries: [], narrativeRules: [], ...(project?.style_toggles?.story_memory || {}) };
+      const narrativeByName = new Map((memory.narrativeRules || []).map((rule) => [String(rule.character || "").toLocaleLowerCase("vi"), rule]));
+      approved.characters.forEach((character) => {
+        if (!character.narrative_pronoun || character.narrative_pronoun === "không rõ") return;
+        narrativeByName.set(character.name.toLocaleLowerCase("vi"), {
+          character: character.name,
+          pronoun: character.narrative_pronoun,
+          note: [character.gender !== "không rõ" ? `Giới tính: ${character.gender}` : "", character.identity].filter(Boolean).join("; "),
+          evidence: character.evidence,
+          confidence: character.confidence,
+          source: "ai_translation_bootstrap",
+          status: "confirmed",
+        });
+      });
+      const profileByName = new Map((memory.characterProfiles || []).map((character) => [String(character.name || "").toLocaleLowerCase("vi"), character]));
+      approved.characters.forEach((character) => profileByName.set(character.name.toLocaleLowerCase("vi"), { ...character, source: "ai_translation_bootstrap", approved: true }));
+      const nextMemory = {
+        ...memory,
+        narrativeRules: [...narrativeByName.values()],
+        characterProfiles: [...profileByName.values()],
+        bootstrapCreatedAt: new Date().toISOString(),
+      };
+      const updatedProject = await Project.update(projectId, {
+        contextual_pronoun_rules: [...existingRules, ...approvedRules],
+        style_toggles: { ...(project?.style_toggles || {}), story_memory: nextMemory },
+      });
+      setProject(updatedProject);
+      setTranslationBootstrapResult(null);
+      toast({ title: "Đã lưu bộ quy ước", description: `${createdTerms.length} mục Glossary mới, cập nhật ${updatedTerms.length} mục có sẵn, thêm ${approvedRules.length} quy tắc và ${approved.characters.length} hồ sơ nhân vật.` });
+    } catch (error) {
+      toast({ title: "Lỗi lưu bộ quy ước", description: error.message, variant: "destructive" });
+    } finally {
+      setTranslationBootstrapSaving(false);
+    }
+  };
+
+  const handleStartBatchQt = async ({ overwriteExisting = false } = {}) => {
+    if (!supportsSelfTranslate(project?.source_language)) {
+      toast({ title: "Tự dịch QT hàng loạt hiện chỉ hỗ trợ nguồn tiếng Trung", variant: "destructive" });
+      return;
+    }
+    const ordered = [...chapterList].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+    batchQtStopRef.current = false;
+    setBatchQtErrors([]);
+    setBatchQtFinished(false);
+    setBatchQtProgress({ done: 0, total: ordered.length, translated: 0, skipped: 0, failed: 0, currentTitle: "" });
+    setBatchQtRunning(true);
+    for (const meta of ordered) {
+      if (batchQtStopRef.current) break;
+      setBatchQtProgress((current) => ({ ...current, currentTitle: meta.title }));
+      try {
+        let chapter = chapterCacheRef.current.get(meta.id);
+        if (!chapter) chapter = await Chapter.get(meta.id);
+        if (!chapter.raw_original?.trim() || (!overwriteExisting && chapter.qt_raw?.trim())) {
+          setBatchQtProgress((current) => ({ ...current, done: current.done + 1, skipped: current.skipped + 1 }));
+          continue;
+        }
+        const result = await translateHanViet(chapter.raw_original, glossaryTerms);
+        await Chapter.update(meta.id, { qt_raw: result.text }, { returning: false });
+        const updated = { ...chapter, qt_raw: result.text };
+        chapterCacheRef.current.set(meta.id, updated);
+        capCache(chapterCacheRef.current);
+        lastSavedRef.current.set(meta.id, snapshotOf(updated));
+        if (currentChapter?.id === meta.id) setCurrentChapter(updated);
+        setBatchQtProgress((current) => ({ ...current, done: current.done + 1, translated: current.translated + 1 }));
+      } catch (error) {
+        setBatchQtErrors((current) => [...current, { id: meta.id, title: meta.title, message: error.message }]);
+        setBatchQtProgress((current) => ({ ...current, done: current.done + 1, failed: current.failed + 1 }));
+      }
+    }
+    setBatchQtRunning(false);
+    setBatchQtFinished(true);
+    setBatchQtProgress((current) => ({ ...current, currentTitle: "" }));
+    toast({ title: batchQtStopRef.current ? "Đã dừng tạo QT hàng loạt" : "Hoàn tất tạo QT hàng loạt" });
+  };
+
+  const handleStopBatchQt = () => {
+    batchQtStopRef.current = true;
+  };
+
   // Batch AI edit across every chapter in the project. Deliberately reuses
   // buildEditPrompt/applyRuleEdit/applyHardRules/runChunkedEdit verbatim (the
   // same functions the single-chapter "Edit AI" button calls) so glossary,
@@ -4314,6 +4502,9 @@ ${compact}`;
                 <button onClick={() => { setShowBatchEdit(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-50">
                   <Sparkles className="h-3.5 w-3.5 shrink-0" /> Edit AI hàng loạt
                 </button>
+                <button onClick={() => { setShowTranslationWorkflow(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-50">
+                  <BookOpen className="h-3.5 w-3.5 shrink-0" /> Chuẩn bị & dịch toàn truyện
+                </button>
                 <button onClick={() => { handleCreateChapter(); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
                   <Plus className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Tạo chương mới
                 </button>
@@ -4347,6 +4538,14 @@ ${compact}`;
             <ShieldCheck className="h-4 w-4"/><span className="hidden lg:inline">QA toàn truyện{storyQaReport?.chapters.length ? ` · ${storyQaReport.chapters.length}` : ""}</span>
           </button>
           <button onClick={()=>setShowStoryBeta(true)} className={`hidden md:flex items-center gap-1 rounded-xl px-2.5 py-2 text-xs font-semibold transition-colors ${storyBetaReport?.chapters.length?"bg-fuchsia-100 text-fuchsia-800":"bg-white/10 text-fuchsia-200 hover:bg-white/15"}`} title="Quét Beta câu văn toàn truyện"><PenTool className="h-4 w-4"/><span className="hidden lg:inline">Beta toàn truyện{storyBetaReport?.chapters.length?` · ${storyBetaReport.chapters.length}`:""}</span></button>
+          <button
+            onClick={() => setShowTranslationWorkflow(true)}
+            className="hidden md:flex items-center gap-1.5 rounded-xl bg-cyan-600 px-3 py-2 text-xs font-bold text-white shadow-lg transition-colors hover:bg-cyan-500"
+            title="AI lập bộ quy ước → máy tạo QT → AI Edit hàng loạt"
+          >
+            <BookOpen className="h-4 w-4" />
+            <span className="hidden xl:inline">Dịch toàn truyện</span>
+          </button>
           <button
             onClick={() => setShowBatchEdit(true)}
             className="hidden md:flex items-center gap-1.5 rounded-xl bg-violet-500 px-3 py-2 text-xs font-bold text-white shadow-lg transition-colors hover:bg-violet-400"
@@ -4931,6 +5130,23 @@ ${compact}`;
         errors={batchErrors}
         onStart={handleStartBatchEdit}
         onStop={handleStopBatchEdit}
+      />
+      <TranslationWorkflowDialog
+        open={showTranslationWorkflow}
+        onOpenChange={setShowTranslationWorkflow}
+        totalChapters={chapterList.length}
+        analysisRunning={translationBootstrapRunning}
+        analysisResult={translationBootstrapResult}
+        onAnalyze={handleAnalyzeTranslationWorkflow}
+        savingRules={translationBootstrapSaving}
+        onSaveRules={handleSaveTranslationBootstrap}
+        qtRunning={batchQtRunning}
+        qtFinished={batchQtFinished}
+        qtProgress={batchQtProgress}
+        qtErrors={batchQtErrors}
+        onStartQt={handleStartBatchQt}
+        onStopQt={handleStopBatchQt}
+        onOpenBatchEdit={() => { setShowTranslationWorkflow(false); setShowBatchEdit(true); }}
       />
       <BatchBetaAiDialog
         open={showBatchBetaAi}
