@@ -2924,13 +2924,15 @@ Trả về ĐÚNG định dạng sau, không thêm giải thích nào khác:
       .map((it) => ({
         source_term: (it.source_term || "").toString().trim(),
         translation: (it.translation || "").toString().trim(),
-        category: CATEGORIES.includes(it.category) ? it.category : "Khác",
+        category: ["Danh xưng", "Nhân xưng", "Đại từ", "Cách gọi"].includes(it.category)
+          ? "Xưng hô"
+          : CATEGORIES.includes(it.category) ? it.category : "Khác",
       }))
       .filter((it) => it.source_term && it.translation);
   };
 
-  // Detect proper names (people/places/...) via AI so a translator who
-  // doesn't read Chinese can still build a correctly-capitalized Glossary.
+  // Detect missing names AND address/pronoun vocabulary chapter by chapter.
+  // The full chapter is chunked so terms near the end are not silently missed.
   const handleDetectNames = async () => {
     if (!currentChapter) {
       toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
@@ -2949,25 +2951,39 @@ Trả về ĐÚNG định dạng sau, không thêm giải thích nào khác:
     setDetectingNames(true);
     setNameCandidates(null);
     try {
-      // First ~6000 chars is plenty to catch recurring names without an
-      // extra round of chunking just for this lookup.
-      const textForDetection = sourceText.slice(0, 6000);
-      const prompt = `Bạn là trợ lý phân tích văn bản truyện dịch tiếng Trung. Đọc đoạn văn tiếng Trung dưới đây và liệt kê TẤT CẢ tên riêng xuất hiện (tên nhân vật, địa danh, tông môn/môn phái, chức vị đặc biệt, chiêu thức/công pháp có tên riêng...).
+      const knownSources = new Set(glossaryTerms.map((term) => String(term.source_term || "").trim()).filter(Boolean));
+      const knownLower = new Set([...knownSources].map((source) => source.toLocaleLowerCase("vi")));
+      const found = new Map();
+      const chunks = chunkText(sourceText, 6000);
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
+        const knownText = [...knownSources, ...[...found.values()].map((item) => item.source_term)].join(", ");
+        const prompt = `Bạn là trợ lý phân tích văn bản truyện dịch tiếng Trung. Đọc đoạn văn dưới đây và phát hiện TẤT CẢ mục đáng đưa vào Glossary nhưng CHƯA CÓ trong danh sách đã biết.
 
-Trả về DUY NHẤT một mảng JSON hợp lệ (không markdown, không giải thích thêm), mỗi phần tử có dạng:
-{"source_term": "<chữ Hán gốc, giữ nguyên như trong văn bản>", "translation": "<phiên âm Hán Việt, viết hoa chữ cái đầu mỗi âm tiết đúng chuẩn tên riêng tiếng Việt>", "category": "<một trong: Tên người, Địa danh, Chiêu thức, Vật phẩm, Cấp bậc, Khác>"}
+CẦN TÌM:
+1. Tên riêng: nhân vật, địa danh, quốc gia, tông môn/tổ chức, chức vị đặc biệt, chiêu thức, công pháp, vật phẩm.
+2. Từ xưng hô và nhân xưng: 我/你/他/她/您..., cách tự xưng, cách gọi đối phương, chức vị dùng để gọi, quan hệ gia đình, huynh/tỷ/đệ/muội, sư phụ/sư đồ, quân thần, chủ tớ và các biến thể số nhiều.
+3. Giữ từng chữ Hán khác nhau thành mục riêng, đặc biệt phải phân biệt 他 (hắn) và 她 (nàng). Dựa thể loại/bối cảnh của đoạn để đề xuất bản Việt nhất quán; người dùng sẽ duyệt và sửa trước khi lưu.
 
-Nếu không tìm thấy tên riêng nào, trả về mảng rỗng [].
+Trả về DUY NHẤT một mảng JSON hợp lệ, không markdown và không giải thích:
+[{"source_term":"<chữ Hán gốc>","translation":"<bản Việt đề xuất>","category":"<một trong: Tên người, Địa danh, Chiêu thức, Vật phẩm, Xưng hô, Cấp bậc, Khác>"}]
 
-ĐOẠN VĂN:
-${textForDetection}`;
+Tên riêng phải viết hoa đúng âm Hán Việt; từ xưng hô viết thường. Không trả lại mục đã có. Nếu không có mục mới, trả về [].
 
-      const raw = await callLLM(prompt);
-      const parsed = parseNameCandidates(raw);
-      const existing = new Set(glossaryTerms.map((t) => t.source_term));
-      setNameCandidates(parsed.filter((c) => !existing.has(c.source_term)));
+DANH SÁCH ĐÃ CÓ:
+${knownText || "(trống)"}
+
+ĐOẠN ${chunkIndex + 1}/${chunks.length}:
+${chunks[chunkIndex]}`;
+        // eslint-disable-next-line no-await-in-loop
+        const raw = await callLLM(prompt);
+        parseNameCandidates(raw).forEach((candidate) => {
+          const key = candidate.source_term.toLocaleLowerCase("vi");
+          if (!knownLower.has(key) && !found.has(key)) found.set(key, candidate);
+        });
+      }
+      setNameCandidates([...found.values()]);
     } catch (e) {
-      toast({ title: "Lỗi phát hiện tên riêng", description: e.message, variant: "destructive" });
+      toast({ title: "Lỗi phát hiện Glossary", description: e.message, variant: "destructive" });
       setShowDetectNames(false);
     }
     setDetectingNames(false);
@@ -2987,7 +3003,7 @@ ${textForDetection}`;
       const created = await GlossaryTerm.bulkCreate(withProjectId);
       setGlossaryTerms((prev) => [...created, ...prev]);
       setShowDetectNames(false);
-      toast({ title: `Đã thêm ${created.length} tên vào Glossary! 🌸` });
+      toast({ title: `Đã thêm ${created.length} mục vào Glossary! 🌸` });
     } catch (e) {
       toast({ title: "Lỗi thêm Glossary", description: e.message, variant: "destructive" });
     }

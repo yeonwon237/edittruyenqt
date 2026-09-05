@@ -186,9 +186,9 @@ export default function GlossarySidebar({
         <button
           onClick={onDetectNames}
           className="mt-1.5 w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 transition-colors"
-          title="Dùng AI tìm tên riêng trong chương hiện tại, không cần biết tiếng Trung"
+          title="Dùng AI tìm tên riêng, đại từ và danh xưng chưa có trong toàn bộ chương hiện tại"
         >
-          <Sparkles className="w-3.5 h-3.5" /> Phát hiện tên riêng (AI)
+          <Sparkles className="w-3.5 h-3.5" /> Phát hiện Glossary (AI)
         </button>
       </div>
 

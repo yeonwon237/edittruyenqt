@@ -11,10 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Sparkles } from "lucide-react";
 import { CATEGORY_EMOJI } from "@/lib/highlight";
 
-// Lets a translator who doesn't read Chinese still populate the Glossary
-// with correctly-capitalized character/place names: AI (which does read
-// Chinese) proposes {source_term, translation, category} pairs, the human
-// only has to review capitalization/spelling before adding.
+// AI proposes missing proper names plus address/pronoun vocabulary from the
+// current chapter. Nothing is saved until the translator reviews the rows.
 export default function DetectNamesDialog({ open, onOpenChange, detecting, candidates, onConfirm }) {
   const [selected, setSelected] = useState({});
   const [edited, setEdited] = useState({});
@@ -50,11 +48,11 @@ export default function DetectNamesDialog({ open, onOpenChange, detecting, candi
       <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl">
         <DialogHeader>
           <DialogTitle className="text-violet-700 flex items-center gap-2">
-            <Sparkles className="w-4 h-4" /> Phát hiện tên riêng bằng AI
+            <Sparkles className="w-4 h-4" /> Phát hiện Glossary bằng AI
           </DialogTitle>
           <DialogDescription>
-            AI đọc chương hiện tại và đề xuất tên riêng kèm phiên âm Hán-Việt viết hoa chuẩn.
-            Bạn không cần biết tiếng Trung — chỉ cần kiểm tra lại cách viết/viết hoa rồi thêm vào Glossary.
+            AI đọc toàn bộ chương và tìm cả tên riêng lẫn đại từ, danh xưng, cách tự xưng và
+            cách gọi chưa có. Hãy sửa bản Việt nếu cần rồi chọn mục muốn thêm vào Glossary.
           </DialogDescription>
         </DialogHeader>
 
@@ -65,7 +63,7 @@ export default function DetectNamesDialog({ open, onOpenChange, detecting, candi
             </div>
           ) : !candidates || candidates.length === 0 ? (
             <p className="text-center text-sm text-slate-400 py-8">
-              Không tìm thấy tên riêng mới nào (hoặc tất cả đã có sẵn trong Glossary).
+              Không tìm thấy mục mới nào, hoặc tất cả đã có trong Glossary.
             </p>
           ) : (
             candidates.map((c, i) => (
@@ -109,7 +107,7 @@ export default function DetectNamesDialog({ open, onOpenChange, detecting, candi
             disabled={detecting || !candidates || selectedCount === 0}
             className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
           >
-            Thêm {selectedCount} tên vào Glossary
+            Thêm {selectedCount} mục vào Glossary
           </Button>
         </DialogFooter>
       </DialogContent>
