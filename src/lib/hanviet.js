@@ -62,6 +62,7 @@
 // every surname/character that differs between the two scripts (张/張,
 // 陆/陸, 谢/謝, 苏/蘇...) will silently fail to match.
 import { HANVIET_CHARS, HANVIET_WORDS, PUNCT_MAP } from "./hanvietData";
+import { glossarySpans } from "./qtGlossary.js";
 
 function isCjk(ch) {
   const code = ch.codePointAt(0);
@@ -299,12 +300,24 @@ function tryReadNameSpan(sourceText, pos, CHARS, FORMAL_CHARS, glossaryMap, WORD
  * Translate Chinese source text into a rough Vietnamese draft.
  * @param {string} sourceText
  * @param {Array<{source_term:string, translation:string}>} glossaryTerms - project glossary, highest priority
- * @returns {Promise<{ text: string, coverage: number, unknownChars: Array<{ch:string,count:number}> }>}
+ * @returns {Promise<{ text: string, coverage: number, unknownChars: Array<{ch:string,count:number}>, diagnostics: {glossaryChars:number,phraseChars:number,fallbackChars:number,guessedNameChars:number,fallbackSpans:Array<{source:string,start:number,end:number,kind:string}>} }>}
  */
 export async function translateHanViet(sourceText, glossaryTerms = []) {
   if (!sourceText) return { text: "", coverage: 1, unknownChars: [] };
 
-  sourceText = reorderModifierClauses(sourceText);
+  // Never reorder characters inside approved names/phrases. Reorder only the
+  // gaps between them, so grammar heuristics cannot destroy glossary matches.
+  // Single-character address defaults must not split plural words (我/我们)
+  // or compounds. They still override equal dictionary keys in glossaryMap.
+  const strictTerms = glossaryTerms.filter(t => !(t.category === "Xưng hô" && t.source_term?.trim().length === 1));
+  const originalLocks = glossarySpans(sourceText, strictTerms);
+  let reordered = "";
+  let cursor = 0;
+  for (const [at, term] of originalLocks) {
+    reordered += reorderModifierClauses(sourceText.slice(cursor, at)) + term.source;
+    cursor = at + term.source.length;
+  }
+  sourceText = reordered + reorderModifierClauses(sourceText.slice(cursor));
 
   const { chars: CHARS, words: WORDS, maxWordLen: builtinMaxLen, formalChars: FORMAL_CHARS } = await loadDictionary();
 
@@ -320,6 +333,17 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
   let cjkTotal = 0;
   let cjkMatched = 0;
   const unknown = new Map();
+  const locks = glossarySpans(sourceText, strictTerms);
+  const lockStarts = [...locks.keys()];
+  let lockIndex = 0;
+  const diagnostics = { glossaryChars: 0, phraseChars: 0, fallbackChars: 0, guessedNameChars: 0, fallbackSpans: [] };
+  const recordFallback = (start, length, kind = "fallback") => {
+    const previous = diagnostics.fallbackSpans.at(-1);
+    if (previous && previous.kind === kind && previous.end === start && previous.source.length + length <= 8) {
+      previous.source += sourceText.slice(start, start + length);
+      previous.end += length;
+    } else diagnostics.fallbackSpans.push({ source: sourceText.slice(start, start + length), start, end: start + length, kind });
+  };
 
   const pushWord = (w) => {
     if (!w) return;
@@ -335,6 +359,18 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
   let i = 0;
   while (i < n) {
     const ch = sourceText[i];
+    while (lockIndex < lockStarts.length && lockStarts[lockIndex] < i) lockIndex += 1;
+    const locked = locks.get(i);
+    if (locked) {
+      pushWord(locked.translation);
+      const hanCount = [...locked.source].filter(isCjk).length;
+      cjkTotal += hanCount;
+      cjkMatched += hanCount;
+      diagnostics.glossaryChars += hanCount;
+      i += locked.source.length;
+      continue;
+    }
+    const nextLock = lockStarts[lockIndex] ?? n;
 
     if (ch === "\n") {
       out.push("\n");
@@ -356,6 +392,7 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
       let j = i;
       while (
         j < n &&
+        j < nextLock &&
         !isCjk(sourceText[j]) &&
         !isSpace(sourceText[j]) &&
         sourceText[j] !== "\n" &&
@@ -373,10 +410,12 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
     // needs to claim multiple characters as one atomic unit, which the
     // greedy loop's per-position matching can't express.
     const nameSpan = tryReadNameSpan(sourceText, i, CHARS, FORMAL_CHARS, glossaryMap, WORDS, maxWordLen);
-    if (nameSpan) {
+    if (nameSpan && i + nameSpan.consumed <= nextLock) {
       pushWord(nameSpan.text);
       cjkTotal += nameSpan.consumed;
       cjkMatched += nameSpan.consumed;
+      diagnostics.guessedNameChars += nameSpan.consumed;
+      recordFallback(i, nameSpan.consumed, "guessed-name");
       i += nameSpan.consumed;
       continue;
     }
@@ -385,7 +424,7 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
     // cjkTotal/cjkMatched are incremented by the same amount at every exit
     // point (`len` characters for a phrase match, 1 for a single char) so
     // `coverage` always stays within [0, 1] regardless of match length.
-    const maxLen = Math.min(maxWordLen, n - i);
+    const maxLen = Math.min(maxWordLen, n - i, nextLock - i);
     let matched = false;
     for (let len = maxLen; len >= 1; len -= 1) {
       const candidate = sourceText.slice(i, i + len);
@@ -393,6 +432,7 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
         pushWord(glossaryMap.get(candidate));
         cjkTotal += len;
         cjkMatched += len;
+        diagnostics.glossaryChars += len;
         i += len;
         matched = true;
         break;
@@ -401,6 +441,7 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
         pushWord(WORDS[candidate]);
         cjkTotal += len;
         cjkMatched += len;
+        diagnostics.phraseChars += len;
         i += len;
         matched = true;
         break;
@@ -408,10 +449,12 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
     }
     if (!matched) {
       cjkTotal += 1;
+      recordFallback(i, 1);
       const reading = CHARS[ch];
       if (reading) {
         pushWord(reading);
         cjkMatched += 1;
+        diagnostics.fallbackChars += 1;
       } else {
         // Unknown character: keep the original so it's easy to spot & fix by hand or AI.
         pushWord(ch);
@@ -426,7 +469,7 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
     .sort((a, b) => b[1] - a[1])
     .map(([ch, count]) => ({ ch, count }));
 
-  return { text: capitalizeSentences(out.join("")), coverage, unknownChars };
+  return { text: capitalizeSentences(out.join("")), coverage, unknownChars, diagnostics };
 }
 
 // Only Chinese source is well suited to dictionary-based draft translation —

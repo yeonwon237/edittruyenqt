@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mergeStoryLearning, parseStoryLearningResult } from "../src/lib/storyLearning.js";
+import { isChapterLearningEnabled, mergeStoryLearning, parseStoryLearningResult } from "../src/lib/storyLearning.js";
+
+test("chapter learning stays on by default and can be explicitly disabled", () => {
+  assert.equal(isChapterLearningEnabled(undefined), true);
+  assert.equal(isChapterLearningEnabled({}), true);
+  assert.equal(isChapterLearningEnabled({ ai_chapter_learning_enabled: true }), true);
+  assert.equal(isChapterLearningEnabled({ ai_chapter_learning_enabled: false }), false);
+});
 
 test("parses fenced JSON responses", () => {
   const parsed = parseStoryLearningResult(`\`\`\`json

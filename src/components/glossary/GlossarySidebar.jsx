@@ -1,10 +1,11 @@
 import { useState, useRef } from "react";
-import { Search, Plus, Pencil, Trash2, Upload, Download, Sparkles, ListChecks, X, BookOpenText, MessagesSquare } from "lucide-react";
+import { Search, Plus, Pencil, Trash2, Upload, Download, Sparkles, ListChecks, X, BookOpenText, MessagesSquare, BookMarked } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { CATEGORY_STYLES, CATEGORY_EMOJI, CATEGORIES } from "@/lib/highlight";
 import { parseGlossaryFile } from "@/lib/importGlossary";
 import { exportGlossaryJson } from "@/lib/exportUtils";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
+import { isInHanVietVocabulary } from "@/lib/hanvietVocabulary";
 
 export default function GlossarySidebar({
   terms,
@@ -16,6 +17,9 @@ export default function GlossarySidebar({
   onImportTerms,
   onOpenContextualPronoun,
   onDetectNames,
+  hanVietVocabulary = [],
+  onAddToHanVietVocabulary,
+  onRemoveFromHanVietVocabulary,
 }) {
   const { toast } = useToast();
   const [search, setSearch] = useState("");
@@ -39,6 +43,11 @@ export default function GlossarySidebar({
       return next;
     });
   };
+
+  const selectedTerms = terms.filter((term) => selectedIds.has(term.id));
+  const selectedVocabularyCount = selectedTerms.filter((term) =>
+    isInHanVietVocabulary(term, hanVietVocabulary)
+  ).length;
 
   const filtered = terms.filter((t) => {
     const matchSearch =
@@ -106,7 +115,7 @@ export default function GlossarySidebar({
                   ? "bg-violet-600 text-white hover:bg-violet-700"
                   : "bg-violet-50 hover:bg-violet-100 text-violet-600"
               }`}
-              title="Chọn nhiều để xóa hàng loạt"
+              title="Chọn nhiều thuật ngữ để đưa vào Tự dịch, gỡ hoặc xóa"
             >
               <ListChecks className="w-3.5 h-3.5" />
             </button>
@@ -134,10 +143,27 @@ export default function GlossarySidebar({
           </div>
         </div>
         {selectMode && (
-          <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-xl bg-violet-50 border border-violet-100">
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-violet-50 border border-violet-100">
             <span className="text-xs text-violet-700 font-medium flex-1">
               Đã chọn {selectedIds.size}
             </span>
+            <button
+              onClick={() => onAddToHanVietVocabulary?.(selectedTerms)}
+              disabled={selectedIds.size === 0}
+              className="text-xs px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              title="Lưu các cách dịch này vào từ vựng dùng chung của chức năng Tự dịch"
+            >
+              Đưa vào Tự dịch
+            </button>
+            {selectedVocabularyCount > 0 && (
+              <button
+                onClick={() => onRemoveFromHanVietVocabulary?.(selectedTerms)}
+                className="text-xs px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 font-medium transition-colors"
+                title="Gỡ các từ đã chọn khỏi từ vựng dùng chung"
+              >
+                Gỡ khỏi Tự dịch
+              </button>
+            )}
             <button
               onClick={() => setConfirmBulkDelete(true)}
               disabled={selectedIds.size === 0}
@@ -186,9 +212,9 @@ export default function GlossarySidebar({
         <button
           onClick={onDetectNames}
           className="mt-1.5 w-full flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 transition-colors"
-          title="Dùng AI tìm tên riêng, đại từ và danh xưng chưa có trong toàn bộ chương hiện tại"
+          title="Máy quét ứng viên và điểm yếu QT; AI kiểm tra rồi tìm thêm. Khoảng 6.000 chữ gọi AI một lần."
         >
-          <Sparkles className="w-3.5 h-3.5" /> Phát hiện Glossary (AI)
+          <Sparkles className="w-3.5 h-3.5" /> Phát hiện Glossary (Máy + AI)
         </button>
       </div>
 
@@ -272,6 +298,11 @@ export default function GlossarySidebar({
                   className={`inline-block text-xs px-2 py-0.5 rounded-full border ${CATEGORY_STYLES[term.category]}`}
                 >
                   {CATEGORY_EMOJI[term.category]} {term.category}
+                </span>
+              )}
+              {isInHanVietVocabulary(term, hanVietVocabulary) && (
+                <span className="ml-1 inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                  <BookMarked className="h-3 w-3" /> Đã thêm vào Tự dịch
                 </span>
               )}
               {term.notes && (

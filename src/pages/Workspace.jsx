@@ -10,7 +10,7 @@ import GlossarySidebar from "@/components/glossary/GlossarySidebar";
 import GlossaryTermForm from "@/components/glossary/GlossaryTermForm";
 import DetectNamesDialog from "@/components/glossary/DetectNamesDialog";
 import TranslationSettingsDialog, { GENRE_OPTIONS } from "@/components/workspace/TranslationSettingsDialog";
-import { CATEGORIES } from "@/lib/highlight";
+import { discoverGlossary } from "@/lib/glossaryDiscovery.js";
 import BatchReplaceDialog from "@/components/workspace/BatchReplaceDialog";
 import PronounSwitcherDialog from "@/components/workspace/PronounSwitcherDialog";
 import ChapterManagerDialog from "@/components/workspace/ChapterManagerDialog";
@@ -50,6 +50,7 @@ import { countForeignChars } from "@/lib/highlight";
 import { applyQualitySuggestion, runQualityCheck } from "@/lib/qualityCheck";
 import { applyBetaSuggestion, betaCandidatePayload, runBetaCheck } from "@/lib/betaCheck";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
+import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
 import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
@@ -59,7 +60,7 @@ import { isDraftMode } from "@/lib/draftMode";
 import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterEditStats";
 import { scanPronounInventory } from "@/lib/pronounInventory";
 import { discoverPronounRules } from "@/lib/pronounDiscovery";
-import { buildStoryLearningPrompt, mergeStoryLearning, parseStoryLearningResult } from "@/lib/storyLearning";
+import { buildStoryLearningPrompt, isChapterLearningEnabled, mergeStoryLearning, parseStoryLearningResult } from "@/lib/storyLearning";
 import { buildTranslationBootstrapPrompt, dedupeTranslationBootstrap, parseTranslationBootstrapResult } from "@/lib/translationBootstrap";
 import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send, MessageSquareText, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -140,6 +141,7 @@ export default function Workspace() {
   const { toast } = useToast();
 
   const [project, setProject] = useState(null);
+  const aiChapterLearningEnabled = isChapterLearningEnabled(project?.style_toggles);
   // Lightweight chapter list: {id, title, chapter_order} only — full chapter
   // content (raw_original/qt_raw/edited) is fetched on demand per chapter.
   const [chapterList, setChapterList] = useState([]);
@@ -149,6 +151,7 @@ export default function Workspace() {
   const [refreshingProgress, setRefreshingProgress] = useState(false);
   const [markingQa, setMarkingQa] = useState(false);
   const [glossaryTerms, setGlossaryTerms] = useState([]);
+  const [hanVietVocabulary, setHanVietVocabulary] = useState(() => loadHanVietVocabulary());
   const [loading, setLoading] = useState(true);
   const [visibleColumns, setVisibleColumns] = useState(["raw", "qt", "edited"]);
   const [mobileActiveCol, setMobileActiveCol] = useState("edited");
@@ -305,6 +308,12 @@ export default function Workspace() {
   const batchTitleStopRef = useRef(false);
   const [showDetectNames, setShowDetectNames] = useState(false);
   const [detectingNames, setDetectingNames] = useState(false);
+  const [discoveryProgress, setDiscoveryProgress] = useState(null);
+  const [discoveryWarnings, setDiscoveryWarnings] = useState([]);
+  const [savingDiscoveredTerms, setSavingDiscoveredTerms] = useState(false);
+  const discoveryStopRef = useRef(false);
+  const discoveryContextRef = useRef(null);
+  useEffect(() => () => { discoveryStopRef.current = true; }, [projectId]);
   const [nameCandidates, setNameCandidates] = useState(null);
   const [showTranslationSettings, setShowTranslationSettings] = useState(false);
   const [presets, setPresets] = useState([]);
@@ -1839,7 +1848,7 @@ export default function Workspace() {
       project?.style_toggles?.story_memory?.narrativeRules || [];
     const characterProfiles = project?.style_toggles?.story_memory?.characterProfiles || [];
     const glossaryText = activeGlossaryTerms
-      .map((t) => `- "${t.source_term}" → "${t.translation}"`)
+      .map((t) => `- "${t.source_term}" → "${t.translation}"${t.category === "Xưng hô" ? " (mặc định QT; điều chỉnh theo ma trận xưng hô và người nói/người nghe)" : " (giữ đúng bản Việt này kể cả khi đầu vào đã là QT)"}`)
       .join("\n");
     const batchRulesText = (project?.batch_rules || [])
       .filter((r) => r.find)
@@ -1894,7 +1903,7 @@ ${
     return `Bạn là trợ lý biên tập truyện dịch chuyên nghiệp, chuyên edit truyện Convert/QT. Hãy biên tập văn bản QT thô sau đây thành văn phong tiếng Việt mượt mà, tự nhiên, thoát ý, giữ đúng cảm xúc và ý nghĩa gốc.
 
 QUY TẮC BẮT BUỘC:
-1. PHẢI tuân thủ 100% các thuật ngữ trong Glossary. Nếu gặp từ gốc trong glossary, bắt buộc dùng bản dịch tương ứng.
+1. Giữ đúng tên riêng và thuật ngữ đã duyệt trong Glossary, kể cả khi QT đã chuyển sang bản Việt. Riêng mục Xưng hô là mặc định QT: ưu tiên ma trận người nói/người nghe và quy tắc lời dẫn, không ép một đại từ cho mọi nhân vật. QT có thể đọc sai hoặc tách tên; không tự bịa thêm ý để làm câu có vẻ hợp lý.
 2. Áp dụng các quy tắc thay thế nếu có.
 3. Sửa câu cưỡng ép, ngữ pháp lủng củng, lặp từ. Diễn đạt lại cho mượt mà nhưng giữ nguyên ý.
 4. Giữ nguyên các đoạn hội thoại trong ngoặc kép.
@@ -1904,7 +1913,7 @@ QUY TẮC BẮT BUỘC:
 8. BẮT BUỘC: Giữ nguyên chính xác số lần xuống dòng / số đoạn văn như văn bản đầu vào — mỗi dòng gốc tương ứng với đúng một dòng trong bản dịch, không gộp nhiều dòng thành một, không tách một dòng thành nhiều dòng. Nếu văn bản gốc có DÒNG TRỐNG (dòng rỗng) để ngăn cách giữa các đoạn, PHẢI giữ nguyên dòng trống đó ở đúng vị trí tương ứng trong bản dịch — không được xóa/gộp dòng trống lại, kể cả khi nó không chứa nội dung để dịch.
 ${extraRules.join("\n")}
 ${presetBlock}
-GLOSSARY (TUÂN THỦ 100%):
+GLOSSARY (KHÓA TÊN / THUẬT NGỮ; XƯNG HÔ THEO NGỮ CẢNH):
 ${glossaryText || "(trống)"}
 
 QUY TẮC THAY THẾ:
@@ -2092,22 +2101,24 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
       );
       setAiUndo({ chapterId, previous: prevEdited });
       checkLineAlignment(sourceText, finalText);
-      try {
-        const learned = await learnSingleChapter(currentChapter, finalText);
-        toast({
-          title: learned.ruleCount + learned.termCount
-            ? `AI đã học thêm ${learned.ruleCount + learned.termCount} quy tắc/thuật ngữ 🧠`
-            : "AI đã cập nhật bộ nhớ chương 🧠",
-          description: learned.candidateCount
-            ? `${learned.candidateCount} dữ kiện chưa đủ chắc chắn được giữ lại để đối chiếu.`
-            : "Kiến thức sẽ được dùng cho các chương dịch tiếp theo.",
-        });
-      } catch (learningError) {
-        toast({
-          title: "Bản Edit đã tạo, nhưng bước tự học gặp lỗi",
-          description: learningError.message,
-          variant: "destructive",
-        });
+      if (aiChapterLearningEnabled) {
+        try {
+          const learned = await learnSingleChapter(currentChapter, finalText);
+          toast({
+            title: learned.ruleCount + learned.termCount
+              ? `AI đã học thêm ${learned.ruleCount + learned.termCount} quy tắc/thuật ngữ 🧠`
+              : "AI đã cập nhật bộ nhớ chương 🧠",
+            description: learned.candidateCount
+              ? `${learned.candidateCount} dữ kiện chưa đủ chắc chắn được giữ lại để đối chiếu.`
+              : "Kiến thức sẽ được dùng cho các chương dịch tiếp theo.",
+          });
+        } catch (learningError) {
+          toast({
+            title: "Bản Edit đã tạo, nhưng bước tự học gặp lỗi",
+            description: learningError.message,
+            variant: "destructive",
+          });
+        }
       }
       const providerLabel =
         ({ gemini: "Gemini", openai: "GPT", claude: "Claude", stali:"STALI" }[provider] || "AI");
@@ -2804,7 +2815,7 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
       return;
     }
     const sourceText = currentChapter.raw_original || "";
-    if (!sourceText.trim()) {
+    if (!sourceText.trim() || !/[\p{Script=Han}]/u.test(sourceText)) {
       toast({ title: "Chưa có Văn bản gốc để dịch!", variant: "destructive" });
       return;
     }
@@ -2819,16 +2830,15 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
     const chapterId = currentChapter.id;
     setSelfTranslating(true);
     try {
-      const { text, coverage, unknownChars } = await translateHanViet(sourceText, glossaryTerms);
+      const translationTerms = mergeHanVietVocabulary(glossaryTerms, hanVietVocabulary);
+      const { text, coverage, unknownChars, diagnostics } = await translateHanViet(sourceText, translationTerms);
       setCurrentChapter((prev) =>
         prev && prev.id === chapterId ? { ...prev, qt_raw: text } : prev
       );
       const pct = Math.round(coverage * 100);
       toast({
-        title: `📖 Đã tự dịch! Độ phủ từ điển: ${pct}%`,
-        description: unknownChars.length
-          ? `${unknownChars.length} ký tự chưa có trong từ điển, giữ nguyên gốc để bạn/AI xử lý tiếp.`
-          : "Toàn bộ ký tự đã được dịch.",
+        title: `📖 Đã tạo QT — ${pct}% ký tự có cách đọc`,
+        description: `${diagnostics?.fallbackChars || 0} chữ đọc rời; ${diagnostics?.guessedNameChars || 0} chữ thuộc tên máy đoán; ${unknownChars.length} chữ chưa biết. Đây không phải tỷ lệ dịch đúng.`,
       });
     } catch (e) {
       toast({ title: "Lỗi tự dịch", description: e.message, variant: "destructive" });
@@ -2915,22 +2925,6 @@ Trả về ĐÚNG định dạng sau, không thêm giải thích nào khác:
     toast({ title: "Đã áp dụng kết quả dịch ảnh vào chương! 🖼️" });
   };
 
-  const parseNameCandidates = (raw) => {
-    let text = (raw || "").trim();
-    text = text.replace(/^```(json)?/i, "").replace(/```$/, "").trim();
-    const arr = JSON.parse(text);
-    if (!Array.isArray(arr)) throw new Error("AI không trả về danh sách hợp lệ");
-    return arr
-      .map((it) => ({
-        source_term: (it.source_term || "").toString().trim(),
-        translation: (it.translation || "").toString().trim(),
-        category: ["Danh xưng", "Nhân xưng", "Đại từ", "Cách gọi"].includes(it.category)
-          ? "Xưng hô"
-          : CATEGORIES.includes(it.category) ? it.category : "Khác",
-      }))
-      .filter((it) => it.source_term && it.translation);
-  };
-
   // Detect missing names AND address/pronoun vocabulary chapter by chapter.
   // The full chapter is chunked so terms near the end are not silently missed.
   const handleDetectNames = async () => {
@@ -2938,9 +2932,10 @@ Trả về ĐÚNG định dạng sau, không thêm giải thích nào khác:
       toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
       return;
     }
-    const sourceText = currentChapter.raw_original || currentChapter.qt_raw || "";
-    if (!sourceText.trim()) {
-      toast({ title: "Chương chưa có văn bản để phân tích!", variant: "destructive" });
+    if (detectingNames || savingDiscoveredTerms) { setShowDetectNames(true); return; }
+    const sourceText = currentChapter.raw_original || "";
+    if (!sourceText.trim() || !/[\p{Script=Han}]/u.test(sourceText)) {
+      toast({ title: "Cần văn bản gốc tiếng Trung để tìm đúng chữ Hán cho Glossary.", variant: "destructive" });
       return;
     }
     if (!hasCustomAI()) {
@@ -2950,38 +2945,20 @@ Trả về ĐÚNG định dạng sau, không thêm giải thích nào khác:
     setShowDetectNames(true);
     setDetectingNames(true);
     setNameCandidates(null);
+    setDiscoveryWarnings([]);
+    setDiscoveryProgress({ done: 0, total: 0, label: "Máy quét ứng viên trong chương" });
+    discoveryStopRef.current = false;
+    discoveryContextRef.current = { projectId, chapterId: currentChapter.id, title: currentChapter.title };
     try {
-      const knownSources = new Set(glossaryTerms.map((term) => String(term.source_term || "").trim()).filter(Boolean));
-      const knownLower = new Set([...knownSources].map((source) => source.toLocaleLowerCase("vi")));
-      const found = new Map();
-      const chunks = chunkText(sourceText, 6000);
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex += 1) {
-        const knownText = [...knownSources, ...[...found.values()].map((item) => item.source_term)].join(", ");
-        const prompt = `Bạn là trợ lý phân tích văn bản truyện dịch tiếng Trung. Đọc đoạn văn dưới đây và phát hiện TẤT CẢ mục đáng đưa vào Glossary nhưng CHƯA CÓ trong danh sách đã biết.
-
-CẦN TÌM:
-1. Tên riêng: nhân vật, địa danh, quốc gia, tông môn/tổ chức, chức vị đặc biệt, chiêu thức, công pháp, vật phẩm.
-2. Từ xưng hô và nhân xưng: 我/你/他/她/您..., cách tự xưng, cách gọi đối phương, chức vị dùng để gọi, quan hệ gia đình, huynh/tỷ/đệ/muội, sư phụ/sư đồ, quân thần, chủ tớ và các biến thể số nhiều.
-3. Giữ từng chữ Hán khác nhau thành mục riêng, đặc biệt phải phân biệt 他 (hắn) và 她 (nàng). Dựa thể loại/bối cảnh của đoạn để đề xuất bản Việt nhất quán; người dùng sẽ duyệt và sửa trước khi lưu.
-
-Trả về DUY NHẤT một mảng JSON hợp lệ, không markdown và không giải thích:
-[{"source_term":"<chữ Hán gốc>","translation":"<bản Việt đề xuất>","category":"<một trong: Tên người, Địa danh, Chiêu thức, Vật phẩm, Xưng hô, Cấp bậc, Khác>"}]
-
-Tên riêng phải viết hoa đúng âm Hán Việt; từ xưng hô viết thường. Không trả lại mục đã có. Nếu không có mục mới, trả về [].
-
-DANH SÁCH ĐÃ CÓ:
-${knownText || "(trống)"}
-
-ĐOẠN ${chunkIndex + 1}/${chunks.length}:
-${chunks[chunkIndex]}`;
-        // eslint-disable-next-line no-await-in-loop
-        const raw = await callLLM(prompt);
-        parseNameCandidates(raw).forEach((candidate) => {
-          const key = candidate.source_term.toLocaleLowerCase("vi");
-          if (!knownLower.has(key) && !found.has(key)) found.set(key, candidate);
-        });
-      }
-      setNameCandidates([...found.values()]);
+      const preview = await translateHanViet(sourceText, glossaryTerms);
+      const result = await discoverGlossary({ text: sourceText, knownTerms: glossaryTerms,
+        fallbackSpans: preview.diagnostics?.fallbackSpans || [], callAI: callLLM,
+        onProgress: setDiscoveryProgress, shouldStop: () => discoveryStopRef.current });
+      setNameCandidates(result.candidates);
+      setDiscoveryWarnings([...result.warnings,
+        ...(result.stopped ? ["Đã dừng. Kết quả dưới đây mới được kiểm tra một phần."] : []),
+        ...(result.unreviewed ? [`${result.unreviewed} gợi ý mạnh của máy chưa được AI xác nhận; nằm trong mục Cần xem lại.`] : []),
+      ]);
     } catch (e) {
       toast({ title: "Lỗi phát hiện Glossary", description: e.message, variant: "destructive" });
       setShowDetectNames(false);
@@ -2990,22 +2967,37 @@ ${chunks[chunkIndex]}`;
   };
 
   const handleAddDetectedNames = async (selected) => {
-    if (!selected.length) return;
+    if (!selected.length || savingDiscoveredTerms) return;
+    const scanContext = discoveryContextRef.current;
+    if (!scanContext || scanContext.projectId !== projectId) {
+      toast({ title: "Dự án đã thay đổi. Hãy quét lại Glossary.", variant: "destructive" });
+      return;
+    }
+    setSavingDiscoveredTerms(true);
     try {
-      const withProjectId = selected.map((t) => ({
+      const existing = new Set(glossaryTerms.map(t => t.source_term.trim()));
+      const withProjectId = selected.filter(t => {
+        if (!t.source_term.trim() || !t.translation.trim() || existing.has(t.source_term.trim())) return false;
+        existing.add(t.source_term.trim());
+        return true;
+      }).map((t) => ({
         source_term: t.source_term,
         translation: t.translation,
         category: t.category,
         notes: "",
-        custom_fields: {},
+        custom_fields: { source: "hybrid_glossary_discovery", approved: true, chapter_id: scanContext.chapterId,
+          confidence: t.confidence, evidence: t.evidence, contexts: t.contexts, occurrences: t.count,
+          discovery_origin: t.origin, ...(t.category === "Xưng hô" ? { __qa_mode: "contextual" } : {}) },
         project_id: projectId,
       }));
-      const created = await GlossaryTerm.bulkCreate(withProjectId);
+      const created = withProjectId.length ? await GlossaryTerm.bulkCreate(withProjectId) : [];
       setGlossaryTerms((prev) => [...created, ...prev]);
       setShowDetectNames(false);
-      toast({ title: `Đã thêm ${created.length} mục vào Glossary! 🌸` });
+      toast({ title: `Đã thêm ${created.length} mục vào Glossary! 🌸`, description: "Bấm Tự dịch để tạo lại QT với các mục vừa duyệt, sau đó dùng AI Edit." });
     } catch (e) {
       toast({ title: "Lỗi thêm Glossary", description: e.message, variant: "destructive" });
+    } finally {
+      setSavingDiscoveredTerms(false);
     }
   };
 
@@ -3821,7 +3813,8 @@ ${sourceText}`;
           setBatchQtProgress((current) => ({ ...current, done: current.done + 1, skipped: current.skipped + 1 }));
           continue;
         }
-        const result = await translateHanViet(chapter.raw_original, glossaryTerms);
+        const translationTerms = mergeHanVietVocabulary(glossaryTerms, hanVietVocabulary);
+        const result = await translateHanViet(chapter.raw_original, translationTerms);
         await Chapter.update(meta.id, { qt_raw: result.text }, { returning: false });
         const updated = { ...chapter, qt_raw: result.text };
         chapterCacheRef.current.set(meta.id, updated);
@@ -3866,6 +3859,8 @@ ${sourceText}`;
       return;
     }
     if (chapterList.length === 0 || selectedIds.length === 0) return;
+
+    const learningEnabled = isChapterLearningEnabled(project?.style_toggles);
 
     batchStopRef.current = false;
     setBatchErrors([]);
@@ -3977,15 +3972,17 @@ ${sourceText}`;
         }
 
         if (!overwriteExisting && chapter.edited?.trim()) {
-          try {
-            await learnFromChapter(chapter, meta, chapter.edited);
-          } catch (learningError) {
-            setBatchErrors((prev) => [...prev, {
-              id: meta.id,
-              title: `${meta.title} (tự học)`,
-              message: learningError.message,
-              kind: "learning",
-            }]);
+          if (learningEnabled) {
+            try {
+              await learnFromChapter(chapter, meta, chapter.edited);
+            } catch (learningError) {
+              setBatchErrors((prev) => [...prev, {
+                id: meta.id,
+                title: `${meta.title} (tự học)`,
+                message: learningError.message,
+                kind: "learning",
+              }]);
+            }
           }
           setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
           continue;
@@ -4024,15 +4021,17 @@ ${sourceText}`;
           setCurrentChapter(updatedChapter);
         }
 
-        try {
-          await learnFromChapter(chapter, meta, finalText);
-        } catch (learningError) {
-          setBatchErrors((prev) => [...prev, {
-            id: meta.id,
-            title: `${meta.title} (tự học)`,
-            message: learningError.message,
-            kind: "learning",
-          }]);
+        if (learningEnabled) {
+          try {
+            await learnFromChapter(chapter, meta, finalText);
+          } catch (learningError) {
+            setBatchErrors((prev) => [...prev, {
+              id: meta.id,
+              title: `${meta.title} (tự học)`,
+              message: learningError.message,
+              kind: "learning",
+            }]);
+          }
         }
         setBatchProgress((p) => ({ ...p, done: p.done + 1, edited: p.edited + 1 }));
       } catch (e) {
@@ -4712,6 +4711,32 @@ ${compact}`;
               onImportTerms={handleImportTerms}
               onOpenContextualPronoun={() => setShowContextualPronoun(true)}
               onDetectNames={handleDetectNames}
+              hanVietVocabulary={hanVietVocabulary}
+              onAddToHanVietVocabulary={(selectedTerms) => {
+                try {
+                  const result = addHanVietVocabulary(hanVietVocabulary, selectedTerms, projectId);
+                  const saved = saveHanVietVocabulary(result.terms);
+                  setHanVietVocabulary(saved);
+                  toast({
+                    title: `Đã cập nhật từ vựng Tự dịch: ${result.added} mới${result.updated ? `, ${result.updated} thay đổi` : ""}`,
+                    description: result.ignored
+                      ? `${result.ignored} mục bị bỏ qua vì từ nguồn không phải chữ Hán thuần.`
+                      : "Các cách dịch này sẽ được ưu tiên cho mọi truyện trên trình duyệt này.",
+                  });
+                } catch (error) {
+                  toast({ title: "Không lưu được từ vựng Tự dịch", description: error.message, variant: "destructive" });
+                }
+              }}
+              onRemoveFromHanVietVocabulary={(selectedTerms) => {
+                try {
+                  const next = removeHanVietVocabulary(hanVietVocabulary, selectedTerms.map((term) => term.source_term));
+                  const saved = saveHanVietVocabulary(next);
+                  setHanVietVocabulary(saved);
+                  toast({ title: `Đã gỡ ${hanVietVocabulary.length - saved.length} từ khỏi Tự dịch` });
+                } catch (error) {
+                  toast({ title: "Không gỡ được từ vựng Tự dịch", description: error.message, variant: "destructive" });
+                }
+              }}
             />
           </>
         )}
@@ -5140,6 +5165,7 @@ ${compact}`;
         chapters={chapterList}
         editedChapterIds={editedChapterIds}
         storyMemory={project?.style_toggles?.story_memory || {}}
+        learningEnabled={aiChapterLearningEnabled}
         running={batchRunning}
         finished={batchFinished}
         progress={batchProgress}
@@ -5154,6 +5180,7 @@ ${compact}`;
         analysisRunning={translationBootstrapRunning}
         analysisResult={translationBootstrapResult}
         onAnalyze={handleAnalyzeTranslationWorkflow}
+        onDiscoverGlossary={() => { setShowTranslationWorkflow(false); handleDetectNames(); }}
         savingRules={translationBootstrapSaving}
         onSaveRules={handleSaveTranslationBootstrap}
         qtRunning={batchQtRunning}
@@ -5188,9 +5215,14 @@ ${compact}`;
       />
       <DetectNamesDialog
         open={showDetectNames}
-        onOpenChange={setShowDetectNames}
+        onOpenChange={(open) => { if (savingDiscoveredTerms) return; if (!open) discoveryStopRef.current = true; setShowDetectNames(open); }}
         detecting={detectingNames}
         candidates={nameCandidates}
+        progress={discoveryProgress}
+        warnings={discoveryWarnings}
+        saving={savingDiscoveredTerms}
+        chapterTitle={discoveryContextRef.current?.title}
+        onStop={() => { discoveryStopRef.current = true; }}
         onConfirm={handleAddDetectedNames}
       />
       <TranslationSettingsDialog

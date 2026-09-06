@@ -9,7 +9,9 @@ import {
 } from "@/components/ui/dialog";
 import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X, SearchCheck, Compass, Bot, BookOpen } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { Switch } from "@/components/ui/switch";
 import { ruleSummary } from "@/lib/pronounMatrix";
+import { isChapterLearningEnabled } from "@/lib/storyLearning";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import PronounInventoryDialog from "@/components/glossary/PronounInventoryDialog";
 import PronounBootstrapDialog from "@/components/glossary/PronounBootstrapDialog";
@@ -65,6 +67,8 @@ export default function ContextualPronounDialog({
   const [storyPronounAiOpen, setStoryPronounAiOpen] = useState(false);
   const [narrativeRules, setNarrativeRules] = useState([]);
   const [narrativeForm, setNarrativeForm] = useState({ character: "", pronoun: "", note: "" });
+  const [savingLearningSetting, setSavingLearningSetting] = useState(false);
+  const learningEnabled = isChapterLearningEnabled(project?.style_toggles);
 
   useEffect(() => {
     if (open) {
@@ -82,6 +86,28 @@ export default function ContextualPronounDialog({
   const toggleSelectMode = () => {
     setSelectMode((prev) => !prev);
     setSelectedIndices(new Set());
+  };
+
+  const handleToggleLearning = async (checked) => {
+    setSavingLearningSetting(true);
+    try {
+      await onUpdateProject({
+        style_toggles: {
+          ...(project?.style_toggles || {}),
+          ai_chapter_learning_enabled: checked,
+        },
+      });
+      toast({
+        title: checked ? "Đã bật AI tự học xưng hô" : "Đã tắt AI tự học xưng hô",
+        description: checked
+          ? "AI sẽ tiếp tục học sau các chương được Edit bằng AI."
+          : "AI sẽ không ghi thêm vào Glossary, ma trận xưng hô hoặc bộ nhớ truyện.",
+      });
+    } catch {
+      // handleUpdateProject already shows the persistence error.
+    } finally {
+      setSavingLearningSetting(false);
+    }
   };
 
   const persistNarrativeRules = async (next) => {
@@ -287,6 +313,26 @@ export default function ContextualPronounDialog({
             Chọn “Mọi người khác” để tạo quy tắc dự phòng; quy tắc người nghe cụ thể luôn được ưu tiên.
           </DialogDescription>
         </DialogHeader>
+
+        <section className={`rounded-2xl border p-3 ${learningEnabled ? "border-fuchsia-100 bg-fuchsia-50/60" : "border-slate-200 bg-slate-50"}`}>
+          <div className="flex items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className={`text-sm font-semibold ${learningEnabled ? "text-fuchsia-800" : "text-slate-700"}`}>
+                {learningEnabled ? "AI tự học xưng hô đang bật" : "AI tự học xưng hô đã tắt"}
+              </p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">
+                Khi tắt, AI Edit vẫn dùng dữ liệu đã học nhưng không tự thêm Glossary, quy tắc xưng hô hay bộ nhớ mới.
+              </p>
+            </div>
+            <Switch
+              checked={learningEnabled}
+              onCheckedChange={handleToggleLearning}
+              disabled={savingLearningSetting}
+              aria-label="Bật hoặc tắt AI tự học xưng hô"
+              className="data-[state=checked]:bg-fuchsia-600"
+            />
+          </div>
+        </section>
 
         <section className="space-y-2 rounded-2xl border border-indigo-100 bg-indigo-50/50 p-3">
           <div className="flex items-center gap-2">

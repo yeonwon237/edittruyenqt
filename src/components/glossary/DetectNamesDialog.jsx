@@ -1,113 +1,79 @@
 import { useState, useEffect } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Loader2, Sparkles } from "lucide-react";
-import { CATEGORY_EMOJI } from "@/lib/highlight";
+import { CATEGORIES } from "@/lib/highlight";
 
-// AI proposes missing proper names plus address/pronoun vocabulary from the
-// current chapter. Nothing is saved until the translator reviews the rows.
-export default function DetectNamesDialog({ open, onOpenChange, detecting, candidates, onConfirm }) {
+export default function DetectNamesDialog({ open, onOpenChange, detecting, candidates, onConfirm,
+  progress, warnings = [], saving, onStop, chapterTitle }) {
   const [selected, setSelected] = useState({});
   const [edited, setEdited] = useState({});
-
+  const [filter, setFilter] = useState("proposed");
+  const [query, setQuery] = useState("");
   useEffect(() => {
-    if (candidates) {
-      const sel = {};
-      candidates.forEach((_, i) => {
-        sel[i] = true;
-      });
-      setSelected(sel);
-      setEdited({});
-    }
+    setSelected({});
+    setEdited({});
+    setFilter("proposed");
+    setQuery("");
   }, [candidates]);
-
-  const toggle = (i) => setSelected((prev) => ({ ...prev, [i]: !prev[i] }));
-  const updateTranslation = (i, value) => setEdited((prev) => ({ ...prev, [i]: value }));
-
-  const handleConfirm = () => {
-    const chosen = (candidates || [])
-      .map((c, i) => ({
-        ...c,
-        translation: edited[i] !== undefined ? edited[i] : c.translation,
-      }))
-      .filter((_, i) => selected[i]);
-    onConfirm(chosen);
-  };
-
-  const selectedCount = Object.values(selected).filter(Boolean).length;
-
+  const update = (index, field, value) => setEdited(prev => ({ ...prev, [index]: { ...prev[index], [field]: value } }));
+  const rows = (candidates || []).map((c, index) => ({ ...c, ...edited[index], index }));
+  const visible = rows.filter(c => (filter === "all" || (filter === "proposed" ? c.status === "proposed" : c.status !== "proposed")) &&
+    `${c.source_term} ${c.translation}`.toLocaleLowerCase("vi").includes(query.toLocaleLowerCase("vi")));
+  const chosen = rows.filter(c => selected[c.index] && c.translation.trim());
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-hidden flex flex-col rounded-2xl">
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col rounded-2xl">
         <DialogHeader>
-          <DialogTitle className="text-violet-700 flex items-center gap-2">
-            <Sparkles className="w-4 h-4" /> Phát hiện Glossary bằng AI
-          </DialogTitle>
+          <DialogTitle className="text-violet-700 flex items-center gap-2"><Sparkles className="w-4 h-4" /> Máy + AI phát hiện Glossary</DialogTitle>
           <DialogDescription>
-            AI đọc toàn bộ chương và tìm cả tên riêng lẫn đại từ, danh xưng, cách tự xưng và
-            cách gọi chưa có. Hãy sửa bản Việt nếu cần rồi chọn mục muốn thêm vào Glossary.
+            {chapterTitle ? `${chapterTitle} · ` : ""}Máy lấy ứng viên, AI kiểm tra rồi đọc lại để tìm thêm. Chỉ lưu mục bạn chọn.
+            Mỗi đoạn khoảng 6.000 chữ gọi AI một lần. Xưng hô là cách dịch QT mặc định; khi Edit cần theo quan hệ nhân vật.
           </DialogDescription>
         </DialogHeader>
-
-        <div className="flex-1 overflow-y-auto cute-scrollbar space-y-2">
-          {detecting ? (
-            <div className="flex items-center justify-center py-10 text-slate-400 gap-2">
-              <Loader2 className="w-5 h-5 animate-spin" /> Đang phân tích...
-            </div>
-          ) : !candidates || candidates.length === 0 ? (
-            <p className="text-center text-sm text-slate-400 py-8">
-              Không tìm thấy mục mới nào, hoặc tất cả đã có trong Glossary.
-            </p>
-          ) : (
-            candidates.map((c, i) => (
-              <div
-                key={i}
-                className={`flex items-center gap-2 p-2.5 rounded-xl border transition-colors ${
-                  selected[i] ? "border-violet-300 bg-violet-50/50" : "border-violet-100"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={!!selected[i]}
-                  onChange={() => toggle(i)}
-                  className="accent-violet-600 shrink-0"
-                />
-                <span
-                  className="text-sm text-slate-500 shrink-0 min-w-[64px] truncate"
-                  title="Chữ Hán gốc"
-                >
-                  {c.source_term}
-                </span>
-                <input
-                  value={edited[i] !== undefined ? edited[i] : c.translation}
-                  onChange={(e) => updateTranslation(i, e.target.value)}
-                  className="flex-1 min-w-0 px-2 py-1 text-sm rounded-lg border border-violet-100 focus:outline-none focus:border-violet-400"
-                />
-                <span className="text-[10px] text-slate-400 shrink-0" title={c.category}>
-                  {CATEGORY_EMOJI[c.category] || "📌"}
-                </span>
+        {detecting ? <div className="space-y-3 py-8 text-center text-sm text-slate-600" role="status">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto" />
+          <p>{progress?.label || "Đang quét…"}</p>
+          <p>{progress?.machineCount || 0} ứng viên máy · {progress?.done || 0}/{progress?.total || 0} đoạn AI</p>
+          <Button variant="outline" onClick={onStop}>Dừng sau lượt hiện tại</Button>
+        </div> : <>
+          {warnings.length > 0 && <details className="text-xs text-amber-800 bg-amber-50 p-2 rounded" open>
+            <summary>{warnings.length} lưu ý — kết quả có thể chưa đầy đủ</summary>
+            <ul className="list-disc pl-4 max-h-24 overflow-auto">{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+          </details>}
+          <div className="flex flex-wrap gap-2 text-sm">
+            <select aria-label="Lọc kết quả" value={filter} onChange={e => setFilter(e.target.value)} className="border rounded p-2">
+              <option value="proposed">AI đề xuất ({rows.filter(c => c.status === "proposed").length})</option>
+              <option value="review">Cần xem lại / AI loại ({rows.filter(c => c.status !== "proposed").length})</option>
+              <option value="all">Tất cả ({rows.length})</option>
+            </select>
+            <input aria-label="Tìm thuật ngữ" placeholder="Tìm chữ Hán / bản Việt…" value={query} onChange={e => setQuery(e.target.value)} className="border rounded p-2 flex-1 min-w-0" />
+            <Button variant="outline" disabled={saving} onClick={() => setSelected(prev => ({ ...prev,
+              ...Object.fromEntries(visible.filter(c => c.translation.trim()).map(c => [c.index, true])) }))}>Chọn mục đang hiện</Button>
+            <Button variant="ghost" disabled={saving} onClick={() => setSelected({})}>Bỏ chọn</Button>
+          </div>
+          <div className="flex-1 overflow-y-auto cute-scrollbar space-y-2 min-h-0">
+            {!visible.length && <p className="text-center text-sm text-slate-400 py-8">Không có mục trong nhóm này. Xem nhóm Cần xem lại để kiểm tra ứng viên còn lại.</p>}
+            {visible.map(c => <div key={c.index} className={`p-3 rounded-xl border space-y-2 ${selected[c.index] ? "border-violet-300 bg-violet-50/50" : "border-slate-200"}`}>
+              <div className="flex items-center gap-2">
+                <input type="checkbox" aria-label={`Chọn ${c.source_term}`} checked={!!selected[c.index]} disabled={saving} onChange={() => setSelected(prev => ({ ...prev, [c.index]: !prev[c.index] }))} />
+                <strong className="text-sm break-all w-24 shrink-0">{c.source_term}</strong>
+                <input aria-label={`Bản Việt của ${c.source_term}`} value={c.translation} disabled={saving} onChange={e => update(c.index, "translation", e.target.value)} placeholder="Nhập bản Việt để lưu" className="flex-1 min-w-0 border rounded p-1 text-sm" />
+                <select aria-label={`Loại của ${c.source_term}`} value={c.category} disabled={saving} onChange={e => update(c.index, "category", e.target.value)} className="w-24 border rounded p-1 text-xs">
+                  {CATEGORIES.map(category => <option key={category}>{category}</option>)}
+                </select>
               </div>
-            ))
-          )}
-        </div>
-
+              <p className="text-xs text-slate-500">{c.origin} · {c.count} lần · {c.status === "unreviewed" ? "Chưa được AI kiểm tra" : c.status === "rejected" ? "AI đề nghị bỏ" : "AI đề xuất"}{c.confidence > 0 ? ` · AI tự đánh giá ${Math.round(c.confidence * 100)}%` : ""}</p>
+              {c.conflict && <p className="text-xs text-amber-700">AI đưa ra nhiều bản dịch, hãy chọn lại: {c.alternatives?.join(" / ")}</p>}
+              {(c.evidence || c.reasons?.length > 0) && <p className="text-xs text-slate-600">{c.evidence || c.reasons.join(" · ")}</p>}
+              <details className="text-xs text-slate-500"><summary>Xem câu gốc</summary>{c.contexts?.map((context, i) => <p className="mt-1 break-words" key={i}>{context}</p>)}</details>
+            </div>)}
+          </div>
+        </>}
         <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Đóng
-          </Button>
-          <Button
-            onClick={handleConfirm}
-            disabled={detecting || !candidates || selectedCount === 0}
-            className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
-          >
-            Thêm {selectedCount} mục vào Glossary
+          <Button variant="ghost" disabled={saving} onClick={() => onOpenChange(false)}>Đóng</Button>
+          <Button disabled={detecting || saving || !chosen.length} onClick={() => onConfirm(chosen)} className="bg-violet-600 hover:bg-violet-700 text-white">
+            {saving ? "Đang lưu…" : `Lưu ${chosen.length} mục đã chọn`}
           </Button>
         </DialogFooter>
       </DialogContent>

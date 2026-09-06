@@ -28,6 +28,7 @@ export default function BatchEditDialog({
   chapters = [],
   editedChapterIds = new Set(),
   storyMemory = {},
+  learningEnabled = true,
   running,
   finished,
   progress,
@@ -170,9 +171,10 @@ export default function BatchEditDialog({
               size="sm"
               variant="outline"
               onClick={() => setSelectedIds(new Set(ordered.filter((chapter) => editedChapterIds.has(chapter.id)).map((chapter) => chapter.id)))}
-              disabled={running || ordered.length === pendingIds.length}
+              disabled={running || !learningEnabled || ordered.length === pendingIds.length}
+              title={learningEnabled ? "Chọn các chương đã Edit để AI học dữ liệu" : "Bật AI tự học trong Ma trận xưng hô để dùng chức năng này"}
             >
-              Chọn đã edit để học
+              {learningEnabled ? "Chọn đã edit để học" : "Tự học đã tắt"}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set(ordered.map((chapter) => chapter.id)))} disabled={running || ordered.length === 0}>
               Chọn tất cả
@@ -240,9 +242,11 @@ export default function BatchEditDialog({
           </span>
         </label>
 
-        <p className="rounded-xl border border-violet-100 bg-violet-50/60 p-3 text-xs text-violet-800">
-          <strong>AI tự học luôn bật:</strong> mỗi chương được xử lý sẽ tự cập nhật tên riêng,
-          cặp xưng hô có bằng chứng rõ và ngữ cảnh cho chương kế tiếp.
+        <p className={`rounded-xl border p-3 text-xs ${learningEnabled ? "border-violet-100 bg-violet-50/60 text-violet-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+          <strong>{learningEnabled ? "AI tự học đang bật:" : "AI tự học đang tắt:"}</strong>{" "}
+          {learningEnabled
+            ? "mỗi chương được xử lý sẽ tự cập nhật tên riêng, cặp xưng hô có bằng chứng rõ và ngữ cảnh cho chương kế tiếp."
+            : "các chương vẫn được Edit bằng AI và dùng dữ liệu đã học, nhưng không ghi thêm dữ liệu học mới."}
         </p>
 
         {errors.length > 0 && (

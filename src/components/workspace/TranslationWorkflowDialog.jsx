@@ -8,7 +8,7 @@ const confidenceLabel = (value) => `${Math.round((Number(value) || 0) * 100)}%`;
 export default function TranslationWorkflowDialog({
   open, onOpenChange, totalChapters, analysisRunning, analysisResult, onAnalyze,
   savingRules, onSaveRules, qtRunning, qtFinished, qtProgress, qtErrors,
-  onStartQt, onStopQt, onOpenBatchEdit,
+  onStartQt, onStopQt, onOpenBatchEdit, onDiscoverGlossary,
 }) {
   const [sampleSize, setSampleSize] = useState(5);
   const [draft, setDraft] = useState(null);
@@ -52,7 +52,7 @@ export default function TranslationWorkflowDialog({
       <DialogContent className="max-w-4xl max-h-[92vh] overflow-y-auto rounded-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-cyan-700"><BookOpenCheck className="h-5 w-5" /> Chuẩn bị & dịch toàn truyện</DialogTitle>
-          <DialogDescription>Quy trình tùy chọn: AI lập bộ quy ước để bạn duyệt → máy tạo QT hàng loạt → AI Edit hàng loạt. Các chức năng cũ vẫn giữ nguyên.</DialogDescription>
+          <DialogDescription>Duyệt glossary và quy ước → máy tạo QT → AI Edit. Phân tích mẫu giúp lập hồ sơ; quét kỹ từng chương giúp bổ sung thuật ngữ còn thiếu.</DialogDescription>
         </DialogHeader>
 
         <section className="space-y-3 rounded-2xl border border-cyan-100 bg-cyan-50/40 p-4">
@@ -67,6 +67,10 @@ export default function TranslationWorkflowDialog({
             </Button>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+            <Button variant="outline" disabled={busy} onClick={onDiscoverGlossary}>Máy + AI quét kỹ chương đang chọn</Button>
+            <span>Duyệt từ bổ sung trước khi tạo hoặc tạo lại QT. Khoảng 6.000 chữ gọi AI một lần.</span>
+          </div>
           {draft && <div className="grid gap-3 lg:grid-cols-3">
             <SuggestionGroup title={`Bảng từ máy (${draft.glossaryTerms.length})`} items={draft.glossaryTerms} selected={selectedTerms} onToggle={(i) => toggle(setSelectedTerms, i)} render={(item, index) => <div className="space-y-1"><div className="flex items-center gap-1"><input value={item.source_term} onClick={(e) => e.stopPropagation()} onChange={(e) => editTerm(index, "source_term", e.target.value)} className="w-20 min-w-0 rounded border px-1.5 py-1 font-semibold" /><span>→</span><input value={item.translation} onClick={(e) => e.stopPropagation()} onChange={(e) => editTerm(index, "translation", e.target.value)} className="min-w-0 flex-1 rounded border border-cyan-300 px-1.5 py-1" /></div><small>{item.existing_id ? "Đã có · " : "AI mới · "}{item.category} · {confidenceLabel(item.confidence)}{item.evidence ? ` · ${item.evidence}` : ""}</small></div>} />
             <SuggestionGroup title={`Hồ sơ nhân vật (${draft.characters.length})`} items={draft.characters} selected={selectedCharacters} onToggle={(i) => toggle(setSelectedCharacters, i)} render={(item) => <><b>{item.name}</b> · {item.gender}<small>{item.identity || "Chưa rõ thân phận"} · lời kể: {item.narrative_pronoun} · {confidenceLabel(item.confidence)}</small></>} />

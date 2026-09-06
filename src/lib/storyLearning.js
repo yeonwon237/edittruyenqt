@@ -1,6 +1,10 @@
 const clean = (value) => String(value || "").trim().replace(/\s+/g, " ");
 const keyOf = (...parts) => parts.map((part) => clean(part).toLocaleLowerCase("vi")).join("\u0001");
 
+export function isChapterLearningEnabled(styleToggles) {
+  return styleToggles?.ai_chapter_learning_enabled !== false;
+}
+
 export function buildStoryLearningPrompt({ title, sourceText, editedText, existingRules = [], existingTerms = [] }) {
   const rules = existingRules
     .slice(0, 120)
