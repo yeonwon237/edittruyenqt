@@ -44,7 +44,7 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
   const groups = useMemo(() => {
     const grouped = new Map();
     (issues || []).forEach((issue) => {
-      const key = `${issue.type}:${issue.value.toLocaleLowerCase("vi")}`;
+      const key = issue.contextual || issue.type === "pronoun" ? issue.id : JSON.stringify([issue.type, issue.value, issue.replacement]);
       if (!grouped.has(key)) grouped.set(key, { key, issues: [], ...issue });
       grouped.get(key).issues.push(issue);
     });
@@ -135,7 +135,7 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
             </div>
           </div>
           <div className="flex flex-wrap gap-1.5 pt-3">
-            {["all", "glossary", "cjk", "english", "name", "pronoun"].map((type) => {
+            {["all", "glossary", "cjk", "english", "name", "pronoun", "style"].map((type) => {
               const count = type === "all" ? (issues || []).length : counts[type] || 0;
               return <button key={type} onClick={() => setFilter(type)} className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${filter === type ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{type === "all" ? "Tất cả" : QUALITY_LABELS[type]} · {count}</button>;
             })}

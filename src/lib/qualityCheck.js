@@ -1,6 +1,5 @@
 const CJK_RUN_REGEX = /[一-鿿㐀-䶿]+/g;
 const ASCII_WORD_REGEX = /(?<!\p{L})[A-Za-z][A-Za-z'’-]{1,}(?!\p{L})/gu;
-const CAPITALIZED_NAME_REGEX = /\p{Lu}[\p{L}'’-]*(?:[ \t]+\p{Lu}[\p{L}'’-]*){1,3}/gu;
 
 // A deliberately conservative list: QA should miss an obscure word rather
 // than flood a Vietnamese chapter with false positives. This can grow from
@@ -86,20 +85,6 @@ function makeIssue(text, data) {
   return { id: `${data.type}-${data.start}-${data.value}`, ...contextAt(text, data.start, data.end), ...data };
 }
 
-function levenshtein(a, b) {
-  const previous = Array.from({ length: b.length + 1 }, (_, i) => i);
-  for (let i = 1; i <= a.length; i += 1) {
-    let diagonal = previous[0];
-    previous[0] = i;
-    for (let j = 1; j <= b.length; j += 1) {
-      const old = previous[j];
-      previous[j] = Math.min(previous[j] + 1, previous[j - 1] + 1, diagonal + (a[i - 1] === b[j - 1] ? 0 : 1));
-      diagonal = old;
-    }
-  }
-  return previous[b.length];
-}
-
 function glossaryAliases(terms) {
   const values = new Set();
   (terms || []).forEach((term) => {
@@ -127,50 +112,20 @@ function quoteAt(text, position) {
 const hasSpeakerSelfTarget = (rule) =>
   Boolean(rule?.speaker?.trim() && rule?.self_word?.trim() && rule?.target_word?.trim());
 
-// Shared by matrixSuggestionAt (a single already-located glossary match) and
-// scanContextualAddress (every address-term occurrence in every quote): who
-// is speaking near this quote, and — if the listener can also be pinned
-// down from nearby text — which specific (speaker, listener) rule applies.
+// Resolve only explicit dialogue attribution; abstain on ambiguous prose.
 function resolveSpeakerAndRule(text, quoteStart, quoteEnd, validRules) {
   if (!validRules.length) return null;
-  const nearbyStart = Math.max(0, quoteStart - 120);
-  const nearbyEnd = Math.min(text.length, quoteEnd + 120);
-  const nearby = text.slice(nearbyStart, nearbyEnd);
-  const quoteRelStart = quoteStart - nearbyStart;
-  const quoteRelEnd = quoteEnd - nearbyStart;
-  const speakers = [...new Set(validRules.map((rule) => rule.speaker.trim()))];
-
-  // A multi-speaker paragraph ("Nam nói: ... Linh đáp: ...") can put more
-  // than one candidate's attribution inside the same ±120-char window, so
-  // picking the first speaker that merely *appears* anywhere nearby would
-  // misattribute the second quote back to the first speaker. Instead score
-  // every attribution match by how close it sits to THIS quote and take the
-  // closest one, across all speakers.
-  let best = null;
-  speakers.forEach((name) => {
-    const escaped = escapeRegex(name);
-    const beforePattern = new RegExp(`${escaped}[^“”"]{0,70}(?:${SPEECH_VERBS})[^“”"]{0,25}[“"]`, "giu");
-    const afterPattern = new RegExp(`[”"][^“”"]{0,35}${escaped}[^“”"]{0,35}(?:${SPEECH_VERBS})`, "giu");
-    for (const match of nearby.matchAll(beforePattern)) {
-      const distance = Math.abs(quoteRelStart - (match.index + match[0].length));
-      if (!best || distance < best.distance) best = { speaker: name, distance };
-    }
-    for (const match of nearby.matchAll(afterPattern)) {
-      const distance = Math.abs(match.index - quoteRelEnd);
-      if (!best || distance < best.distance) best = { speaker: name, distance };
-    }
-  });
-  if (!best) return null;
-  const speaker = best.speaker;
-
-  const speakerRules = validRules.filter((rule) => rule.speaker.trim() === speaker);
-  const specificRule = speakerRules.find((rule) => {
+  // Only explicit attribution attached to this quote is evidence.
+  const before = text.slice(text.lastIndexOf('\n', quoteStart - 1) + 1, quoteStart - 1);
+  const matches = validRules.filter((rule) => {
     const listener = rule.listener?.trim();
-    return listener && listener !== "*" && nearby.includes(listener);
+    const address = listener && listener !== '*' ? '\\s+với\\s+' + escapeRegex(listener) : '';
+    const pattern = new RegExp('(?:^|[.!?]\\s*)' + escapeRegex(rule.speaker.trim()) + '\\s+(?:' + SPEECH_VERBS + ')' + address + '\\s*:\\s*$', 'iu');
+    return pattern.test(before);
   });
-  const defaultRule = speakerRules.find((rule) => !rule.listener?.trim() || rule.listener.trim() === "*");
-  const rule = specificRule || defaultRule || (speakerRules.length === 1 ? speakerRules[0] : null);
-  return { speaker, speakerRules, rule };
+  if (matches.length !== 1) return null;
+  const rule = matches[0];
+  return { speaker: rule.speaker.trim(), speakerRules: [rule], rule };
 }
 
 // Is the word at [relativeStart, relativeEnd) inside `quoteText` the speaker
@@ -222,6 +177,17 @@ export function resolveAddressRole(quoteText, relativeStart, relativeEnd, selfWo
   return "unknown";
 }
 
+function resolveQaAddressRole(quoteText, start, end) {
+  const word = quoteText.slice(start, end).toLocaleLowerCase('vi');
+  if (SELF_PRONOUNS.has(word) && word !== 'mình' && word !== 'bản thân') return 'self';
+  const before = quoteText.slice(0, start);
+  const after = quoteText.slice(end);
+  const clauseStart = !before.split(/[.!?…]/u).at(-1).trim();
+  if (TARGET_ADDRESS_TERMS.has(word) && clauseStart &&
+      (looksLikeQuestionAboutListener(after) || looksLikeDirectAddress(after) || /^\s*[,!]/u.test(after))) return 'target';
+  return 'unknown';
+}
+
 function matrixSuggestionAt(text, start, end, rules) {
   const quote = quoteAt(text, start);
   const validRules = (rules || []).filter(hasSpeakerSelfTarget);
@@ -236,7 +202,7 @@ function matrixSuggestionAt(text, start, end, rules) {
   if (!rule) return { suggestions: speakerSuggestions, detail: `Đã nhận ra ${speaker} nhưng chưa xác định được người nghe.` };
 
   const relativeStart = start - quote.start;
-  const role = resolveAddressRole(quote.text, relativeStart, relativeStart + (end - start), rule.self_word.trim());
+  const role = resolveQaAddressRole(quote.text, relativeStart, relativeStart + (end - start));
   const listenerLabel = rule.listener?.trim() && rule.listener.trim() !== "*" ? rule.listener.trim() : "mọi người";
   if (role === "self") {
     return { replacement: rule.self_word.trim(), suggestions: speakerSuggestions, detail: `${speaker} đang tự xưng khi nói với ${listenerLabel}.` };
@@ -283,9 +249,10 @@ function scanGlossaryRules(text, terms, pronounRules) {
       const configuredSuggestions = [target, ...splitSuggestions(customFields.__qa_alternatives)];
       const matrix = contextual ? matrixSuggestionAt(text, start, end, pronounRules) : null;
       const suggestions = [...new Set([...configuredSuggestions, ...(matrix?.suggestions || [])])];
+      if (contextual && (!matrix?.replacement || matrix.replacement.toLocaleLowerCase("vi") === value.toLocaleLowerCase("vi"))) continue;
       issues.push(makeIssue(text, {
         type: "glossary",
-        severity: "high",
+        severity: contextual ? "review" : "high",
         label: "Chưa theo quy tắc Glossary",
         value,
         replacement: matrix?.replacement || target,
@@ -332,30 +299,6 @@ function scanNames(text, terms) {
   const directIssues = [];
   const occupied = [];
 
-  // Glossary is authoritative: if its exact source form survives in the
-  // edited Vietnamese text, suggest the configured translation immediately.
-  nameTerms.forEach((term) => {
-    const source = term.source_term?.trim();
-    const target = term.translation.trim();
-    if (!source || source === target || CJK_RUN_REGEX.test(source)) {
-      CJK_RUN_REGEX.lastIndex = 0;
-      return;
-    }
-    CJK_RUN_REGEX.lastIndex = 0;
-    let from = 0;
-    while (from < text.length) {
-      const start = text.indexOf(source, from);
-      if (start === -1) break;
-      const end = start + source.length;
-      directIssues.push(makeIssue(text, {
-        type: "name", severity: "high", label: "Tên chưa theo Glossary",
-        value: source, replacement: target, detail: `Glossary quy định “${source}” → “${target}”`, start, end
-      }));
-      occupied.push([start, end]);
-      from = end;
-    }
-  });
-
   // Catch capitalization-only mistakes in the canonical translated name.
   canonicals.forEach((canonical) => {
     const regex = new RegExp(`(?<!\\p{L})${escapeRegex(canonical.value)}(?!\\p{L})`, "giu");
@@ -370,25 +313,7 @@ function scanNames(text, terms) {
     }
   });
 
-  const fuzzyIssues = [...text.matchAll(CAPITALIZED_NAME_REGEX)].flatMap((match) => {
-    const candidate = match[0].trim();
-    const normalizedCandidate = normalize(candidate);
-    if (aliases.has(normalizedCandidate) || occupied.some(([a, b]) => match.index < b && match.index + match[0].length > a)) return [];
-    let closest = null;
-    for (const canonical of canonicals) {
-      if (canonical.normalized.split(" ").length !== normalizedCandidate.split(" ").length) continue;
-      const distance = levenshtein(normalizedCandidate, canonical.normalized);
-      const limit = canonical.normalized.length >= 10 ? 2 : 1;
-      if (distance > 0 && distance <= limit && (!closest || distance < closest.distance)) closest = { ...canonical, distance };
-    }
-    if (!closest) return [];
-    return [makeIssue(text, {
-      type: "name", severity: "high", label: "Tên có thể viết sai",
-      value: candidate, replacement: closest.value, detail: `Gần với tên chuẩn “${closest.value}” trong Glossary`,
-      start: match.index, end: match.index + match[0].length
-    })];
-  });
-  return [...directIssues, ...fuzzyIssues];
+  return directIssues;
 }
 
 // Common Vietnamese address terms — used both as a fallback vocabulary (a
@@ -405,14 +330,7 @@ const TARGET_ADDRESS_TERMS = new Set([
   "tiểu thư", "thiếu gia", "anh", "em", "chị", "cậu", "tớ",
 ]);
 
-// Replaces the old scanPronouns (self-word-only, one match per line). Walks
-// every quoted line of dialogue in the whole text, resolves speaker+listener
-// via resolveSpeakerAndRule (the same ±120-char nearby-text search already
-// proven out for matrixSuggestionAt, not just same-line), and — the actual
-// gap this closes — checks BOTH self_word and target_word against whichever
-// address term actually appears, so a Huynh/Muội-style mixup or an
-// era-wrong "em"/"chị" used as either subject or object gets one concrete
-// correct suggestion instead of a generic "review this" warning.
+// Check dialogue only when participants and lexical role are supported.
 function scanContextualAddress(text, rules) {
   const validRules = (rules || []).filter(hasSpeakerSelfTarget);
   if (!validRules.length) return { issues: [], confirmedSpans: new Set() };
@@ -454,12 +372,12 @@ function scanContextualAddress(text, rules) {
         // apart from "Ta thật xin lỗi." (self-statement) — both are just a
         // leading pronoun + adjective. Guessing is only needed below, for a
         // word that matches NEITHER configured slot (a genuine mix-up).
-        const role = resolveAddressRole(quoteText, relativeStart, relativeEnd, rule?.self_word?.trim());
+        const role = resolveQaAddressRole(quoteText, relativeStart, relativeEnd);
         if (rule) {
           const normFound = normalize(found);
           const matchesSelf = normFound === normalize(rule.self_word);
           const matchesTarget = normFound === normalize(rule.target_word);
-          if ((role === "self" && matchesSelf) || (role === "target" && matchesTarget) || (role === "unknown" && (matchesSelf || matchesTarget))) {
+          if (matchesSelf || matchesTarget) {
             confirmedSpans.add(dedupeKey);
             continue;
           }
@@ -498,25 +416,24 @@ function scanContextualAddress(text, rules) {
 }
 
 const ANCIENT_SUSPICIOUS_WORDS = [
-  "anh", "em", "chị", "cậu", "tớ", "mình", "bạn", "ông xã", "bà xã",
+  "tôi", "anh", "em", "chị", "cậu", "tớ", "mình", "bạn", "ông xã", "bà xã",
   "chồng yêu", "vợ yêu", "ok", "okay", "online", "deadline"
 ];
 
-function scanConfiguredWords(text, qaSettings, confirmedSpans) {
+function scanConfiguredWords(text, qaSettings) {
   const ancient = qaSettings?.era === "ancient" ? ANCIENT_SUSPICIOUS_WORDS.map((find) => ({ find, source:"Bối cảnh cổ đại" })) : [];
   const custom = (qaSettings?.forbiddenWords || []).map((item) => typeof item === "string" ? { find:item, source:"Từ cấm QA" } : { ...item, source:"Từ cấm QA" });
-  const allowed = new Set((qaSettings?.allowedWords || []).map((item) => normalize(item)));
+  const allowed = new Set((qaSettings?.allowedWords || []).map((item) => String(item).normalize("NFC").toLocaleLowerCase("vi").trim()));
   const issues = [];
-  [...ancient, ...custom].filter((rule) => String(rule.find || "").trim()).forEach((rule) => {
+  const wordKey = (value) => String(value).normalize("NFC").toLocaleLowerCase("vi").trim();
+  const customKeys = new Set(custom.map((rule) => wordKey(rule.find || "")));
+  [...custom, ...ancient.filter((rule) => !customKeys.has(wordKey(rule.find)))].filter((rule) => String(rule.find || "").trim()).forEach((rule) => {
     const find = String(rule.find).trim();
-    if (allowed.has(normalize(find))) return;
+    if (rule.source !== "Từ cấm QA" && allowed.has(wordKey(find))) return;
     const regex = new RegExp(`(?<![\\p{L}\\p{N}])${escapeRegex(find)}(?![\\p{L}\\p{N}])`, "giu");
     for (const match of text.matchAll(regex)) {
       const start = match.index, end = start + match[0].length;
-      // The contextual scanner already confirmed this exact word here is
-      // the correct self/target term per the Ma Trận Xưng Hô — don't nag
-      // about it just for being an era-suspicious word in the abstract.
-      if (confirmedSpans?.has(`${start}:${end}`)) continue;
+      // Era vocabulary and explicit forbidden words are independent of dialogue attribution.
       issues.push(makeIssue(text, {
         type:"style", severity:"review", label: rule.source === "Bối cảnh cổ đại" ? "Xưng hô/từ hiện đại cần xem lại" : "Từ cấm cần xem lại",
         value:match[0], replacement:String(rule.replace || ""), suggestions:rule.replace ? [String(rule.replace)] : [],
@@ -529,14 +446,14 @@ function scanConfiguredWords(text, qaSettings, confirmedSpans) {
 
 export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], qaSettings = {} } = {}) {
   const source = String(text || "");
-  const { issues: addressIssues, confirmedSpans } = scanContextualAddress(source, pronounRules);
+  const { issues: addressIssues } = scanContextualAddress(source, pronounRules);
   const issues = [
+    ...scanConfiguredWords(source, qaSettings),
     ...scanGlossaryRules(source, glossaryTerms, pronounRules),
     ...scanCjk(source, glossaryTerms),
     ...scanEnglish(source, glossaryTerms),
     ...scanNames(source, glossaryTerms),
-    ...addressIssues,
-    ...scanConfiguredWords(source, qaSettings, confirmedSpans)
+    ...addressIssues
   ];
   const occupied = new Set();
   return issues.filter((issue) => {
