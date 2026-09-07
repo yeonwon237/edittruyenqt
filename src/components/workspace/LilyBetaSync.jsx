@@ -15,6 +15,8 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync, 
   const [selectedIds, setSelectedIds] = useState([]);
   const [range, setRange] = useState('');
   const [overwriteExisting, setOverwriteExisting] = useState(false);
+  const [includePronounRules, setIncludePronounRules] = useState(true);
+  const [includeContextualPronounRules, setIncludeContextualPronounRules] = useState(true);
   const [page, setPage] = useState(0);
   const pageSize = 100;
   const selectedSet = new Set(selectedIds);
@@ -76,7 +78,7 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync, 
       while (queue.length && mountedRef.current) {
         const chapterIds = queue.shift();
         try {
-          const result = await request({ action: 'batch', chapterIds, overwriteExisting });
+          const result = await request({ action: 'batch', chapterIds, overwriteExisting, includePronounRules, includeContextualPronounRules });
           setBetaBookId(result.betaBookId);
           setCounts(prev => ({ created: prev.created + result.results.filter(ch => ch.status === 'CREATED').length, updated: prev.updated + result.results.filter(ch => ['UPDATED', 'OVERWRITTEN'].includes(ch.status)).length, unchanged: prev.unchanged + result.results.filter(ch => ch.status === 'ALREADY_SYNCED').length }));
           setChapters(prev => prev && prev.map(ch => {
@@ -111,6 +113,17 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync, 
         <h2 id="lilybeta-sync-title" className="font-bold text-lg">Gửi bản edit sang LilyBeta</h2>
         <p className="text-sm">Nút gửi sẽ lưu chương hiện tại trước khi đồng bộ và chỉ gửi cột Bản edit. Xuất file vẫn dùng như trước.</p>
         <p className="text-xs text-slate-600">Gửi lại cùng chương không tạo bản trùng. Nếu nội dung đã sửa, bật tùy chọn ghi đè bên dưới để cập nhật lại chương tương ứng trên LilyBeta.</p>
+        <fieldset className="rounded-xl border border-violet-200 bg-violet-50/60 p-3 space-y-2">
+          <legend className="px-1 text-sm font-semibold text-violet-900">Quy tắc để LilyBeta đối chiếu</legend>
+          <label className="flex items-start gap-2 text-sm text-slate-800">
+            <input type="checkbox" checked={includePronounRules} onChange={e => setIncludePronounRules(e.target.checked)} disabled={busy} className="mt-1" />
+            <span><b>Bảng quy tắc xưng hô</b><span className="block text-xs text-slate-600">Gửi các nhóm từ gốc → từ thay thế đã lưu trong truyện.</span></span>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-slate-800">
+            <input type="checkbox" checked={includeContextualPronounRules} onChange={e => setIncludeContextualPronounRules(e.target.checked)} disabled={busy} className="mt-1" />
+            <span><b>Xưng hô đôi A–B</b><span className="block text-xs text-slate-600">Gửi cách A tự xưng và gọi B theo từng cặp người nói–người nghe.</span></span>
+          </label>
+        </fieldset>
         <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
           <input type="checkbox" checked={overwriteExisting} onChange={e => setOverwriteExisting(e.target.checked)} disabled={busy} className="mt-1" />
           <span><b>Cho phép ghi đè chương đã gửi</b><span className="block text-xs mt-0.5">Dùng khi bạn đã sửa Bản edit và muốn gửi lại. Nội dung hiện có của đúng chương đó trên LilyBeta sẽ được thay thế.</span></span>

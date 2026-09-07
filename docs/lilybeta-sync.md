@@ -2,6 +2,8 @@
 
 Adds **Gửi sang LilyBeta** beside existing save/export controls. Existing editor, draft/autosave, TXT/DOCX/JSON export, and Supabase ownership policies are unchanged. Source is the saved **Bản edit** column; empty edited chapters are reported, never silently replaced by raw text.
 
+The sync dialog can also include the story's general `pronoun_rules` table and the contextual A→B `contextual_pronoun_rules` matrix. Both are enabled by default and are sent as `book.pronounRules` and `book.contextualPronounRules` so LilyBeta can use them as beta-reading context. The server reads them from the caller-owned project via RLS; the browser never supplies rule contents directly.
+
 ## Server-only configuration (Vercel)
 
 - `LILYBETA_SYNC_SECRET`: new random secret, at least 32 chars, matching LilyBeta's `EDITOR_SYNC_SECRET`. Never prefix it with `VITE_`.

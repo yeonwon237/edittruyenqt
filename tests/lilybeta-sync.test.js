@@ -12,7 +12,7 @@ function fixture(overrides = {}) {
   const handler = createLilyBetaSyncHandler({ env: { ...env, ...overrides.env }, fetchImpl: async (url, options) => {
     calls.push({ url, options });
     if (overrides.respond) { const result = overrides.respond(url, options); if (result !== undefined) return result; }
-    const data = url.includes('/auth/') ? { id: userId } : url.includes('/projects?') ? [{ id: projectId, title: 'Project' }] : url.includes('/chapters?') ? [{ id: chapterId, title: 'Chương 1', chapter_order: 0.5, updated_date: updatedAt, edited: 'Một dòng.\r\n\r\nDòng hai.' }] : url.includes('/books/') ? { betaBookId: 'beta-book', chapters: [{ editorChapterId: chapterId, updatedAt, sourceChapterIndex: 1, syncStatus: 'SYNCED' }] } : { betaBookId: 'beta-book', results: [{ editorChapterId: chapterId, status: 'CREATED' }] };
+    const data = url.includes('/auth/') ? { id: userId } : url.includes('/projects?') ? [{ id: projectId, title: 'Project', pronoun_rules: [{ name: 'Đổi ngôi', from_words: ['Ta'], to_words: ['Tôi'] }], contextual_pronoun_rules: [{ speaker: 'A', listener: 'B', self_word: 'ta', target_word: 'ngươi', note: 'khi riêng tư' }] }] : url.includes('/chapters?') ? [{ id: chapterId, title: 'Chương 1', chapter_order: 0.5, updated_date: updatedAt, edited: 'Một dòng.\r\n\r\nDòng hai.' }] : url.includes('/books/') ? { betaBookId: 'beta-book', chapters: [{ editorChapterId: chapterId, updatedAt, sourceChapterIndex: 1, syncStatus: 'SYNCED' }] } : { betaBookId: 'beta-book', results: [{ editorChapterId: chapterId, status: 'CREATED' }] };
     return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
   } });
   async function request(body = { projectId, action: 'plan' }, headers = { authorization: 'Bearer synthetic-editor-session' }) {
@@ -55,12 +55,25 @@ test('batch reads only selected owned chapters and forwards original UUID identi
   assert.equal(payload.editorBookId, projectId); assert.equal(payload.chapters[0].editorChapterId, chapterId);
   assert.equal(payload.chapters[0].chapterIndex, 1); // Fractional chapter_order is not an ID/index.
   assert.equal(payload.overwriteExisting, false);
+  assert.deepEqual(payload.book.pronounRules, [{ name: 'Đổi ngôi', from_words: ['Ta'], to_words: ['Tôi'] }]);
+  assert.deepEqual(payload.book.contextualPronounRules, [{ speaker: 'A', listener: 'B', self_word: 'ta', target_word: 'ngươi', note: 'khi riêng tư' }]);
   assert.deepEqual(payload.chapters[0].paragraphs, ['Một dòng.', 'Dòng hai.']);
   assert.equal(payload.chapters[0].contentHash, chapterHash('Chương 1', ['Một dòng.', 'Dòng hai.']));
   assert.equal(out.options.headers.Authorization, `Bearer ${env.LILYBETA_SYNC_SECRET}`);
   assert.ok(!out.options.body.includes('synthetic-editor-session'));
   assert.ok(f.calls.filter(c => c.url.startsWith(env.SUPABASE_URL)).every(c => c.options.headers.Authorization === 'Bearer synthetic-editor-session'));
   assert.ok(!f.calls.some(c => c.url.includes('evil.invalid')));
+});
+test('pronoun context can be omitted independently and option types are validated', async () => {
+  const f = fixture();
+  assert.equal((await f.request({ projectId, action: 'batch', chapterIds: [chapterId], includePronounRules: false, includeContextualPronounRules: true })).status, 200);
+  const book = JSON.parse(f.calls.find(c => c.url.endsWith('/sync')).options.body).book;
+  assert.equal('pronounRules' in book, false);
+  assert.equal(book.contextualPronounRules[0].speaker, 'A');
+
+  const invalid = fixture();
+  assert.equal((await invalid.request({ projectId, action: 'batch', chapterIds: [chapterId], includePronounRules: 'yes' })).status, 400);
+  assert.ok(!invalid.calls.some(c => c.url.endsWith('/sync')));
 });
 test('explicit overwrite option is validated and forwarded to LilyBeta', async () => {
   const f = fixture();
