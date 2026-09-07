@@ -75,6 +75,15 @@ test('pronoun context can be omitted independently and option types are validate
   assert.equal((await invalid.request({ projectId, action: 'batch', chapterIds: [chapterId], includePronounRules: 'yes' })).status, 400);
   assert.ok(!invalid.calls.some(c => c.url.endsWith('/sync')));
 });
+test('rules-only action sends no chapter bodies and does not require overwrite', async () => {
+  const f = fixture();
+  assert.equal((await f.request({ projectId, action: 'rules', includePronounRules: true, includeContextualPronounRules: true })).status, 200);
+  const payload = JSON.parse(f.calls.find(c => c.url.endsWith('/sync')).options.body);
+  assert.equal(payload.rulesOnly, true);
+  assert.deepEqual(payload.chapters, []);
+  assert.equal(payload.overwriteExisting, undefined);
+  assert.ok(!f.calls.some(c => c.url.includes('/chapters?')));
+});
 test('explicit overwrite option is validated and forwarded to LilyBeta', async () => {
   const f = fixture();
   assert.equal((await f.request({ projectId, action: 'batch', chapterIds: [chapterId], overwriteExisting: true })).status, 200);

@@ -21,6 +21,7 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync, 
   const pageSize = 100;
   const selectedSet = new Set(selectedIds);
   const [counts, setCounts] = useState({ created: 0, updated: 0, unchanged: 0 });
+  const [rulesUpdated, setRulesUpdated] = useState(false);
   const abortRef = useRef(null);
   const busyRef = useRef(false);
   const mountedRef = useRef(true);
@@ -58,7 +59,7 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync, 
   async function run(mode, retryBatches) {
     if (busyRef.current) return;
     busyRef.current = true;
-    setBusy(true); setError(''); setFailures([]); setConflicts([]); setCounts({ created: 0, updated: 0, unchanged: 0 }); setProgress({ done: 0, total: 0 });
+    setBusy(true); setError(''); setRulesUpdated(false); setFailures([]); setConflicts([]); setCounts({ created: 0, updated: 0, unchanged: 0 }); setProgress({ done: 0, total: 0 });
     const failed = [];
     try {
       // Dedicated save action propagates errors; existing autosave/export behavior is untouched.
@@ -105,6 +106,15 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync, 
     } catch (err) { setError(err.message); }
     finally { setFailures(failed); setBusy(false); busyRef.current = false; }
   }
+  async function sendRulesOnly() {
+    if (busyRef.current) return;
+    busyRef.current = true; setBusy(true); setError(''); setRulesUpdated(false);
+    try {
+      await request({ action: 'rules', includePronounRules, includeContextualPronounRules });
+      if (mountedRef.current) setRulesUpdated(true);
+    } catch (err) { setError(err.name === 'AbortError' ? 'Quá thời gian chờ gửi quy tắc.' : err.message); }
+    finally { setBusy(false); busyRef.current = false; }
+  }
 
   return <>
     <button type="button" onClick={() => setOpen(true)} className={triggerClassName || "px-3 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold"}>{triggerIcon}{busy ? `Đang gửi ${progress.done}/${progress.total}` : 'Gửi sang LilyBeta'}</button>
@@ -124,6 +134,8 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync, 
             <span><b>Xưng hô đôi A–B</b><span className="block text-xs text-slate-600">Gửi cách A tự xưng và gọi B theo từng cặp người nói–người nghe.</span></span>
           </label>
         </fieldset>
+        <button disabled={busy || (!includePronounRules && !includeContextualPronounRules)} onClick={sendRulesOnly} className="w-full rounded-xl border border-violet-300 bg-violet-100 p-2.5 text-sm font-bold text-violet-800 disabled:opacity-40">Chỉ gửi bảng quy tắc</button>
+        {rulesUpdated && <p role="status" className="text-sm font-medium text-emerald-700">Đã cập nhật bảng quy tắc trên LilyBeta, không gửi chương.</p>}
         <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
           <input type="checkbox" checked={overwriteExisting} onChange={e => setOverwriteExisting(e.target.checked)} disabled={busy} className="mt-1" />
           <span><b>Cho phép ghi đè chương đã gửi</b><span className="block text-xs mt-0.5">Dùng khi bạn đã sửa Bản edit và muốn gửi lại. Nội dung hiện có của đúng chương đó trên LilyBeta sẽ được thay thế.</span></span>

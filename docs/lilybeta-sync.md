@@ -4,6 +4,8 @@ Adds **Gửi sang LilyBeta** beside existing save/export controls. Existing edit
 
 The sync dialog can also include the story's general `pronoun_rules` table and the contextual A→B `contextual_pronoun_rules` matrix. Both are enabled by default and are sent as `book.pronounRules` and `book.contextualPronounRules` so LilyBeta can use them as beta-reading context. The server reads them from the caller-owned project via RLS; the browser never supplies rule contents directly.
 
+**Chỉ gửi bảng quy tắc** updates those book-level tables without reading or sending any chapter body. The book must already have an Editor→LilyBeta link created by an earlier chapter sync.
+
 ## Server-only configuration (Vercel)
 
 - `LILYBETA_SYNC_SECRET`: new random secret, at least 32 chars, matching LilyBeta's `EDITOR_SYNC_SECRET`. Never prefix it with `VITE_`.

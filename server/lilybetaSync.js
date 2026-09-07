@@ -31,13 +31,24 @@ export function createLilyBetaSyncHandler({ env = process.env, fetchImpl = fetch
       const user = await jsonFetch(`${supabaseUrl}/auth/v1/user`, { headers: supaHeaders });
       if (!user?.id || !allowed.has(user.id)) throw fail(403, 'Tài khoản này chưa được cấp quyền gửi sang LilyBeta', 'SYNC_FORBIDDEN');
       const { projectId, action, chapterIds, overwriteExisting = false, includePronounRules = true, includeContextualPronounRules = true } = req.body || {};
-      if (!uuid.test(projectId || '') || !['plan', 'batch'].includes(action)) throw fail(400, 'Yêu cầu sync không hợp lệ', 'INVALID_PAYLOAD');
+      if (!uuid.test(projectId || '') || !['plan', 'batch', 'rules'].includes(action)) throw fail(400, 'Yêu cầu sync không hợp lệ', 'INVALID_PAYLOAD');
       if (typeof overwriteExisting !== 'boolean') throw fail(400, 'Tùy chọn ghi đè không hợp lệ', 'INVALID_PAYLOAD');
       if (typeof includePronounRules !== 'boolean' || typeof includeContextualPronounRules !== 'boolean') throw fail(400, 'Tùy chọn gửi quy tắc xưng hô không hợp lệ', 'INVALID_PAYLOAD');
       if (action === 'batch' && (!Array.isArray(chapterIds) || chapterIds.length < 1 || chapterIds.length > 25 || chapterIds.some(id => !uuid.test(id)) || new Set(chapterIds).size !== chapterIds.length)) throw fail(400, 'Batch cần 1–25 ID chương khác nhau', 'INVALID_BATCH');
       const projects = await jsonFetch(`${supabaseUrl}/rest/v1/projects?select=id,title,pronoun_rules,contextual_pronoun_rules&${new URLSearchParams({ id: `eq.${projectId}`, user_id: `eq.${user.id}` })}`, { headers: supaHeaders });
       if (!projects.length) throw fail(404, 'Không tìm thấy truyện thuộc tài khoản của bạn', 'PROJECT_NOT_FOUND');
       const project = projects[0];
+      const betaHeaders = { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' };
+      const integrationBase = `${betaUrl.origin}/api/integrations/editor`;
+      const ruleBook = { title: project.title };
+      if (includePronounRules) ruleBook.pronounRules = Array.isArray(project.pronoun_rules) ? project.pronoun_rules : [];
+      if (includeContextualPronounRules) ruleBook.contextualPronounRules = Array.isArray(project.contextual_pronoun_rules) ? project.contextual_pronoun_rules : [];
+      if (action === 'rules') {
+        const payload = JSON.stringify({ editorBookId: projectId, rulesOnly: true, book: ruleBook, chapters: [] });
+        if (Buffer.byteLength(payload) > 1_900_000) throw fail(413, 'Bảng quy tắc quá lớn để gửi', 'RULES_TOO_LARGE');
+        const result = await jsonFetch(`${integrationBase}/sync`, { method: 'POST', headers: betaHeaders, body: payload }, 30_000);
+        return res.status(200).json(result);
+      }
       // RLS uses the caller's JWT, not a service role. Explicit owner filters are defense in depth.
       const metadata = [];
       for (let offset = 0; offset < 100_000; offset += 500) {
@@ -47,8 +58,6 @@ export function createLilyBetaSyncHandler({ env = process.env, fetchImpl = fetch
         if (rows.length < 500) break;
         if (offset === 99_500) throw fail(400, 'Truyện vượt giới hạn đồng bộ');
       }
-      const betaHeaders = { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' };
-      const integrationBase = `${betaUrl.origin}/api/integrations/editor`;
       if (action === 'plan') {
         const state = await jsonFetch(`${integrationBase}/books/${encodeURIComponent(projectId)}`, { headers: betaHeaders });
         const synced = new Map(state.chapters.map(ch => [ch.editorChapterId, ch]));
@@ -68,9 +77,7 @@ export function createLilyBetaSyncHandler({ env = process.env, fetchImpl = fetch
         const title = ch.title.trim();
         return { editorChapterId: ch.id, chapterIndex: positions.get(ch.id), title, paragraphs, updatedAt: ch.updated_date, contentHash: chapterHash(title, paragraphs) };
       });
-      const book = { title: project.title, totalChapters: metadata.length };
-      if (includePronounRules) book.pronounRules = Array.isArray(project.pronoun_rules) ? project.pronoun_rules : [];
-      if (includeContextualPronounRules) book.contextualPronounRules = Array.isArray(project.contextual_pronoun_rules) ? project.contextual_pronoun_rules : [];
+      const book = { ...ruleBook, totalChapters: metadata.length };
       const payload = JSON.stringify({ editorBookId: projectId, overwriteExisting, book, chapters });
       if (Buffer.byteLength(payload) > 1_900_000) throw fail(413, 'Batch quá lớn. Hãy chia nhỏ batch.', 'BATCH_TOO_LARGE');
       const result = await jsonFetch(`${integrationBase}/sync`, { method: 'POST', headers: betaHeaders, body: payload }, 30_000);
