@@ -12,7 +12,7 @@ function fixture(overrides = {}) {
   const handler = createLilyBetaSyncHandler({ env: { ...env, ...overrides.env }, fetchImpl: async (url, options) => {
     calls.push({ url, options });
     if (overrides.respond) { const result = overrides.respond(url, options); if (result !== undefined) return result; }
-    const data = url.includes('/auth/') ? { id: userId } : url.includes('/projects?') ? [{ id: projectId, title: 'Project', pronoun_rules: [{ name: 'Đổi ngôi', from_words: ['Ta'], to_words: ['Tôi'] }], contextual_pronoun_rules: [{ speaker: 'A', listener: 'B', self_word: 'ta', target_word: 'ngươi', note: 'khi riêng tư' }] }] : url.includes('/chapters?') ? [{ id: chapterId, title: 'Chương 1', chapter_order: 0.5, updated_date: updatedAt, edited: 'Một dòng.\r\n\r\nDòng hai.' }] : url.includes('/books/') ? { betaBookId: 'beta-book', chapters: [{ editorChapterId: chapterId, updatedAt, sourceChapterIndex: 1, syncStatus: 'SYNCED' }] } : { betaBookId: 'beta-book', results: [{ editorChapterId: chapterId, status: 'CREATED' }] };
+    const data = url.includes('/auth/') ? { id: userId } : url.includes('/projects?') ? [{ id: projectId, title: 'Project', pronoun_rules: [{ name: 'Đổi ngôi', from_words: ['Ta'], to_words: ['Tôi'] }], contextual_pronoun_rules: [{ speaker: 'A', listener: 'B', self_word: 'ta', target_word: 'ngươi', note: 'khi riêng tư' }], style_toggles: { story_memory: { narrativeRules: [{ character: 'A', pronoun: 'nàng', note: 'lời dẫn' }] } } }] : url.includes('/chapters?') ? [{ id: chapterId, title: 'Chương 1', chapter_order: 0.5, updated_date: updatedAt, edited: 'Một dòng.\r\n\r\nDòng hai.' }] : url.includes('/books/') ? { betaBookId: 'beta-book', chapters: [{ editorChapterId: chapterId, updatedAt, sourceChapterIndex: 1, syncStatus: 'SYNCED' }] } : { betaBookId: 'beta-book', results: [{ editorChapterId: chapterId, status: 'CREATED' }] };
     return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
   } });
   async function request(body = { projectId, action: 'plan' }, headers = { authorization: 'Bearer synthetic-editor-session' }) {
@@ -56,6 +56,7 @@ test('batch reads only selected owned chapters and forwards original UUID identi
   assert.equal(payload.chapters[0].chapterIndex, 1); // Fractional chapter_order is not an ID/index.
   assert.equal(payload.overwriteExisting, false);
   assert.deepEqual(payload.book.pronounRules, [{ name: 'Đổi ngôi', from_words: ['Ta'], to_words: ['Tôi'] }]);
+  assert.deepEqual(payload.book.narrativePronounRules, [{ character: 'A', pronoun: 'nàng', note: 'lời dẫn' }]);
   assert.deepEqual(payload.book.contextualPronounRules, [{ speaker: 'A', listener: 'B', self_word: 'ta', target_word: 'ngươi', note: 'khi riêng tư' }]);
   assert.deepEqual(payload.chapters[0].paragraphs, ['Một dòng.', 'Dòng hai.']);
   assert.equal(payload.chapters[0].contentHash, chapterHash('Chương 1', ['Một dòng.', 'Dòng hai.']));

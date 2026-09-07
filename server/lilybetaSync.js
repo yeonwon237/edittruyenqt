@@ -35,13 +35,14 @@ export function createLilyBetaSyncHandler({ env = process.env, fetchImpl = fetch
       if (typeof overwriteExisting !== 'boolean') throw fail(400, 'Tùy chọn ghi đè không hợp lệ', 'INVALID_PAYLOAD');
       if (typeof includePronounRules !== 'boolean' || typeof includeContextualPronounRules !== 'boolean') throw fail(400, 'Tùy chọn gửi quy tắc xưng hô không hợp lệ', 'INVALID_PAYLOAD');
       if (action === 'batch' && (!Array.isArray(chapterIds) || chapterIds.length < 1 || chapterIds.length > 25 || chapterIds.some(id => !uuid.test(id)) || new Set(chapterIds).size !== chapterIds.length)) throw fail(400, 'Batch cần 1–25 ID chương khác nhau', 'INVALID_BATCH');
-      const projects = await jsonFetch(`${supabaseUrl}/rest/v1/projects?select=id,title,pronoun_rules,contextual_pronoun_rules&${new URLSearchParams({ id: `eq.${projectId}`, user_id: `eq.${user.id}` })}`, { headers: supaHeaders });
+      const projects = await jsonFetch(`${supabaseUrl}/rest/v1/projects?select=id,title,pronoun_rules,contextual_pronoun_rules,style_toggles&${new URLSearchParams({ id: `eq.${projectId}`, user_id: `eq.${user.id}` })}`, { headers: supaHeaders });
       if (!projects.length) throw fail(404, 'Không tìm thấy truyện thuộc tài khoản của bạn', 'PROJECT_NOT_FOUND');
       const project = projects[0];
       const betaHeaders = { Authorization: `Bearer ${secret}`, 'Content-Type': 'application/json' };
       const integrationBase = `${betaUrl.origin}/api/integrations/editor`;
       const ruleBook = { title: project.title };
       if (includePronounRules) ruleBook.pronounRules = Array.isArray(project.pronoun_rules) ? project.pronoun_rules : [];
+      if (includePronounRules) ruleBook.narrativePronounRules = Array.isArray(project.style_toggles?.story_memory?.narrativeRules) ? project.style_toggles.story_memory.narrativeRules : [];
       if (includeContextualPronounRules) ruleBook.contextualPronounRules = Array.isArray(project.contextual_pronoun_rules) ? project.contextual_pronoun_rules : [];
       if (action === 'rules') {
         const payload = JSON.stringify({ editorBookId: projectId, rulesOnly: true, book: ruleBook, chapters: [] });

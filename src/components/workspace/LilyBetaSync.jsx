@@ -127,7 +127,7 @@ export default function LilyBetaSync({ projectId, currentChapterId, beforeSync, 
           <legend className="px-1 text-sm font-semibold text-violet-900">Quy tắc để LilyBeta đối chiếu</legend>
           <label className="flex items-start gap-2 text-sm text-slate-800">
             <input type="checkbox" checked={includePronounRules} onChange={e => setIncludePronounRules(e.target.checked)} disabled={busy} className="mt-1" />
-            <span><b>Bảng quy tắc xưng hô</b><span className="block text-xs text-slate-600">Gửi các nhóm từ gốc → từ thay thế đã lưu trong truyện.</span></span>
+            <span><b>Ngôi lời dẫn và quy tắc chung</b><span className="block text-xs text-slate-600">Gửi ngôi kể của từng nhân vật cùng các nhóm từ gốc → từ thay thế.</span></span>
           </label>
           <label className="flex items-start gap-2 text-sm text-slate-800">
             <input type="checkbox" checked={includeContextualPronounRules} onChange={e => setIncludeContextualPronounRules(e.target.checked)} disabled={busy} className="mt-1" />
