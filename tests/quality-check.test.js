@@ -9,8 +9,18 @@ test('nearby characters do not establish dialogue participants', () => {
   const text = 'A Trì nhìn giỏ đồ Thu Sương mang đến, không khỏi bật cười: “Thu Sương luôn là người của ta mà! Nương nương ngay cả nàng cũng tra xét sao?”\nCuối cùng, Đỗ Chiêu Ly mới gật đầu, nói: “Ta tin tưởng ngươi.”';
   assert.deepEqual(runQualityCheck(text, { pronounRules: [rule] }), []);
 });
-test('requires explicit listener even with only one matrix rule', () => {
-  assert.deepEqual(runQualityCheck('Thu Sương nói: “Tôi hiểu rồi.”', { pronounRules: [rule] }), []);
+test('a lone speaker rule with no explicit listener still resolves, but only at low confidence', () => {
+  // Was strictly "requires explicit listener" — real Vietnamese web-novel
+  // dialogue almost never tags "với <listener>" explicitly, so that left
+  // the story-wide QA scanner unable to seed a session from a huge share of
+  // real chapters. Since Thu Sương has exactly one rule in the whole
+  // matrix, "Thu Sương nói:" is still usable evidence — just weak evidence
+  // (she could in principle be addressing someone outside the matrix
+  // entirely), so it resolves at "thấp" rather than being silently dropped.
+  const issues = runQualityCheck('Thu Sương nói: “Tôi hiểu rồi.”', { pronounRules: [rule] });
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].replacement, 'ta');
+  assert.equal(issues[0].confidence, 'thấp');
 });
 test('correct self reference after possessive cue is preserved', () => {
   assert.deepEqual(runQualityCheck('Thu Sương nói với A Trì: “Đó là người của ta.”', { pronounRules: [rule] }), []);

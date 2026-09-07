@@ -14,6 +14,8 @@
     "test:chapter-stats": "node --test tests/chapter-edit-stats.test.js",
     "test:pronoun-inventory": "node --test tests/pronoun-inventory.test.js",
     "test:pronoun-discovery": "node --test tests/pronoun-discovery.test.js",
+    "test:narrative-pronoun": "node --test tests/narrative-pronoun-check.test.js",
+    "test:dialogue-session": "node --test tests/dialogue-session-check.test.js",
     "test:glossary": "node --test tests/glossary-discovery.test.js tests/qt-glossary.test.js tests/hanviet-vocabulary.test.js"
   },
   "dependencies": {

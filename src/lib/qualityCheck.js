@@ -128,6 +128,152 @@ function resolveSpeakerAndRule(text, quoteStart, quoteEnd, validRules) {
   return { speaker: rule.speaker.trim(), speakerRules: [rule], rule };
 }
 
+const CONFIDENCE_RANK = { "cao": 3, "trung bình": 2, "thấp": 1 };
+const weaker = (a, b) => (CONFIDENCE_RANK[a] <= CONFIDENCE_RANK[b] ? a : b);
+
+// Best rule for an already-known (speaker, listener) pair: an exact
+// listener match wins; otherwise fall back to that speaker's default rule
+// ("Mọi người khác" — empty/"*" listener), same priority the matrix UI uses.
+function pickRule(validRules, speakerName, listenerName) {
+  const bySpeaker = validRules.filter((r) => r.speaker.trim() === speakerName);
+  const exact = bySpeaker.find((r) => r.listener?.trim() === listenerName);
+  if (exact) return exact;
+  return bySpeaker.find((r) => !r.listener?.trim() || r.listener.trim() === "*") || null;
+}
+
+// Same "Name + speech verb + :" shape resolveSpeakerAndRule looks for, but
+// without requiring "với <listener>" — used to identify WHO is speaking
+// when there's no explicit listener named.
+function findLooseSpeakerTag(before, candidateNames) {
+  const matches = candidateNames.filter((name) => {
+    const pattern = new RegExp("(?:^|[.!?]\\s*)" + escapeRegex(name) + "\\s+(?:" + SPEECH_VERBS + ")\\s*:\\s*$", "iu");
+    return pattern.test(before);
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+// Real Vietnamese web-novel dialogue overwhelmingly tags a quote with an
+// ACTION BEAT, not a "Name verb:" line — "Kỷ Khê ôm chặt Trịnh Nặc, "..."",
+// comma before the quote, no speech verb anywhere. findLooseSpeakerTag (and
+// the original colon-anchored resolveSpeakerAndRule) never match this at
+// all, which is why sessions rarely got seeded from real chapters. This
+// finds the sole registered name mentioned in `before` — the whole action
+// beat, not just its last clause — as long as it isn't the grammatical
+// OBJECT of what's happening (reusing looksLikeObjectMention, the same
+// subject-preference check the narrator-pronoun scanner uses). Two or more
+// registered names in the beat is genuinely ambiguous and abstains, same as
+// everywhere else in this file.
+function findActionBeatSpeaker(before, candidateNames) {
+  const matches = candidateNames
+    .map((name) => {
+      const found = [...before.matchAll(new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, "gu"))];
+      return found.length ? { name, idx: found.at(-1).index } : null;
+    })
+    .filter(Boolean);
+  if (matches.length !== 1) return null;
+  return looksLikeObjectMention(before, matches[0].idx) ? null : matches[0].name;
+}
+
+// Given a candidate speaker name (from a tag or action beat), who are they
+// talking to? Prefers the active session (same pair if the speaker repeats,
+// swapped if the other party replies) — resolved this way, confidence is
+// capped by whichever is weaker: the tag's own strength or the session's.
+// Without a session, only resolvable if that speaker has exactly one
+// listener across the whole matrix (a single specific rule, or a lone
+// default "Mọi người khác") — anything more and there's no way to tell
+// which listener without a session, so it abstains rather than guessing;
+// when it does resolve this way it's capped at "thấp" regardless of the
+// tag's own strength, since there's no session corroborating it at all.
+function resolveListenerForSpeaker(speakerName, activeSession, validRules, tagConfidence) {
+  if (activeSession && (speakerName === activeSession.speaker || speakerName === activeSession.listener)) {
+    const listener = speakerName === activeSession.speaker ? activeSession.listener : activeSession.speaker;
+    return { listener, rule: pickRule(validRules, speakerName, listener), confidence: weaker(tagConfidence, activeSession.confidence) };
+  }
+  const speakerRules = validRules.filter((r) => r.speaker.trim() === speakerName);
+  const distinctListeners = [...new Set(speakerRules.map((r) => r.listener?.trim() || "*"))];
+  if (distinctListeners.length !== 1) return null;
+  return { listener: distinctListeners[0] === "*" ? "" : distinctListeners[0], rule: speakerRules[0], confidence: "thấp" };
+}
+
+// Resolves a quote's speaker/listener the way resolveSpeakerAndRule does,
+// but keeps a running "conversation session" across quotes in a chapter so
+// later turns don't need to repeat a full "X nói với Y:" tag — real
+// Vietnamese web-novel dialogue almost never does. Four confidence tiers,
+// weakest anchor wins throughout (a resolution built on a weaker session
+// never comes out stronger than that session — uncertainty doesn't heal
+// itself going forward):
+//
+// "cao" — explicit "<Speaker> <verb> với <Listener>:" right before the
+// quote (resolveSpeakerAndRule, unchanged). Re-anchors the session.
+//
+// "trung bình" — a tag names a speaker without "với <listener>" (e.g. just
+// "Trịnh Nặc đáp:"). The listener comes from the active session, or — with
+// no session — only if that speaker has just one possible listener anyway.
+//
+// "thấp" — either (a) an action beat names the sole, non-object subject
+// without any speech verb at all (findActionBeatSpeaker), or (b) no name is
+// mentioned at all but a session is active, so the turn is assumed to
+// alternate to the other party. Both are the riskiest tier — a third
+// character cutting in, or the same speaker continuing over a paragraph
+// break, can fool either — so every issue built on "thấp" is labeled
+// accordingly and never auto-applied in bulk.
+//
+// The session resets after a paragraph gap (2+ newlines) since that's the
+// cheapest available signal for "the scene may have moved on" — no scene
+// boundary detector exists to do better.
+function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) {
+  const before = text.slice(text.lastIndexOf("\n", quoteStart - 1) + 1, quoteStart - 1);
+  const gapBeforeQuote = text.slice(session?.end ?? 0, quoteStart);
+  const activeSession = session && !/\n\s*\n/.test(gapBeforeQuote) ? session : null;
+
+  const explicit = resolveSpeakerAndRule(text, quoteStart, quoteEnd, validRules);
+  if (explicit) {
+    const listener = explicit.rule?.listener?.trim() || "";
+    return { speaker: explicit.speaker, listener, rule: explicit.rule, speakerRules: explicit.speakerRules, confidence: "cao", end: quoteEnd };
+  }
+
+  const names = [...new Set(validRules.flatMap((r) => [r.speaker.trim(), r.listener?.trim()]).filter((n) => n && n !== "*"))];
+
+  const looseSpeaker = findLooseSpeakerTag(before, names);
+  if (looseSpeaker) {
+    const resolvedListener = resolveListenerForSpeaker(looseSpeaker, activeSession, validRules, "trung bình");
+    if (resolvedListener) {
+      const speakerRules = validRules.filter((r) => r.speaker.trim() === looseSpeaker);
+      return { speaker: looseSpeaker, listener: resolvedListener.listener, rule: resolvedListener.rule, speakerRules, confidence: resolvedListener.confidence, end: quoteEnd };
+    }
+  }
+
+  const beatSpeaker = !looseSpeaker ? findActionBeatSpeaker(before, names) : null;
+  if (beatSpeaker) {
+    const resolvedListener = resolveListenerForSpeaker(beatSpeaker, activeSession, validRules, "thấp");
+    if (resolvedListener) {
+      const speakerRules = validRules.filter((r) => r.speaker.trim() === beatSpeaker);
+      return { speaker: beatSpeaker, listener: resolvedListener.listener, rule: resolvedListener.rule, speakerRules, confidence: resolvedListener.confidence, end: quoteEnd };
+    }
+  }
+
+  // No usable name at all — assume the turn alternates, but only if the
+  // action beat doesn't name a THIRD registered character (that's still a
+  // real signal something may have changed) and only when a session exists
+  // to alternate from in the first place.
+  if (activeSession && !looseSpeaker && !beatSpeaker) {
+    const introducesOther = names.some((name) =>
+      name !== activeSession.speaker && name !== activeSession.listener &&
+      new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, "u").test(before)
+    );
+    if (!introducesOther) {
+      const speaker = activeSession.listener;
+      const listener = activeSession.speaker;
+      const rule = pickRule(validRules, speaker, listener);
+      const speakerRules = validRules.filter((r) => r.speaker.trim() === speaker);
+      const confidence = weaker("thấp", activeSession.confidence);
+      return { speaker, listener, rule, speakerRules, confidence, end: quoteEnd };
+    }
+  }
+
+  return null;
+}
+
 // Is the word at [relativeStart, relativeEnd) inside `quoteText` the speaker
 // referring to themself ("self"), addressing the listener ("target"), or
 // unclear ("unknown" — e.g. third-person narration bleeding into the quote)?
@@ -342,14 +488,16 @@ function scanContextualAddress(text, rules) {
   // era mismatch on a word the matrix just confirmed is the right one here.
   const confirmedSpans = new Set();
   const quoteRegex = /[“"]([^”"]+)[”"]/gu;
+  let session = null;
   for (const quoteMatch of text.matchAll(quoteRegex)) {
     const quoteText = quoteMatch[1];
     if (!quoteText.trim()) continue;
     const quoteStart = quoteMatch.index + 1;
     const quoteEnd = quoteStart + quoteText.length;
-    const resolved = resolveSpeakerAndRule(text, quoteStart, quoteEnd, validRules);
+    const resolved = resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session);
     if (!resolved) continue;
-    const { speaker, speakerRules, rule } = resolved;
+    session = resolved;
+    const { speaker, speakerRules, rule, confidence } = resolved;
     const speakerWords = [...new Set(speakerRules.flatMap((item) => [item.self_word.trim(), item.target_word.trim()]).filter(Boolean))];
     const candidateWords = [...new Set([...speakerWords, ...SELF_PRONOUNS, ...TARGET_ADDRESS_TERMS])];
 
@@ -390,8 +538,8 @@ function scanContextualAddress(text, rules) {
           seen.add(dedupeKey);
           issues.push(makeIssue(text, {
             type: "pronoun", severity: "review", label: "Xưng hô cần xem lại",
-            value: found, replacement: "", suggestions: speakerWords,
-            detail: `Đã nhận ra ${speaker} đang nói, nhưng chưa xác định được người nghe nên chưa chắc từ nào đúng ở đây.`,
+            value: found, replacement: "", suggestions: speakerWords, confidence,
+            detail: `Đã nhận ra ${speaker} đang nói, nhưng chưa xác định được người nghe nên chưa chắc từ nào đúng ở đây (độ tin cậy: ${confidence}).`,
             start, end,
           }));
           continue;
@@ -403,16 +551,171 @@ function scanContextualAddress(text, rules) {
         const listenerLabel = rule.listener?.trim() && rule.listener.trim() !== "*" ? rule.listener.trim() : "mọi người";
         issues.push(makeIssue(text, {
           type: "pronoun", severity: "review", label: "Xưng hô cần xem lại",
-          value: found, replacement: expected, suggestions: [...new Set([expected, ...speakerWords])],
-          detail: role === "self"
+          value: found, replacement: expected, suggestions: [...new Set([expected, ...speakerWords])], confidence,
+          detail: (role === "self"
             ? `${speaker} nên tự xưng là "${expected}" khi nói với ${listenerLabel} (đang thấy "${found}").`
-            : `${speaker} nên gọi ${listenerLabel} là "${expected}" (đang thấy "${found}").`,
+            : `${speaker} nên gọi ${listenerLabel} là "${expected}" (đang thấy "${found}").`) + ` (độ tin cậy: ${confidence})`,
           start, end,
         }));
       }
     });
   }
   return { issues, confirmedSpans };
+}
+
+// Common Vietnamese narrative nouns that typically take a possessive pronoun
+// right after them ("ánh mắt cô", "giọng nói nàng") — one of the two strict
+// syntactic anchors scanNarrativeAddress requires before it will attribute a
+// narrator pronoun to a character. Deliberately a closed, conservative list:
+// an unlisted construction abstains rather than guesses.
+const POSSESSIVE_ANCHOR_NOUNS = [
+  "ánh mắt", "khóe mắt", "đôi mắt", "gương mặt", "khuôn mặt", "sắc mặt",
+  "giọng nói", "khóe môi", "vành môi", "đôi môi", "nụ cười", "nét mặt",
+  "mái tóc", "bờ vai", "dáng người", "thân hình", "bàn tay", "ngón tay",
+  "cổ tay", "trong lòng", "trong tim", "trong đầu", "trong mắt", "trái tim",
+  "tâm trí", "nội tâm", "cõi lòng",
+];
+
+// Verbs/prepositions whose following NP is typically the grammatical OBJECT
+// (or another oblique role) of a Vietnamese clause, not its subject —
+// "Kỷ Khê nhìn Trịnh Nặc" puts Trịnh Nặc here. Used to down-rank a nearby
+// name as an unlikely antecedent, approximating Hobbs/Centering theory's
+// "subject preferred over object" salience rule from Vietnamese's fairly
+// regular SVO surface order, since no dependency parser is available to
+// read the real grammatical role from. Deliberately closed and short: a
+// preceder this list doesn't recognize just abstains, same as before.
+const OBJECT_MARKING_PRECEDERS = [
+  "với", "cho", "của", "cùng", "về phía", "đến bên", "cạnh", "bên",
+  "nhìn", "ngắm", "gọi", "hỏi", "bảo", "ôm", "nắm", "kéo", "đẩy", "lấy",
+  "bế", "hôn", "chạm", "sờ", "nhớ", "đợi", "chờ", "tìm", "dõi theo", "theo dõi",
+];
+
+function findNamesIn(segment, names) {
+  return names
+    .flatMap((name) => {
+      const regex = new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, "gu");
+      return [...segment.matchAll(regex)].map((m) => ({ name, start: m.index, end: m.index + name.length }));
+    })
+    .sort((a, b) => a.start - b.start);
+}
+
+// Is the name mention starting at `start` in `segment` immediately preceded
+// (a short lookback, ignoring only trailing whitespace — a trailing comma
+// still blocks the match, so "..., Tên" isn't mistaken for "...với Tên")
+// by one of OBJECT_MARKING_PRECEDERS?
+function looksLikeObjectMention(segment, start) {
+  const before = segment.slice(Math.max(0, start - 20), start).replace(/\s+$/, "").toLocaleLowerCase("vi");
+  return OBJECT_MARKING_PRECEDERS.some((word) => before.endsWith(word));
+}
+
+// Which single registered character does the narrator pronoun at `start`
+// resume/attach to, and how sure are we? Returns { name, confidence } or
+// null (abstain — still possible, e.g. no registered name anywhere nearby).
+// Three confidence tiers, each a progressively less certain anchor:
+//
+// "cao" — the possessive/comma anchor ("<Name> ... <anchor noun/,>
+// <PRONOUN>") with exactly ONE registered name in the sentence, or the
+// sentence-initial resumptive ("<Name> [...]. <PRONOUN> ...") with exactly
+// one name in the PREVIOUS sentence. Nothing in real-chapter testing has
+// contradicted these.
+//
+// "trung bình" — sentence-initial resumptive when the PREVIOUS sentence
+// names exactly two characters: Centering theory's "continued topic is the
+// previous clause's subject" picks whichever of the two wasn't a
+// grammatical object (looksLikeObjectMention); abstains if both or neither
+// qualify. Only ever chooses between the sentence's own two names.
+//
+// "thấp" — the possessive/comma anchor binding to the NEAREST registered
+// name even when an earlier, different registered name also appears in the
+// sentence (skipped only if that nearest name itself looks like a
+// grammatical object). Real-chapter testing caught this guessing wrong:
+// "ánh mắt Trình Nặc ... rơi trên khuôn mặt cô" bound "khuôn mặt" to the
+// nearest name (Trịnh Nặc) when it actually belonged to Kỷ Khê, the more
+// distant name and the semantic target of "rơi trên" (fell upon) — a
+// transitive/causative verb can introduce an anchor's possessor from
+// anywhere in the clause, not just the nearest name, and no cheap surface
+// signal tells the two apart. Flagged anyway (worth a human glance) but
+// never silently trusted — every caller must surface this tier's confidence.
+function resolveNarrativeGovernor(text, start, names) {
+  const sentenceBoundary = (from) => Math.max(
+    text.lastIndexOf(".", from - 1), text.lastIndexOf("!", from - 1),
+    text.lastIndexOf("?", from - 1), text.lastIndexOf("\n", from - 1)
+  ) + 1;
+  const matchesAnchor = (sentence, nameEnd) => {
+    const gap = sentence.slice(nameEnd);
+    const gapTrimmedEnd = gap.replace(/\s+$/, "").toLocaleLowerCase("vi");
+    return /,\s*$/.test(gap) || POSSESSIVE_ANCHOR_NOUNS.some((noun) => gapTrimmedEnd.endsWith(noun));
+  };
+
+  const sentenceStart = sentenceBoundary(start);
+  const sentence = text.slice(sentenceStart, start);
+
+  if (!sentence.trim()) {
+    const prevEnd = sentenceStart;
+    const prevStart = sentenceBoundary(Math.max(prevEnd - 1, 0));
+    const prevSentence = text.slice(prevStart, prevEnd);
+    const found = findNamesIn(prevSentence, names);
+    if (found.length === 1) return { name: found[0].name, confidence: "cao" };
+    if (found.length === 2) {
+      const [a, b] = found;
+      const aIsObject = looksLikeObjectMention(prevSentence, a.start);
+      const bIsObject = looksLikeObjectMention(prevSentence, b.start);
+      if (aIsObject !== bIsObject) return { name: aIsObject ? b.name : a.name, confidence: "trung bình" };
+    }
+    return null;
+  }
+
+  const found = findNamesIn(sentence, names);
+  if (!found.length) return null;
+  if (found.length === 1) {
+    return matchesAnchor(sentence, found[0].end) ? { name: found[0].name, confidence: "cao" } : null;
+  }
+  const nearest = found.at(-1);
+  if (looksLikeObjectMention(sentence, nearest.start)) return null;
+  return matchesAnchor(sentence, nearest.end) ? { name: nearest.name, confidence: "thấp" } : null;
+}
+
+// Check narrator-voice pronouns (outside dialogue) against "Ngôi Lời Dẫn":
+// each registered character has ONE third-person pronoun. A pronoun that's
+// attached to a character via a strict anchor (see resolveNarrativeGovernor)
+// but doesn't match THAT character's registered pronoun is a likely mix-up.
+// Two characters sharing the same pronoun word elsewhere in the story (e.g.
+// several women all called "cô") is common and irrelevant here — the anchor
+// already resolved a single governor for THIS occurrence, so global reuse of
+// the word doesn't make this occurrence ambiguous.
+function scanNarrativeAddress(text, narrativeRules) {
+  const valid = (narrativeRules || [])
+    .map((rule) => ({ character: String(rule.character || "").trim(), pronoun: String(rule.pronoun || "").trim() }))
+    .filter((rule) => rule.character && rule.pronoun);
+  if (valid.length < 2) return [];
+
+  const expectedByCharacter = new Map(valid.map((r) => [r.character, r.pronoun]));
+  const names = [...new Set(valid.map((r) => r.character))];
+  const candidateWords = [...new Set(valid.map((r) => r.pronoun))];
+
+  const quoteRanges = [...text.matchAll(/[“"]([^”"]+)[”"]/gu)].map((m) => [m.index, m.index + m[0].length]);
+  const insideQuote = (pos) => quoteRanges.some(([a, b]) => pos >= a && pos < b);
+
+  const regex = new RegExp(`(?<!\\p{L})(${candidateWords.map(escapeRegex).join("|")})(?!\\p{L})`, "giu");
+  const issues = [];
+  for (const match of text.matchAll(regex)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (insideQuote(start)) continue;
+    const found = match[0];
+    const resolved = resolveNarrativeGovernor(text, start, names);
+    if (!resolved) continue;
+    const { name: governor, confidence } = resolved;
+    const expected = expectedByCharacter.get(governor);
+    if (!expected || normalize(found) === normalize(expected)) continue;
+    issues.push(makeIssue(text, {
+      type: "narrative", severity: "review", label: "Ngôi lời dẫn có thể bị nhầm",
+      value: found, replacement: expected, suggestions: [expected], confidence,
+      detail: `"${governor}" đang được gọi là "${found}", nhưng theo Ngôi Lời Dẫn "${governor}" nên là "${expected}" (độ tin cậy: ${confidence}).`,
+      start, end,
+    }));
+  }
+  return issues;
 }
 
 const ANCIENT_SUSPICIOUS_WORDS = [
@@ -444,7 +747,7 @@ function scanConfiguredWords(text, qaSettings) {
   return issues;
 }
 
-export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], qaSettings = {} } = {}) {
+export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], narrativeRules = [], qaSettings = {} } = {}) {
   const source = String(text || "");
   const { issues: addressIssues } = scanContextualAddress(source, pronounRules);
   const issues = [
@@ -453,7 +756,8 @@ export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], q
     ...scanCjk(source, glossaryTerms),
     ...scanEnglish(source, glossaryTerms),
     ...scanNames(source, glossaryTerms),
-    ...addressIssues
+    ...addressIssues,
+    ...scanNarrativeAddress(source, narrativeRules),
   ];
   const occupied = new Set();
   return issues.filter((issue) => {
@@ -473,5 +777,6 @@ export function applyQualitySuggestion(text, issue, replacement) {
 }
 
 export const QUALITY_LABELS = {
-  glossary: "Glossary", cjk: "Hán/Trung", english: "Tiếng Anh", name: "Tên riêng", pronoun: "Xưng hô", style:"Thể loại/Từ cấm"
+  glossary: "Glossary", cjk: "Hán/Trung", english: "Tiếng Anh", name: "Tên riêng", pronoun: "Xưng hô",
+  narrative: "Ngôi lời dẫn", style:"Thể loại/Từ cấm"
 };
