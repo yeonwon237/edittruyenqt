@@ -105,6 +105,55 @@ test('an action beat that mentions a third registered character still abstains',
   assert.deepEqual(issues, []);
 });
 
+test('a hub speaker with several registered listeners resolves from scene context when exactly one other registered name was mentioned nearby', () => {
+  // Real bug found against a live story: a speaker registered with several
+  // different listeners (a "hub" character) could never resolve without an
+  // already-active session, even when an action beat clearly named them as
+  // speaker — because resolveListenerForSpeaker's own-rules fallback only
+  // works for a speaker with exactly ONE listener in the whole matrix. This
+  // blocked the vast majority of real turns for exactly the characters with
+  // the most dialogue.
+  const hubRules = [
+    ...rules,
+    { speaker: 'Kỷ Khê', listener: 'Thịnh Thanh Sơn', self_word: 'Tôi', target_word: 'Cậu' },
+    { speaker: 'Thịnh Thanh Sơn', listener: 'Kỷ Khê', self_word: 'tôi', target_word: 'cậu' },
+  ];
+  const text = [
+    'Trịnh Nặc ngồi thẫn thờ trên ghế, đợi mãi vẫn không thấy Kỷ Khê quay lại.',
+    'Kỷ Khê đẩy cửa bước vào, ngồi xuống cạnh nàng, "Tôi xin lỗi vì đã để em đợi lâu."',
+  ].join('\n');
+  const issues = runQualityCheck(text, { pronounRules: hubRules }).filter((i) => i.type === 'pronoun');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].value, 'Tôi');
+  assert.equal(issues[0].replacement, 'chị');
+  assert.equal(issues[0].confidence, 'thấp');
+});
+
+test('a hub speaker abstains when the recent scene mentions two other registered names, not one', () => {
+  const hubRules = [
+    ...rules,
+    { speaker: 'Kỷ Khê', listener: 'Thịnh Thanh Sơn', self_word: 'Tôi', target_word: 'Cậu' },
+    { speaker: 'Thịnh Thanh Sơn', listener: 'Kỷ Khê', self_word: 'tôi', target_word: 'cậu' },
+  ];
+  const text = [
+    'Trịnh Nặc và Thịnh Thanh Sơn ngồi đợi trong phòng khách, không ai nói với ai câu nào.',
+    'Kỷ Khê đẩy cửa bước vào, ngồi xuống, "Tôi xin lỗi vì đã để mọi người đợi lâu."',
+  ].join('\n');
+  const issues = runQualityCheck(text, { pronounRules: hubRules }).filter((i) => i.type === 'pronoun');
+  assert.deepEqual(issues, []);
+});
+
+test('"ta" inside "cô ta"/"chúng ta" is not misread as the self-pronoun "ta"', () => {
+  // Real bug found against a live story: "cô ta" ("her") and "chúng ta"
+  // ("we") both end in the free-standing self-pronoun "ta" as their own
+  // space-separated syllable, but neither is a self-reference at all.
+  const text = [
+    'Kỷ Khê nói với Trịnh Nặc: "Em đã ăn cơm chưa?"',
+    'Trịnh Nặc đáp: "Dạ em ăn rồi ạ. Em không thích cô ta, chúng ta nên tránh xa cô ta ra."',
+  ].join('\n');
+  assert.deepEqual(pronounIssues(text), []);
+});
+
 test('a third, unrelated registered speaker breaking in does not inherit the wrong session', () => {
   const extraRules = [
     ...rules,

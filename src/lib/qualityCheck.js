@@ -72,6 +72,22 @@ function isSwallowedByCompound(text, matchEnd, foundWord) {
   const after = text.slice(matchEnd).match(/^\s+(\p{L}+)/u);
   return after ? continuations.includes(normalize(after[1])) : false;
 }
+
+// Same idea as PRONOUN_COMPOUND_CONTINUATIONS but for the OTHER direction:
+// "ta" alone is the self-pronoun "I/me", but "cô ta"/"nàng ta"/"chúng ta"
+// are common two-word words meaning "she"/"we" — no self-reference at all.
+// Real-chapter testing found "cô ta" and "nàng ta" (both referring to a
+// third party, not the speaker) misread as the self-pronoun "ta".
+const PRONOUN_COMPOUND_PRECEDERS = {
+  "ta": ["co", "nang", "chung", "han", "ga", "ho"],
+};
+
+function isPrecededByCompound(text, matchStart, foundWord) {
+  const preceders = PRONOUN_COMPOUND_PRECEDERS[normalize(foundWord)];
+  if (!preceders) return false;
+  const before = text.slice(0, matchStart).match(/(\p{L}+)\s+$/u);
+  return before ? preceders.includes(normalize(before[1])) : false;
+}
 const normalize = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 function contextAt(text, start, end) {
@@ -201,25 +217,56 @@ function findActionBeatSpeaker(before, candidateNames) {
   return looksLikeObjectMention(before, matches[0].idx) ? null : matches[0].name;
 }
 
+// A "hub" character (registered with several different listeners across
+// the matrix) can't be resolved by resolveListenerForSpeaker's own-rules
+// fallback, which only works when a speaker has exactly one possible
+// listener. Real chapters showed this blocks the overwhelming majority of
+// turns for exactly the characters with the most dialogue — Kỷ Khê alone
+// has four registered listeners in one real story. This looks one step
+// further back than a single action beat: which OTHER registered names
+// were mentioned since the last paragraph break (roughly the current
+// "scene")? If exactly one, that's almost always who the hub character is
+// talking to, even with no tag or active session — but it's inferred from
+// surrounding narration, not a grammatical attribution, so it can only ever
+// license "thấp" confidence, never higher.
+function inferSceneListener(text, quoteStart, speakerName, names) {
+  const firstBreak = text.lastIndexOf("\n\n", quoteStart - 1);
+  const secondBreak = firstBreak === -1 ? -1 : text.lastIndexOf("\n\n", firstBreak - 1);
+  const windowStart = Math.max(0, secondBreak === -1 ? 0 : secondBreak);
+  const window = text.slice(windowStart, quoteStart);
+  const others = new Set();
+  for (const name of names) {
+    if (name === speakerName) continue;
+    if (new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, "u").test(window)) others.add(name);
+  }
+  return others.size === 1 ? [...others][0] : null;
+}
+
 // Given a candidate speaker name (from a tag or action beat), who are they
 // talking to? Prefers the active session (same pair if the speaker repeats,
 // swapped if the other party replies) — resolved this way, confidence is
 // capped by whichever is weaker: the tag's own strength or the session's.
-// Without a session, only resolvable if that speaker has exactly one
-// listener across the whole matrix (a single specific rule, or a lone
-// default "Mọi người khác") — anything more and there's no way to tell
-// which listener without a session, so it abstains rather than guessing;
-// when it does resolve this way it's capped at "thấp" regardless of the
-// tag's own strength, since there's no session corroborating it at all.
-function resolveListenerForSpeaker(speakerName, activeSession, validRules, tagConfidence) {
+// Without a session, resolvable if that speaker has exactly one listener
+// across the whole matrix (a single specific rule, or a lone default "Mọi
+// người khác") — capped at "thấp" since there's no session corroborating it.
+// Failing that, falls back to inferSceneListener (see above) for hub
+// characters — same "thấp" cap, since it's the weakest evidence of all.
+function resolveListenerForSpeaker(speakerName, activeSession, validRules, tagConfidence, text, quoteStart, names) {
   if (activeSession && (speakerName === activeSession.speaker || speakerName === activeSession.listener)) {
     const listener = speakerName === activeSession.speaker ? activeSession.listener : activeSession.speaker;
     return { listener, rule: pickRule(validRules, speakerName, listener), confidence: weaker(tagConfidence, activeSession.confidence) };
   }
   const speakerRules = validRules.filter((r) => r.speaker.trim() === speakerName);
   const distinctListeners = [...new Set(speakerRules.map((r) => r.listener?.trim() || "*"))];
-  if (distinctListeners.length !== 1) return null;
-  return { listener: distinctListeners[0] === "*" ? "" : distinctListeners[0], rule: speakerRules[0], confidence: "thấp" };
+  if (distinctListeners.length === 1) {
+    return { listener: distinctListeners[0] === "*" ? "" : distinctListeners[0], rule: speakerRules[0], confidence: "thấp" };
+  }
+  const sceneListener = names && inferSceneListener(text, quoteStart, speakerName, names);
+  if (sceneListener) {
+    const rule = pickRule(validRules, speakerName, sceneListener);
+    if (rule) return { listener: sceneListener, rule, confidence: "thấp" };
+  }
+  return null;
 }
 
 // Resolves a quote's speaker/listener the way resolveSpeakerAndRule does,
@@ -249,7 +296,8 @@ function resolveListenerForSpeaker(speakerName, activeSession, validRules, tagCo
 // cheapest available signal for "the scene may have moved on" — no scene
 // boundary detector exists to do better.
 function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) {
-  const before = text.slice(text.lastIndexOf("\n", quoteStart - 1) + 1, quoteStart - 1);
+  const ownLineStart = text.lastIndexOf("\n", quoteStart - 1) + 1;
+  const before = text.slice(ownLineStart, quoteStart - 1);
   const gapBeforeQuote = text.slice(session?.end ?? 0, quoteStart);
   const activeSession = session && !/\n\s*\n/.test(gapBeforeQuote) ? session : null;
 
@@ -261,18 +309,33 @@ function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) 
 
   const names = [...new Set(validRules.flatMap((r) => [r.speaker.trim(), r.listener?.trim()]).filter((n) => n && n !== "*"))];
 
+  // A quote that opens its own paragraph (no lead-in on its own line) very
+  // often has its action beat in the PRECEDING paragraph instead —
+  // "X does something to Y.\n\n\"Quote\"" is a common real layout. Widen the
+  // window findActionBeatSpeaker searches to that previous paragraph only
+  // in that case; findActionBeatSpeaker still requires exactly one
+  // non-object name, so this doesn't loosen what counts as a match, only
+  // where it's allowed to look for one.
+  let beatBefore = before;
+  if (!before.trim()) {
+    const prefix = text.slice(0, ownLineStart).replace(/\s+$/, "");
+    const prevBreak = prefix.lastIndexOf("\n\n");
+    const prevStart = prevBreak === -1 ? 0 : prevBreak + 2;
+    beatBefore = text.slice(prevStart, quoteStart - 1);
+  }
+
   const looseSpeaker = findLooseSpeakerTag(before, names);
   if (looseSpeaker) {
-    const resolvedListener = resolveListenerForSpeaker(looseSpeaker, activeSession, validRules, "trung bình");
+    const resolvedListener = resolveListenerForSpeaker(looseSpeaker, activeSession, validRules, "trung bình", text, quoteStart, names);
     if (resolvedListener) {
       const speakerRules = validRules.filter((r) => r.speaker.trim() === looseSpeaker);
       return { speaker: looseSpeaker, listener: resolvedListener.listener, rule: resolvedListener.rule, speakerRules, confidence: resolvedListener.confidence, end: quoteEnd };
     }
   }
 
-  const beatSpeaker = !looseSpeaker ? findActionBeatSpeaker(before, names) : null;
+  const beatSpeaker = !looseSpeaker ? findActionBeatSpeaker(beatBefore, names) : null;
   if (beatSpeaker) {
-    const resolvedListener = resolveListenerForSpeaker(beatSpeaker, activeSession, validRules, "thấp");
+    const resolvedListener = resolveListenerForSpeaker(beatSpeaker, activeSession, validRules, "thấp", text, quoteStart, names);
     if (resolvedListener) {
       const speakerRules = validRules.filter((r) => r.speaker.trim() === beatSpeaker);
       return { speaker: beatSpeaker, listener: resolvedListener.listener, rule: resolvedListener.rule, speakerRules, confidence: resolvedListener.confidence, end: quoteEnd };
@@ -536,7 +599,7 @@ function scanContextualAddress(text, rules) {
         const relativeEnd = relativeStart + found.length;
         const start = quoteStart + relativeStart;
         const end = quoteStart + relativeEnd;
-        if (isSwallowedByCompound(quoteText, relativeEnd, found)) continue;
+        if (isSwallowedByCompound(quoteText, relativeEnd, found) || isPrecededByCompound(quoteText, relativeStart, found)) continue;
         const dedupeKey = `${start}:${end}`;
         if (seen.has(dedupeKey)) continue;
 
@@ -735,7 +798,7 @@ function scanNarrativeAddress(text, narrativeRules) {
     const end = start + match[0].length;
     if (insideQuote(start)) continue;
     const found = match[0];
-    if (isSwallowedByCompound(text, end, found)) continue;
+    if (isSwallowedByCompound(text, end, found) || isPrecededByCompound(text, start, found)) continue;
     const resolved = resolveNarrativeGovernor(text, start, names);
     if (!resolved) continue;
     const { name: governor, confidence } = resolved;
