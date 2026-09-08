@@ -66,7 +66,7 @@ test('confidence never heals going forward: a chain built on a medium-confidence
   assert.equal(issues[1].confidence, 'thấp');
 });
 
-test('the session resets across a paragraph break — a bare quote after a scene gap abstains', () => {
+test('the session resets across a scene gap (two+ blank lines) — a bare quote after it abstains', () => {
   const text = [
     'Kỷ Khê nói với Trịnh Nặc: “Em đã ăn cơm chưa?”',
     'Trịnh Nặc đáp: “Dạ em ăn rồi ạ.”',
@@ -78,6 +78,36 @@ test('the session resets across a paragraph break — a bare quote after a scene
     '“Tôi thấy lạnh quá.”',
   ].join('\n');
   assert.deepEqual(pronounIssues(text), []);
+});
+
+test('the session resets on a standalone "..." scene-break line even with only a single blank line around it', () => {
+  const text = [
+    'Kỷ Khê nói với Trịnh Nặc: “Em đã ăn cơm chưa?”',
+    'Trịnh Nặc đáp: “Dạ em ăn rồi ạ.”',
+    '',
+    '...',
+    '',
+    '“Tôi thấy lạnh quá.”',
+  ].join('\n');
+  assert.deepEqual(pronounIssues(text), []);
+});
+
+test('a single blank line between quotes — this book\'s ordinary paragraph break — does NOT reset the session', () => {
+  // Real bug found against a live story: every quote sits in its own
+  // paragraph (separated by exactly one blank line), which used to reset
+  // the session after nearly every turn. A single blank line here carries
+  // no scene-boundary information at all in this book's formatting.
+  const text = [
+    'Kỷ Khê nói với Trịnh Nặc: “Em đã ăn cơm chưa?”',
+    '',
+    '“Dạ em ăn rồi ạ.”',
+    '',
+    '“Tôi có mua cho em ít trái cây.”',
+  ].join('\n');
+  const issues = pronounIssues(text);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].value, 'Tôi');
+  assert.equal(issues[0].replacement, 'chị');
 });
 
 test('an action beat (no tag, just narration about the same two people) still resolves the turn at low confidence', () => {
@@ -92,7 +122,15 @@ test('an action beat (no tag, just narration about the same two people) still re
   assert.equal(issues[0].confidence, 'thấp');
 });
 
-test('an action beat that mentions a third registered character still abstains', () => {
+test('an action beat naming a third character who is clearly the grammatical object still resolves to the real subject', () => {
+  // Was "still abstains" — but "Trịnh Nặc bế Nhạc Bảo lên" ("Trịnh Nặc
+  // picked Nhạc Bảo up") unambiguously makes Trịnh Nặc the one smiling and
+  // speaking, and Nhạc Bảo the one being carried, not a co-speaker. Real
+  // chapters showed plenty of real errors sat behind exactly this shape
+  // ("X does something to/with Y, "quote"") and blindly abstaining whenever
+  // a second name appeared missed all of them — findActionBeatSpeaker now
+  // filters out object-marked names first and only abstains if more than
+  // one non-object name remains (see the next test for that genuine case).
   const extraRules = [
     ...rules,
     { speaker: 'Nhạc Bảo', listener: 'Kỷ Khê', self_word: 'cháu', target_word: 'dì' },
@@ -100,6 +138,22 @@ test('an action beat that mentions a third registered character still abstains',
   const text = [
     'Kỷ Khê nói với Trịnh Nặc: “Em đã ăn cơm chưa?”',
     'Trịnh Nặc bế Nhạc Bảo lên, cười, “Tôi ăn rồi ạ.”',
+  ].join('\n');
+  const issues = runQualityCheck(text, { pronounRules: extraRules }).filter((i) => i.type === 'pronoun');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].value, 'Tôi');
+  assert.equal(issues[0].replacement, 'em');
+  assert.equal(issues[0].confidence, 'thấp');
+});
+
+test('an action beat where two names are both plausible subjects (neither object-marked) still abstains', () => {
+  const extraRules = [
+    ...rules,
+    { speaker: 'Nhạc Bảo', listener: 'Kỷ Khê', self_word: 'cháu', target_word: 'dì' },
+  ];
+  const text = [
+    'Kỷ Khê nói với Trịnh Nặc: “Em đã ăn cơm chưa?”',
+    'Trịnh Nặc và Nhạc Bảo cùng bước vào, cười, “Tôi ăn rồi ạ.”',
   ].join('\n');
   const issues = runQualityCheck(text, { pronounRules: extraRules }).filter((i) => i.type === 'pronoun');
   assert.deepEqual(issues, []);

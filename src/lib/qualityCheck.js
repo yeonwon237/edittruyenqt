@@ -203,9 +203,13 @@ function findLooseSpeakerTag(before, candidateNames) {
 // finds the sole registered name mentioned in `before` — the whole action
 // beat, not just its last clause — as long as it isn't the grammatical
 // OBJECT of what's happening (reusing looksLikeObjectMention, the same
-// subject-preference check the narrator-pronoun scanner uses). Two or more
-// registered names in the beat is genuinely ambiguous and abstains, same as
-// everywhere else in this file.
+// subject-preference check the narrator-pronoun scanner uses). When several
+// registered names appear, each one marked as an object is filtered out
+// first ("Kỷ Khê nắm chặt lấy cánh tay Trịnh Nặc" — Trịnh Nặc is the object
+// via the possessed anchor noun "cánh tay") — only if exactly one name
+// survives that filter is it usable; two or more still-standing names (or
+// none) stays genuinely ambiguous and abstains, same as everywhere else in
+// this file.
 function findActionBeatSpeaker(before, candidateNames) {
   const matches = candidateNames
     .map((name) => {
@@ -213,8 +217,8 @@ function findActionBeatSpeaker(before, candidateNames) {
       return found.length ? { name, idx: found.at(-1).index } : null;
     })
     .filter(Boolean);
-  if (matches.length !== 1) return null;
-  return looksLikeObjectMention(before, matches[0].idx) ? null : matches[0].name;
+  const nonObject = matches.filter((m) => !looksLikeObjectMention(before, m.idx));
+  return nonObject.length === 1 ? nonObject[0].name : null;
 }
 
 // A "hub" character (registered with several different listeners across
@@ -292,14 +296,20 @@ function resolveListenerForSpeaker(speakerName, activeSession, validRules, tagCo
 // break, can fool either — so every issue built on "thấp" is labeled
 // accordingly and never auto-applied in bulk.
 //
-// The session resets after a paragraph gap (2+ newlines) since that's the
-// cheapest available signal for "the scene may have moved on" — no scene
-// boundary detector exists to do better.
+// The session resets on a strong scene-break signal — real chapters showed
+// a SINGLE blank line is just this book's ordinary paragraph separator
+// (every quote sits in its own paragraph), so treating every one of those
+// as "the scene may have moved on" reset the session after nearly every
+// turn. A stronger signal — two or more consecutive blank lines, or a
+// standalone scene-break line ("...", "***", "———") — is what real prose
+// actually uses to mark a jump; no scene boundary detector exists to do
+// better than that.
+const SCENE_BREAK_GAP = /\n[ \t]*\n[ \t]*\n|^[ \t]*(?:\.{3,}|…+|\*{3,}|-{3,}|—{2,})[ \t]*$/mu;
 function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) {
   const ownLineStart = text.lastIndexOf("\n", quoteStart - 1) + 1;
   const before = text.slice(ownLineStart, quoteStart - 1);
   const gapBeforeQuote = text.slice(session?.end ?? 0, quoteStart);
-  const activeSession = session && !/\n\s*\n/.test(gapBeforeQuote) ? session : null;
+  const activeSession = session && !SCENE_BREAK_GAP.test(gapBeforeQuote) ? session : null;
 
   const explicit = resolveSpeakerAndRule(text, quoteStart, quoteEnd, validRules);
   if (explicit) {
@@ -313,15 +323,19 @@ function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) 
   // often has its action beat in the PRECEDING paragraph instead —
   // "X does something to Y.\n\n\"Quote\"" is a common real layout. Widen the
   // window findActionBeatSpeaker searches to that previous paragraph only
-  // in that case; findActionBeatSpeaker still requires exactly one
-  // non-object name, so this doesn't loosen what counts as a match, only
-  // where it's allowed to look for one.
+  // in that case, and only when that paragraph is plain narration (no quote
+  // marks) — a paragraph that itself holds the PREVIOUS quote's own tag
+  // ("Kỷ Khê nói với Trịnh Nặc: "...") is about that quote, not this one,
+  // and must not be reused as if it introduced the next speaker too.
+  // findActionBeatSpeaker still requires exactly one non-object name, so
+  // this doesn't loosen what counts as a match, only where it may look.
   let beatBefore = before;
   if (!before.trim()) {
     const prefix = text.slice(0, ownLineStart).replace(/\s+$/, "");
     const prevBreak = prefix.lastIndexOf("\n\n");
     const prevStart = prevBreak === -1 ? 0 : prevBreak + 2;
-    beatBefore = text.slice(prevStart, quoteStart - 1);
+    const prevParagraph = text.slice(prevStart, quoteStart - 1);
+    if (!/[“"]/u.test(prevParagraph)) beatBefore = prevParagraph;
   }
 
   const looseSpeaker = findLooseSpeakerTag(before, names);
@@ -663,8 +677,8 @@ const POSSESSIVE_ANCHOR_NOUNS = [
   "ánh mắt", "khóe mắt", "đôi mắt", "gương mặt", "khuôn mặt", "sắc mặt",
   "giọng nói", "khóe môi", "vành môi", "đôi môi", "nụ cười", "nét mặt",
   "mái tóc", "bờ vai", "dáng người", "thân hình", "bàn tay", "ngón tay",
-  "cổ tay", "trong lòng", "trong tim", "trong đầu", "trong mắt", "trái tim",
-  "tâm trí", "nội tâm", "cõi lòng",
+  "cổ tay", "cánh tay", "trong lòng", "trong tim", "trong đầu", "trong mắt",
+  "trái tim", "tâm trí", "nội tâm", "cõi lòng",
 ];
 
 // Verbs/prepositions whose following NP is typically the grammatical OBJECT
@@ -695,7 +709,12 @@ function findNamesIn(segment, names) {
 // still blocks the match, so "..., Tên" isn't mistaken for "...với Tên")
 // by one of OBJECT_MARKING_PRECEDERS?
 function looksLikeObjectMention(segment, start) {
-  const before = segment.slice(Math.max(0, start - 20), start).replace(/\s+$/, "").toLocaleLowerCase("vi");
+  let before = segment.slice(Math.max(0, start - 34), start).replace(/\s+$/, "").toLocaleLowerCase("vi");
+  // "nắm chặt lấy cánh tay TÊN" — TÊN possesses the anchor noun ("cánh
+  // tay"), which is itself the verb's object; strip the anchor noun first
+  // so the verb underneath it is still visible to the check below.
+  const anchor = POSSESSIVE_ANCHOR_NOUNS.find((noun) => before.endsWith(noun));
+  if (anchor) before = before.slice(0, before.length - anchor.length).replace(/\s+$/, "");
   return OBJECT_MARKING_PRECEDERS.some((word) => before.endsWith(word));
 }
 
