@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Search, Plus, Pencil, Trash2, Upload, Download, Sparkles, ListChecks, X, BookOpenText, MessagesSquare, BookMarked } from "lucide-react";
+import { Search, SearchCheck, Plus, Pencil, Trash2, Upload, Download, Sparkles, ListChecks, X, BookOpenText, MessagesSquare, BookMarked } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { CATEGORY_STYLES, CATEGORY_EMOJI, CATEGORIES } from "@/lib/highlight";
 import { parseGlossaryFile } from "@/lib/importGlossary";
@@ -17,6 +17,7 @@ export default function GlossarySidebar({
   onImportTerms,
   onOpenContextualPronoun,
   onDetectNames,
+  onFindTerm,
   hanVietVocabulary = [],
   onAddToHanVietVocabulary,
   onRemoveFromHanVietVocabulary,
@@ -278,6 +279,13 @@ export default function GlossarySidebar({
                 </div>
                 {!selectMode && (
                   <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => onFindTerm?.(term)}
+                      className="p-1 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600"
+                      title="Tìm thuật ngữ này trong các chương"
+                    >
+                      <SearchCheck className="w-3 h-3" />
+                    </button>
                     <button
                       onClick={() => onEditTerm(term)}
                       className="p-1 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600"

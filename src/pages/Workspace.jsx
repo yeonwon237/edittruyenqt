@@ -7,6 +7,7 @@ import { useToast } from "@/components/ui/use-toast";
 import EditorPanel from "@/components/workspace/EditorPanel";
 import EditorToolbar from "@/components/workspace/EditorToolbar";
 import GlossarySidebar from "@/components/glossary/GlossarySidebar";
+import GlossaryTermFindDialog from "@/components/glossary/GlossaryTermFindDialog";
 import GlossaryTermForm from "@/components/glossary/GlossaryTermForm";
 import DetectNamesDialog from "@/components/glossary/DetectNamesDialog";
 import TranslationSettingsDialog, { GENRE_OPTIONS } from "@/components/workspace/TranslationSettingsDialog";
@@ -180,6 +181,9 @@ export default function Workspace() {
   const [showBatchReplace, setShowBatchReplace] = useState(false);
   const [batchReplaceRunning, setBatchReplaceRunning] = useState(false);
   const [batchReplaceUndo, setBatchReplaceUndo] = useState(null);
+  const [findTermTarget, setFindTermTarget] = useState(null);
+  const [findTermLoading, setFindTermLoading] = useState(false);
+  const [findTermResults, setFindTermResults] = useState(null);
   const [showPronoun, setShowPronoun] = useState(false);
   const [clearTarget, setClearTarget] = useState(null); // { field, label } | null
   const [showContextualPronoun, setShowContextualPronoun] = useState(false);
@@ -981,6 +985,45 @@ export default function Workspace() {
     } finally {
       setBatchReplaceRunning(false);
     }
+  };
+
+  // Read-only cross-chapter lookup for one glossary term, so a user can
+  // check whether an old (pre-glossary) translation of it was ever right
+  // without doing a find/replace first — a replace overwrites the very text
+  // they wanted to compare against.
+  const handleFindTerm = async (term) => {
+    const find = String(term?.source_term || "").trim();
+    if (!find) return;
+    setFindTermTarget(term);
+    setFindTermResults(null);
+    setFindTermLoading(true);
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      const chapters = await loadAllProjectChapters(["title", "chapter_order", "raw_original", "qt_raw", "edited"]);
+      const counts = (text) => applyReplacements(text || "", [{ find, replace: find }], { wholeWord: false }).count;
+      const matches = chapters.map((chapter) => ({
+        id: chapter.id,
+        title: chapter.title,
+        chapter_order: chapter.chapter_order,
+        raw_original: counts(chapter.raw_original),
+        qt_raw: counts(chapter.qt_raw),
+        edited: counts(chapter.edited),
+      })).filter((chapter) => chapter.raw_original + chapter.qt_raw + chapter.edited > 0);
+      setFindTermResults({
+        chapters: matches,
+        totalMatches: matches.reduce((sum, chapter) => sum + chapter.raw_original + chapter.qt_raw + chapter.edited, 0),
+      });
+    } catch (error) {
+      toast({ title: "Không quét được toàn truyện", description: error.message, variant: "destructive" });
+      setFindTermResults({ chapters: [], totalMatches: 0 });
+    } finally {
+      setFindTermLoading(false);
+    }
+  };
+
+  const handleOpenChapterFromFind = async (chapterId) => {
+    setFindTermTarget(null);
+    await switchChapter(chapterId);
   };
 
   const handleApplyBatchRules = async (rules, target, wholeWord, scope = "chapter") => {
@@ -4720,6 +4763,7 @@ ${compact}`;
               onImportTerms={handleImportTerms}
               onOpenContextualPronoun={() => setShowContextualPronoun(true)}
               onDetectNames={handleDetectNames}
+              onFindTerm={handleFindTerm}
               hanVietVocabulary={hanVietVocabulary}
               onAddToHanVietVocabulary={(selectedTerms) => {
                 try {
@@ -4945,6 +4989,14 @@ ${compact}`;
         onUndo={handleUndoBatchRules}
         canUndo={Boolean(batchReplaceUndo?.rows?.length)}
         busy={batchReplaceRunning}
+      />
+      <GlossaryTermFindDialog
+        open={Boolean(findTermTarget)}
+        onOpenChange={(v) => !v && setFindTermTarget(null)}
+        term={findTermTarget}
+        loading={findTermLoading}
+        results={findTermResults}
+        onOpenChapter={handleOpenChapterFromFind}
       />
       <PronounSwitcherDialog
         open={showPronoun}
