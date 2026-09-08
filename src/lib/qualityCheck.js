@@ -554,6 +554,16 @@ const GLUED_WORD_REGEX = /\p{Ll}\p{Lu}/gu;
 // quoteAt/scanContextualAddress already use elsewhere in this file.
 const QUOTE_PAIR_REGEX = /[“"]([^”"]+)[”"]/gu;
 
+// Same missing-space bug again, now at ordinary clause/sentence punctuation:
+// a comma or period (or ! ?) glued straight onto the next word ("rồi,Nàng"
+// / "đi.Nàng" instead of "rồi, Nàng" / "đi. Nàng"). Excludes a mark that's
+// part of a run of the same punctuation ("..." — an ellipsis trailing
+// straight into the next clause is a deliberate style choice, not this bug)
+// via the lookaround on both sides; a run of mixed marks like "?!" is left
+// alone the same way, since which one to treat as "the" boundary mark is
+// ambiguous.
+const PUNCT_GLUE_REGEX = /(?<![.,!?])[.,!?](?![.,!?])/g;
+
 function scanSpacing(text) {
   const wordIssues = [...text.matchAll(GLUED_WORD_REGEX)].map((match) => makeIssue(text, {
     type: "spacing", severity: "high", label: "Thiếu khoảng trắng",
@@ -578,7 +588,21 @@ function scanSpacing(text) {
     }
   }
 
-  return [...wordIssues, ...quoteIssues];
+  const punctIssues = [];
+  for (const match of text.matchAll(PUNCT_GLUE_REGEX)) {
+    const pos = match.index;
+    const next = text[pos + 1];
+    if (!next || !/\p{L}/u.test(next)) continue;
+    punctIssues.push(makeIssue(text, {
+      type: "spacing", severity: "high", label: "Thiếu khoảng trắng",
+      value: text.slice(pos, pos + 2),
+      replacement: `${text[pos]} ${next}`,
+      detail: `Thiếu khoảng trắng sau dấu "${text[pos]}", trước "${next}...".`,
+      start: pos, end: pos + 2,
+    }));
+  }
+
+  return [...wordIssues, ...quoteIssues, ...punctIssues];
 }
 
 function scanCjk(text, terms) {
