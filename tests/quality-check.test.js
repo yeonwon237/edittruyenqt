@@ -32,6 +32,17 @@ test('a lone speaker rule with no explicit listener still resolves, but only at 
 test('correct self reference after possessive cue is preserved', () => {
   assert.deepEqual(runQualityCheck('Thu Sương nói với A Trì: “Đó là người của ta.”', { pronounRules: [rule] }), []);
 });
+test('a self_word repeated for emphasis (self-address in the third person, a common real dialogue pattern) is not mistaken for addressing the listener', () => {
+  // "Chị, chị đỉnh vãi chưởng!" ("Sis, sis you're awesome!" said BY someone
+  // ELSE addressing Kỷ Khê) and "Em, em suýt chút nữa bị xe tông chết rồi"
+  // (a character invoking her OWN self_word for emphasis) are the same
+  // clause-initial-plus-comma shape as a genuine vocative. A "swap" detector
+  // keyed on that shape was tried and checked against the full 178-chapter
+  // real story: the large majority of its real matches were this emphasis
+  // pattern, not an actual self/target mix-up — reverted rather than shipped
+  // noisy. A self_word or target_word found anywhere is trusted outright.
+  assert.deepEqual(runQualityCheck('Thu Sương nói với A Trì: “Ta, ta không ngờ chuyện lại thành ra thế này.”', { pronounRules: [rule] }), []);
+});
 test('explicit self mismatch remains actionable with exact offsets', () => {
   const text = 'Thu Sương nói với A Trì: “Tôi hiểu rồi.”';
   const issues = runQualityCheck(text, { pronounRules: [rule] });
