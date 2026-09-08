@@ -357,15 +357,21 @@ function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) 
   }
 
   // No usable name at all — assume the turn alternates, but only if the
-  // action beat doesn't name a THIRD registered character (that's still a
-  // real signal something may have changed) and only when a session exists
-  // to alternate from in the first place.
+  // action beat doesn't mention a registered character in a way that's
+  // still a real signal something may have changed: either a THIRD name
+  // outside the session, or — found against a live chapter — a session
+  // participant mentioned only as the object/agent of what's happening
+  // ("... bị Kỷ Khê chắn lại: "..."" turned out to be a third, unregistered
+  // speaker's line, not Kỷ Khê's, and not a simple turn swap either).
+  // Only proceeds when a session exists to alternate from in the first place.
   if (activeSession && !looseSpeaker && !beatSpeaker) {
-    const introducesOther = names.some((name) =>
-      name !== activeSession.speaker && name !== activeSession.listener &&
-      new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, "u").test(before)
-    );
-    if (!introducesOther) {
+    const suspiciousMention = names.some((name) => {
+      const found = [...before.matchAll(new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, "gu"))];
+      if (!found.length) return false;
+      if (name !== activeSession.speaker && name !== activeSession.listener) return true;
+      return looksLikeObjectMention(before, found.at(-1).index);
+    });
+    if (!suspiciousMention) {
       const speaker = activeSession.listener;
       const listener = activeSession.speaker;
       const rule = pickRule(validRules, speaker, listener);
@@ -689,8 +695,14 @@ const POSSESSIVE_ANCHOR_NOUNS = [
 // regular SVO surface order, since no dependency parser is available to
 // read the real grammatical role from. Deliberately closed and short: a
 // preceder this list doesn't recognize just abstains, same as before.
+// "bị" is technically different (it marks the AGENT of a passive clause,
+// "X bị NAME [verb]" = "X was [verb]-ed BY NAME") but has the same
+// practical effect here: NAME isn't the sentence's continuing subject, so
+// it shouldn't be picked as the one who then speaks the following quote —
+// real-chapter testing found a robot's own line getting attributed to a
+// registered character mentioned only via "... bị Kỷ Khê chắn lại: "...""
 const OBJECT_MARKING_PRECEDERS = [
-  "với", "cho", "của", "cùng", "về phía", "đến bên", "cạnh", "bên",
+  "với", "cho", "của", "cùng", "về phía", "đến bên", "cạnh", "bên", "bị",
   "nhìn", "ngắm", "gọi", "hỏi", "bảo", "ôm", "nắm", "kéo", "đẩy", "lấy",
   "bế", "hôn", "chạm", "sờ", "nhớ", "đợi", "chờ", "tìm", "dõi theo", "theo dõi",
 ];

@@ -197,6 +197,22 @@ test('a hub speaker abstains when the recent scene mentions two other registered
   assert.deepEqual(issues, []);
 });
 
+test('a passive "bị NAME [verb]:" beat does not hand an unregistered third party\'s line to that name', () => {
+  // Real bug found against a live story: "... bị Kỷ Khê chắn lại: "..."" —
+  // grammatically Kỷ Khê is only the AGENT of a passive clause ("was
+  // blocked BY Kỷ Khê"); the quote that follows actually belongs to an
+  // unregistered robot character. findActionBeatSpeaker must not pick
+  // Kỷ Khê here, AND the turn-alternation fallback must not blindly flip
+  // to the other session party either — Kỷ Khê being mentioned only via
+  // "bị" is itself a sign something unusual is happening.
+  const text = [
+    'Kỷ Khê nói với Trịnh Nặc: "Em đã ăn cơm chưa?"',
+    '',
+    '03 nghiêng đầu nhìn một cái, chưa được hai giây đã bị Kỷ Khê chắn lại: "Tính toán cho tôi biết, ngài rất thích cô ấy."',
+  ].join('\n');
+  assert.deepEqual(pronounIssues(text), []);
+});
+
 test('"ta" inside "cô ta"/"chúng ta" is not misread as the self-pronoun "ta"', () => {
   // Real bug found against a live story: "cô ta" ("her") and "chúng ta"
   // ("we") both end in the free-standing self-pronoun "ta" as their own
