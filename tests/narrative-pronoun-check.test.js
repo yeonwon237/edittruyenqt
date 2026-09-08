@@ -31,17 +31,14 @@ test('correct comma-resumptive usage produces no issue', () => {
   assert.deepEqual(narrativeIssues(text), []);
 });
 
-test('swapped comma-resumptive pronoun is caught, but only at low confidence', () => {
-  // Was "cao" — real-chapter testing found a trailing comma with no
-  // possessive-noun anchor ("X did A, PRONOUN did B") reads as the OTHER
-  // scene participant reacting far more often than as X continuing as
-  // subject, so this shape can never be trusted as certain.
+test('a trailing comma with no possessive-noun anchor abstains entirely', () => {
+  // Was "cao", then downgraded to "thấp" — real-chapter testing found a
+  // trailing comma with no possessive-noun anchor ("X did A, PRONOUN did
+  // B") reads as the OTHER scene participant reacting far more often than
+  // as X continuing as subject, wrong often enough that the user asked to
+  // drop it rather than keep surfacing it even at low confidence.
   const text = 'Trịnh Nặc quay lưng bước đi, cô không muốn nhìn thêm nữa.';
-  const issues = narrativeIssues(text);
-  assert.equal(issues.length, 1);
-  assert.equal(issues[0].value, 'cô');
-  assert.equal(issues[0].replacement, 'nàng');
-  assert.equal(issues[0].confidence, 'thấp');
+  assert.deepEqual(narrativeIssues(text), []);
 });
 
 test('swapped sentence-initial resumptive pronoun is caught across a full stop', () => {
@@ -78,19 +75,15 @@ test('needs at least two characters with distinct pronouns to check anything', (
   assert.deepEqual(runQualityCheck(text, { narrativeRules: [{ character: 'Kỷ Khê', pronoun: 'cô' }] }).filter((i) => i.type === 'narrative'), []);
 });
 
-test('a second registered name earlier in the sentence still gets flagged, but only at low confidence', () => {
-  // The anchor here binds to the NEAREST name (Kỷ Khê), skipping the earlier
-  // unrelated one (Trịnh Nặc) — real-chapter testing found this guesses
-  // wrong often enough (a transitive verb's object can introduce the
-  // anchor's real possessor from elsewhere in the clause) that it must never
-  // be reported as certain. Flagged anyway per the user's request to see
-  // more, but tagged "thấp" so it reads as "worth a glance", not "trust me".
+test('a sentence naming two characters always abstains, even when a low-confidence guess used to be offered', () => {
+  // The anchor here used to bind to the NEAREST name (Kỷ Khê), skipping the
+  // earlier unrelated one (Trịnh Nặc), flagged at "thấp". Real-chapter
+  // testing found this guesses wrong often enough (a transitive verb's
+  // object can introduce the anchor's real possessor from elsewhere in the
+  // clause) that even a low-confidence flag was more noise than signal —
+  // the user asked to drop it and abstain instead.
   const text = 'Trịnh Nặc chạy tới cửa, Kỷ Khê mỉm cười, ánh mắt nàng dịu dàng.';
-  const issues = narrativeIssues(text);
-  assert.equal(issues.length, 1);
-  assert.equal(issues[0].value, 'nàng');
-  assert.equal(issues[0].replacement, 'cô');
-  assert.equal(issues[0].confidence, 'thấp');
+  assert.deepEqual(narrativeIssues(text), []);
 });
 
 test('a nearest name that is the object of a preceding verb still abstains', () => {
