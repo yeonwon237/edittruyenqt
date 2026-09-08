@@ -1112,7 +1112,8 @@ export default function Workspace() {
       });
       const chapterResults = report.chapters.filter((c) => !touched.has(c.id));
       touched.forEach((chapter) => {
-        const issues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const issues = qaSettings.hidePronounNarrative ? rawIssues.filter((i) => i.type !== "pronoun" && i.type !== "narrative") : rawIssues;
         issues.forEach((issue) => {
           const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct", issue.confidence || ""].join("\u0001");
           const group = groupMap.get(key) || { key, type: issue.type, label: issue.label, value: issue.value, replacement: issue.replacement || "", contextual: Boolean(issue.contextual), confidence: issue.confidence, severity: issue.severity, locations: [], chapterIds: new Set() };
@@ -1157,7 +1158,8 @@ export default function Workspace() {
       const options = { glossaryTerms, pronounRules:project?.contextual_pronoun_rules || [], narrativeRules: project?.style_toggles?.story_memory?.narrativeRules || [], qaSettings };
       const issueGroups = new Map();
       const results = chapters.map((chapter) => {
-        const issues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const issues = qaSettings.hidePronounNarrative ? rawIssues.filter((i) => i.type !== "pronoun" && i.type !== "narrative") : rawIssues;
         issues.forEach((issue) => {
           const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct", issue.confidence || ""].join("\u0001");
           const group = issueGroups.get(key) || { key, type:issue.type, label:issue.label, value:issue.value, replacement:issue.replacement || "", contextual:Boolean(issue.contextual), confidence:issue.confidence, severity:issue.severity, count:0, chapterIds:new Set(), samples:[], locations:[] };

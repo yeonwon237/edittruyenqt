@@ -2,6 +2,13 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runQualityCheck } from '../src/lib/qualityCheck.js';
 const rule = { speaker: 'Thu Sương', listener: 'A Trì', self_word: 'ta', target_word: 'đại nhân' };
+test('the Vietnamese word "run" (tremble) is not flagged as English', () => {
+  // Real false positive: "run" is a plain Vietnamese word ("run rẩy", "run
+  // lên", "run sợ") that also happens to spell an English word, and kept
+  // getting flagged every time it appeared.
+  const text = 'Liếc thấy những ngón tay đang run rẩy nhè nhẹ của đối phương, Trịnh Nặc khẽ thở dài.';
+  assert.deepEqual(runQualityCheck(text).filter((i) => i.type === 'english'), []);
+});
 test('does not confuse different names sharing a title', () => {
   assert.deepEqual(runQualityCheck('Ôn Đại Nhân nói chuyện với Hà Quý phi.', { glossaryTerms: [{ category: 'Tên người', source_term: '陶大人', translation: 'Tô đại nhân' }] }), []);
 });

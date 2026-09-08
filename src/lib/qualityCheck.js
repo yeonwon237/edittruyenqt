@@ -27,7 +27,7 @@ dead death blood hurt pain fight fighting run escape save warning careful
 const VIETNAMESE_ASCII_WORDS = new Set(`
 ai anh ba ban bay bi bo ca cai can chi cho chu co con cung da dang day de den di
 do du duoc em gi ha hai hay he hon ho khi kia lai lam lan len lo luc ma may me minh
-mot nam nang nay nghe nguoi nhu nhung noi nua o ong qua ra rang roi sau se ta tai
+mot nam nang nay nghe nguoi nhu nhung noi nua o ong qua ra rang roi run sau se ta tai
 tam ten theo thi thoi toi trong tu va van ve vi voi vua xa xin
 `.trim().split(/\s+/));
 
