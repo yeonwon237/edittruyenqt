@@ -535,6 +535,26 @@ function scanGlossaryRules(text, terms, pronounRules) {
   return issues;
 }
 
+// Vietnamese prose never runs a lowercase letter straight into an uppercase
+// one — every real word boundary carries a space. Real edits showed a
+// glossary name glued onto the previous word with the space dropped
+// ("vành mắtKỳ Khê đỏ hoe" instead of "vành mắt Kỳ Khê đỏ hoe"). That slips
+// past scanNames entirely: its regex requires a NON-letter right before the
+// match, so a name preceded by a letter with no space in between never
+// matches at all. This is a separate, narrower check: it only looks at the
+// letter-to-letter boundary itself, so it also catches the same bug for
+// ordinary words, not just glossary names.
+const GLUED_WORD_REGEX = /\p{Ll}\p{Lu}/gu;
+
+function scanSpacing(text) {
+  return [...text.matchAll(GLUED_WORD_REGEX)].map((match) => makeIssue(text, {
+    type: "spacing", severity: "high", label: "Thiếu khoảng trắng",
+    value: match[0], replacement: `${match[0][0]} ${match[0][1]}`,
+    detail: `"${match[0]}" có vẻ là hai từ bị dính liền do thiếu khoảng trắng.`,
+    start: match.index, end: match.index + match[0].length,
+  }));
+}
+
 function scanCjk(text, terms) {
   const translations = new Map((terms || []).map((term) => [term.source_term, term.translation]));
   return [...text.matchAll(CJK_RUN_REGEX)].map((match) => makeIssue(text, {
@@ -923,6 +943,7 @@ export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], n
   const { issues: addressIssues } = scanContextualAddress(source, pronounRules);
   const issues = [
     ...scanConfiguredWords(source, qaSettings),
+    ...scanSpacing(source),
     ...scanGlossaryRules(source, glossaryTerms, pronounRules),
     ...scanCjk(source, glossaryTerms),
     ...scanEnglish(source, glossaryTerms),
@@ -949,5 +970,5 @@ export function applyQualitySuggestion(text, issue, replacement) {
 
 export const QUALITY_LABELS = {
   glossary: "Glossary", cjk: "Hán/Trung", english: "Tiếng Anh", name: "Tên riêng", pronoun: "Xưng hô",
-  narrative: "Ngôi lời dẫn", style:"Thể loại/Từ cấm"
+  narrative: "Ngôi lời dẫn", style:"Thể loại/Từ cấm", spacing: "Khoảng trắng"
 };

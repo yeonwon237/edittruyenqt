@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Languages, Loader2, LocateFixed, RotateCcw, SearchCheck, Sparkles, UserRoundCheck, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Languages, Loader2, LocateFixed, RotateCcw, SearchCheck, Space, Sparkles, UserRoundCheck, Zap } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QUALITY_LABELS } from "@/lib/qualityCheck";
 
@@ -8,7 +8,8 @@ const TYPE_META = {
   cjk: { icon: Languages, tone: "text-red-600 bg-red-50 border-red-100" },
   english: { icon: Languages, tone: "text-amber-700 bg-amber-50 border-amber-100" },
   name: { icon: UserRoundCheck, tone: "text-fuchsia-700 bg-fuchsia-50 border-fuchsia-100" },
-  pronoun: { icon: UserRoundCheck, tone: "text-violet-700 bg-violet-50 border-violet-100" }
+  pronoun: { icon: UserRoundCheck, tone: "text-violet-700 bg-violet-50 border-violet-100" },
+  spacing: { icon: Space, tone: "text-orange-700 bg-orange-50 border-orange-100" }
 };
 
 const isSafeIssue = (issue) =>
@@ -135,7 +136,7 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
             </div>
           </div>
           <div className="flex flex-wrap gap-1.5 pt-3">
-            {["all", "glossary", "cjk", "english", "name", "pronoun", "narrative", "style"].map((type) => {
+            {["all", "glossary", "cjk", "english", "name", "pronoun", "narrative", "style", "spacing"].map((type) => {
               const count = type === "all" ? (issues || []).length : counts[type] || 0;
               return <button key={type} onClick={() => setFilter(type)} className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${filter === type ? "bg-violet-600 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>{type === "all" ? "Tất cả" : QUALITY_LABELS[type]} · {count}</button>;
             })}
