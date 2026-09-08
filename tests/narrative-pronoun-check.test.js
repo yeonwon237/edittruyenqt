@@ -31,12 +31,17 @@ test('correct comma-resumptive usage produces no issue', () => {
   assert.deepEqual(narrativeIssues(text), []);
 });
 
-test('swapped comma-resumptive pronoun is caught', () => {
+test('swapped comma-resumptive pronoun is caught, but only at low confidence', () => {
+  // Was "cao" — real-chapter testing found a trailing comma with no
+  // possessive-noun anchor ("X did A, PRONOUN did B") reads as the OTHER
+  // scene participant reacting far more often than as X continuing as
+  // subject, so this shape can never be trusted as certain.
   const text = 'Trịnh Nặc quay lưng bước đi, cô không muốn nhìn thêm nữa.';
   const issues = narrativeIssues(text);
   assert.equal(issues.length, 1);
   assert.equal(issues[0].value, 'cô');
   assert.equal(issues[0].replacement, 'nàng');
+  assert.equal(issues[0].confidence, 'thấp');
 });
 
 test('swapped sentence-initial resumptive pronoun is caught across a full stop', () => {
@@ -108,6 +113,18 @@ test('sentence-initial resumptive picks the subject when the previous sentence n
 
 test('sentence-initial resumptive abstains when both previous-sentence names look equally like subjects', () => {
   const text = 'Kỷ Khê và Trịnh Nặc cùng bước vào. Nàng mỉm cười dịu dàng.';
+  assert.deepEqual(narrativeIssues(text), []);
+});
+
+test('the sole name in a sentence is not attributed the anchor when it is the AGENT acting on someone else\'s body part', () => {
+  // Real bug found against a live story: "Kỷ Khê nắm chặt lấy cánh tay
+  // nàng" ("Kỷ Khê grabbed HER arm tightly") — Kỷ Khê is the only name in
+  // the sentence and "cánh tay" is a possessive anchor, but Kỷ Khê is the
+  // AGENT of "nắm chặt lấy" (grabbed), not the possessor of the arm — the
+  // arm (and so "nàng") belongs to whoever she's grabbing. The previous,
+  // simpler rule ("one name + anchor noun after it = cao") got this
+  // backwards in several real chapters.
+  const text = 'Kỷ Khê nắm chặt lấy cánh tay nàng, ánh mắt kiên định.';
   assert.deepEqual(narrativeIssues(text), []);
 });
 

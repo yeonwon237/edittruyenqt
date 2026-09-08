@@ -693,8 +693,9 @@ const POSSESSIVE_ANCHOR_NOUNS = [
   "ánh mắt", "khóe mắt", "đôi mắt", "gương mặt", "khuôn mặt", "sắc mặt",
   "giọng nói", "khóe môi", "vành môi", "đôi môi", "nụ cười", "nét mặt",
   "mái tóc", "bờ vai", "dáng người", "thân hình", "bàn tay", "ngón tay",
-  "cổ tay", "cánh tay", "trong lòng", "trong tim", "trong đầu", "trong mắt",
-  "trái tim", "tâm trí", "nội tâm", "cõi lòng",
+  "cổ tay", "cánh tay", "mu bàn tay", "lòng bàn tay", "trong lòng",
+  "trong tim", "trong đầu", "trong mắt", "trái tim", "tâm trí", "nội tâm",
+  "cõi lòng",
 ];
 
 // Verbs/prepositions whose following NP is typically the grammatical OBJECT
@@ -716,6 +717,8 @@ const OBJECT_MARKING_PRECEDERS = [
   "nhìn", "ngắm", "gọi", "hỏi", "bảo", "ôm", "nắm", "kéo", "đẩy", "lấy",
   "bế", "hôn", "chạm", "sờ", "nhớ", "đợi", "chờ", "tìm", "dõi theo", "theo dõi",
   "mắng", "yêu", "ghét", "trách", "giận", "thương",
+  "gỡ", "hất", "giữ", "vỗ", "cầm", "níu", "túm", "xoa", "ấn", "đè", "giằng", "giật",
+  "vuốt ve", "vuốt", "siết chặt", "siết", "lướt qua", "lướt",
 ];
 
 function findNamesIn(segment, names) {
@@ -744,13 +747,13 @@ function looksLikeObjectMention(segment, start) {
 // Which single registered character does the narrator pronoun at `start`
 // resume/attach to, and how sure are we? Returns { name, confidence } or
 // null (abstain — still possible, e.g. no registered name anywhere nearby).
-// Three confidence tiers, each a progressively less certain anchor:
+// Confidence tiers, each a progressively less certain anchor:
 //
-// "cao" — the possessive/comma anchor ("<Name> ... <anchor noun/,>
-// <PRONOUN>") with exactly ONE registered name in the sentence, or the
-// sentence-initial resumptive ("<Name> [...]. <PRONOUN> ...") with exactly
-// one name in the PREVIOUS sentence. Nothing in real-chapter testing has
-// contradicted these.
+// "cao" — a possessive-noun anchor ("<Name> ... <anchor noun> <PRONOUN>")
+// with exactly ONE registered name in the sentence, AND that name isn't
+// itself the agent of a verb acting ON the anchor noun (see matchesAnchor
+// below) — or the sentence-initial resumptive ("<Name> [...]. <PRONOUN>
+// ...") with exactly one name in the PREVIOUS sentence.
 //
 // "trung bình" — sentence-initial resumptive when the PREVIOUS sentence
 // names exactly two characters: Centering theory's "continued topic is the
@@ -758,13 +761,16 @@ function looksLikeObjectMention(segment, start) {
 // grammatical object (looksLikeObjectMention); abstains if both or neither
 // qualify. Only ever chooses between the sentence's own two names.
 //
-// "thấp" — the possessive/comma anchor binding to the NEAREST registered
-// name even when an earlier, different registered name also appears in the
-// sentence (skipped only if that nearest name itself looks like a
-// grammatical object). Real-chapter testing caught this guessing wrong:
-// "ánh mắt Trình Nặc ... rơi trên khuôn mặt cô" bound "khuôn mặt" to the
-// nearest name (Trịnh Nặc) when it actually belonged to Kỷ Khê, the more
-// distant name and the semantic target of "rơi trên" (fell upon) — a
+// "thấp" — two real-chapter-tested weaker cases: (a) a trailing comma with
+// NO possessive-noun anchor ("X did A, PRONOUN did B") — real testing found
+// this reads as the OTHER scene participant reacting far more often than it
+// reads as X continuing as subject, so it can never be "cao"; or (b) the
+// possessive/comma anchor binding to the NEAREST registered name even when
+// an earlier, different registered name also appears in the sentence
+// (skipped only if that nearest name itself looks like a grammatical
+// object) — "ánh mắt Trình Nặc ... rơi trên khuôn mặt cô" bound "khuôn mặt"
+// to the nearest name (Trịnh Nặc) when it actually belonged to Kỷ Khê, the
+// more distant name and the semantic target of "rơi trên" (fell upon) — a
 // transitive/causative verb can introduce an anchor's possessor from
 // anywhere in the clause, not just the nearest name, and no cheap surface
 // signal tells the two apart. Flagged anyway (worth a human glance) but
@@ -774,10 +780,28 @@ function resolveNarrativeGovernor(text, start, names) {
     text.lastIndexOf(".", from - 1), text.lastIndexOf("!", from - 1),
     text.lastIndexOf("?", from - 1), text.lastIndexOf("\n", from - 1)
   ) + 1;
+  // Returns "cao" / "thấp" / null — see the tier writeup above.
   const matchesAnchor = (sentence, nameEnd) => {
     const gap = sentence.slice(nameEnd);
     const gapTrimmedEnd = gap.replace(/\s+$/, "").toLocaleLowerCase("vi");
-    return /,\s*$/.test(gap) || POSSESSIVE_ANCHOR_NOUNS.some((noun) => gapTrimmedEnd.endsWith(noun));
+    const nounAnchor = POSSESSIVE_ANCHOR_NOUNS.find((noun) => gapTrimmedEnd.endsWith(noun));
+    if (nounAnchor) {
+      // "Kỷ Khê hất cánh tay NÀNG ra" — Kỷ Khê is the AGENT acting on
+      // someone else's body part (the anchor noun), not its possessor.
+      // Same "verb marks what follows as object/patient" signal
+      // looksLikeObjectMention applies elsewhere, checked on the text
+      // just before the anchor noun instead of before a name.
+      // Searched anywhere in a short window before the anchor noun rather
+      // than requiring exact adjacency — real chapters put quantifiers or
+      // directional particles in between ("gỡ TỪNG ngón tay", "vỗ nhẹ LÊN
+      // mu bàn tay") that direct-suffix matching missed.
+      const beforeAnchor = gapTrimmedEnd.slice(0, gapTrimmedEnd.length - nounAnchor.length);
+      const verbWindow = beforeAnchor.slice(-25);
+      const agentVerb = OBJECT_MARKING_PRECEDERS.some((word) =>
+        new RegExp(`(?:^|[^\\p{L}])${escapeRegex(word)}(?:[^\\p{L}]|$)`, "u").test(verbWindow));
+      return agentVerb ? null : "cao";
+    }
+    return /,\s*$/.test(gap) ? "thấp" : null;
   };
 
   const sentenceStart = sentenceBoundary(start);
@@ -801,11 +825,13 @@ function resolveNarrativeGovernor(text, start, names) {
   const found = findNamesIn(sentence, names);
   if (!found.length) return null;
   if (found.length === 1) {
-    return matchesAnchor(sentence, found[0].end) ? { name: found[0].name, confidence: "cao" } : null;
+    const tier = matchesAnchor(sentence, found[0].end);
+    return tier ? { name: found[0].name, confidence: tier } : null;
   }
   const nearest = found.at(-1);
   if (looksLikeObjectMention(sentence, nearest.start)) return null;
-  return matchesAnchor(sentence, nearest.end) ? { name: nearest.name, confidence: "thấp" } : null;
+  const tier = matchesAnchor(sentence, nearest.end);
+  return tier ? { name: nearest.name, confidence: "thấp" } : null;
 }
 
 // Check narrator-voice pronouns (outside dialogue) against "Ngôi Lời Dẫn":
