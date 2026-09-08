@@ -1,0 +1,12 @@
+{
+  "chapter": "OMEGA ỐM YẾU — Chương 1: Tái ngộ (thật, đã người dùng xác nhận)",
+  "annotated": "Sau tám năm xa cách lại được bao bọc bởi hương cam quýt thanh nhã ấy, khóe mắt Trình Nặc trào ra dòng lệ ướt át, nàng túm chặt vạt áo Kỷ Khê, ngẩng đầu muốn tiến lại gần nhưng lại bị cô lạnh lùng né tránh.\n\n\"{{Tôi=>chị}} chỉ hôn người yêu thôi, người yêu cũ thì không cần thiết.\"\n\nĐôi mắt đen thoáng qua nét lạnh lẽo, Trình Nặc vừa định mở miệng thì một luồng tê dại đã chạy dọc khắp toàn thân.\n\nNàng cắn chặt môi dưới khẽ rên một tiếng, gò má càng thêm ửng đỏ, nước mắt nơi khóe mi rơi xuống nhanh hơn, \"Chị ơi, ôm em đi... Em nhớ chị lắm... Chị...\"\n\n\"Nếu không muốn bị {{tôi=>chị}} vứt ra ngoài trong bộ dạng này thì ngậm miệng lại.\"\n\nDù lời nói ra có lạnh lùng đến đâu, động tác trên tay Kỷ Khê vẫn đầy kiềm chế và dịu dàng.\n\nNhưng nếu người kia nắm giữ dữ liệu cơ thể cùng tin tức tố của Kỷ Khê thì rắc rối to rồi, việc này đe dọa trực tiếp đến sự an toàn của cô.\n\nKỷ Khê biết cô ấy đang lo lắng điều gì, đáy mắt lóe lên một tia u ám, \"Không sao, {{tôi}} quen cô ấy, không cần bận tâm.\"\n\nNghĩ đến điều gì đó, ánh mắt Kỷ Khê thoáng vẻ giãy giụa, cuối cùng vẫn mở lời, \"Đi điều tra một người tên 'Trình Nặc', tối qua cô ấy từng đến khách sạn này.\"",
+  "qt_raw": "",
+  "rules": [
+    { "speaker": "Kỷ Khê", "listener": "Trình Nặc", "self_word": "chị", "target_word": "Em" },
+    { "speaker": "Trình Nặc", "listener": "Kỷ Khê", "self_word": "Em", "target_word": "Chị" },
+    { "speaker": "Kỷ Khê", "listener": "Thịnh Thanh Sơn", "self_word": "Tôi", "target_word": "Cậu" },
+    { "speaker": "Thịnh Thanh Sơn", "listener": "Kỷ Khê", "self_word": "tôi", "target_word": "cậu" },
+    { "speaker": "Lục Trạch Ngôn", "listener": "Trình Nặc", "self_word": "tôi", "target_word": "cô" }
+  ]
+}

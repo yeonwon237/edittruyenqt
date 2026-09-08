@@ -1,0 +1,9 @@
+{
+  "chapter": "_demo (không tính vào 3 fixture thật — chỉ để kiểm tra script chạy đúng)",
+  "annotated": "Kỷ Khê nói với Trịnh Nặc: \"{{Em}} đã ăn cơm chưa?\"\nTrịnh Nặc đáp: \"Dạ {{em}} ăn rồi ạ.\"\n\"{{Tôi=>chị}} có mua cho {{em}} ít trái cây, để trên bàn.\"\nTrịnh Nặc cười: \"{{Em}} cảm ơn {{chị}}.\"",
+  "qt_raw": "",
+  "rules": [
+    { "speaker": "Kỷ Khê", "listener": "Trịnh Nặc", "self_word": "chị", "target_word": "em" },
+    { "speaker": "Trịnh Nặc", "listener": "Kỷ Khê", "self_word": "em", "target_word": "chị" }
+  ]
+}

@@ -1085,6 +1085,7 @@ export default function Workspace() {
   const qualityOptions = () => ({
     glossaryTerms,
     pronounRules: project?.contextual_pronoun_rules || [],
+    narrativeRules: project?.style_toggles?.story_memory?.narrativeRules || [],
     qaSettings: project?.style_toggles?.qa_settings || {},
   });
 
@@ -1102,7 +1103,7 @@ export default function Workspace() {
   const patchStoryQaReportForChapters = (chapters, qaSettings) => {
     setStoryQaReport((report) => {
       if (!report) return report;
-      const options = { glossaryTerms, pronounRules: project?.contextual_pronoun_rules || [], qaSettings };
+      const options = { glossaryTerms, pronounRules: project?.contextual_pronoun_rules || [], narrativeRules: project?.style_toggles?.story_memory?.narrativeRules || [], qaSettings };
       const touched = new Map(chapters.map((c) => [c.id, c]));
       const groupMap = new Map();
       report.groups.forEach((g) => {
@@ -1111,10 +1112,11 @@ export default function Workspace() {
       });
       const chapterResults = report.chapters.filter((c) => !touched.has(c.id));
       touched.forEach((chapter) => {
-        const issues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const issues = qaSettings.hidePronounNarrative ? rawIssues.filter((i) => i.type !== "pronoun" && i.type !== "narrative") : rawIssues;
         issues.forEach((issue) => {
-          const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct"].join("\u0001");
-          const group = groupMap.get(key) || { key, type: issue.type, label: issue.label, value: issue.value, replacement: issue.replacement || "", contextual: Boolean(issue.contextual), severity: issue.severity, locations: [], chapterIds: new Set() };
+          const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct", issue.confidence || ""].join("\u0001");
+          const group = groupMap.get(key) || { key, type: issue.type, label: issue.label, value: issue.value, replacement: issue.replacement || "", contextual: Boolean(issue.contextual), confidence: issue.confidence, severity: issue.severity, locations: [], chapterIds: new Set() };
           group.locations.push({ id: `${chapter.id}:${issue.start}:${issue.end}`, chapterId: chapter.id, chapterTitle: chapter.title, chapter_order: chapter.chapter_order, line: issue.line, context: issue.context, start: issue.start, end: issue.end, value: issue.value });
           group.chapterIds.add(chapter.id);
           groupMap.set(key, group);
@@ -1153,13 +1155,14 @@ export default function Workspace() {
     try {
       if (currentChapter) await flushSave(currentChapter, true);
       const chapters = await loadAllProjectChapters(["title", "chapter_order", "edited"]);
-      const options = { glossaryTerms, pronounRules:project?.contextual_pronoun_rules || [], qaSettings };
+      const options = { glossaryTerms, pronounRules:project?.contextual_pronoun_rules || [], narrativeRules: project?.style_toggles?.story_memory?.narrativeRules || [], qaSettings };
       const issueGroups = new Map();
       const results = chapters.map((chapter) => {
-        const issues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const issues = qaSettings.hidePronounNarrative ? rawIssues.filter((i) => i.type !== "pronoun" && i.type !== "narrative") : rawIssues;
         issues.forEach((issue) => {
-          const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct"].join("\u0001");
-          const group = issueGroups.get(key) || { key, type:issue.type, label:issue.label, value:issue.value, replacement:issue.replacement || "", contextual:Boolean(issue.contextual), severity:issue.severity, count:0, chapterIds:new Set(), samples:[], locations:[] };
+          const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct", issue.confidence || ""].join("\u0001");
+          const group = issueGroups.get(key) || { key, type:issue.type, label:issue.label, value:issue.value, replacement:issue.replacement || "", contextual:Boolean(issue.contextual), confidence:issue.confidence, severity:issue.severity, count:0, chapterIds:new Set(), samples:[], locations:[] };
           group.count += 1; group.chapterIds.add(chapter.id);
           group.locations.push({ id:`${chapter.id}:${issue.start}:${issue.end}`, chapterId:chapter.id, chapterTitle:chapter.title, chapter_order:chapter.chapter_order, line:issue.line, context:issue.context, start:issue.start, end:issue.end, value:issue.value });
           if (group.samples.length < 6) group.samples.push({ chapterId:chapter.id, chapterTitle:chapter.title, chapter_order:chapter.chapter_order, line:issue.line, context:issue.context });
@@ -1229,8 +1232,14 @@ export default function Workspace() {
   // so a pronoun group with a concrete replacement here has already passed
   // that context check — it just needs its own bulk action, not the "safe"
   // one, so it stays a deliberate, confirmable, separately-labeled step.
+  // Restricted to confidence "cao": scanContextualAddress also resolves
+  // speaker/listener from looser session inference (no explicit "với" tag,
+  // or no tag at all) at lower confidence — those need a human glance per
+  // location, not a blind bulk apply, so they're deliberately left out of
+  // this button and only reachable through the per-group "Thay N/M vị trí".
   const isPronounFixableStoryQaGroup = (group) =>
     group.type === "pronoun" &&
+    group.confidence === "cao" &&
     String(group.replacement || "").trim() &&
     group.replacement !== group.value;
 
