@@ -111,6 +111,32 @@ test('sentence-initial resumptive abstains when both previous-sentence names loo
   assert.deepEqual(narrativeIssues(text), []);
 });
 
+test('a registered multi-word pronoun is not shadowed by a shorter registered pronoun that is its prefix', () => {
+  // Real bug found against a live story: "Lộc Linh" is registered as "cô
+  // nàng" while another character is registered as plain "cô". The regex
+  // alternation used to try "cô" first and match it inside the correctly
+  // written "cô nàng", flagging already-correct text as wrong.
+  const withCompoundPronoun = [
+    { character: 'Kỷ Khê', pronoun: 'cô' },
+    { character: 'Lộc Linh', pronoun: 'cô nàng' },
+  ];
+  const text = 'Lộc Linh cười, cô nàng thấy vui.';
+  assert.deepEqual(runQualityCheck(text, { narrativeRules: withCompoundPronoun }).filter((i) => i.type === 'narrative'), []);
+});
+
+test('an unrelated compound word starting with a registered pronoun syllable is not flagged', () => {
+  // Real bug found against a live story: "cô bé" (an affectionate way to say
+  // "the girl", unrelated to any registered pronoun) was misread as the bare
+  // pronoun "cô" and — at "cao" confidence — proposed rewriting it into the
+  // nonsense "cô nàng bé".
+  const withCompoundPronoun = [
+    { character: 'Kỷ Khê', pronoun: 'cô' },
+    { character: 'Lộc Linh', pronoun: 'cô nàng' },
+  ];
+  const text = 'Lộc Linh cười, cô bé thấy vui.';
+  assert.deepEqual(runQualityCheck(text, { narrativeRules: withCompoundPronoun }).filter((i) => i.type === 'narrative'), []);
+});
+
 test('two characters sharing the same pronoun elsewhere in the story does not block detection for either', () => {
   // Real-world case that broke v1: many female characters legitimately share
   // "cô"/"nàng" as their narrative pronoun. The anchor still resolves a

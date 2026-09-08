@@ -45,6 +45,33 @@ const SPEECH_VERBS = "nói|hỏi|đáp|trả lời|lên tiếng|thì thầm|quá
 const SELF_PRONOUNS = new Set(["ta", "tôi", "mình", "trẫm", "bổn vương", "bổn tọa", "bổn cung", "bản thân"]);
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Vietnamese narrative/address pronouns are single free-standing syllables,
+// but several of them are also the first syllable of an unrelated, common
+// two-syllable word ("cô bé", "chị em", "anh em"...). A syllable-boundary
+// regex can't tell "cô" the pronoun apart from "cô" in "cô bé" — both have a
+// space (a non-letter) right after "cô". This closed list of known second
+// syllables blocks exactly those combinations; a combination not listed
+// here still matches, same as before this guard existed — real-chapter
+// testing found "cô bé" was misread as the pronoun "cô" and (at "cao"
+// confidence) proposed rewriting it into the nonsense "cô nàng bé".
+const PRONOUN_COMPOUND_CONTINUATIONS = {
+  "co": ["be", "ay", "gai", "dau", "nuong", "don", "doc", "hon"],
+  "ba": ["ay", "con", "noi", "ngoai", "cu", "lao", "xa"],
+  "nang": ["ta", "dau", "tien"],
+  "cau": ["ay", "be", "ta"],
+  "chi": ["ay", "em"],
+  "em": ["ay", "be", "ut"],
+  "anh": ["ay", "em"],
+  "ong": ["ay", "ba", "noi", "ngoai", "cu"],
+};
+
+function isSwallowedByCompound(text, matchEnd, foundWord) {
+  const continuations = PRONOUN_COMPOUND_CONTINUATIONS[normalize(foundWord)];
+  if (!continuations) return false;
+  const after = text.slice(matchEnd).match(/^\s+(\p{L}+)/u);
+  return after ? continuations.includes(normalize(after[1])) : false;
+}
 const normalize = (value) => String(value || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/gi, "d").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 function contextAt(text, start, end) {
@@ -509,6 +536,7 @@ function scanContextualAddress(text, rules) {
         const relativeEnd = relativeStart + found.length;
         const start = quoteStart + relativeStart;
         const end = quoteStart + relativeEnd;
+        if (isSwallowedByCompound(quoteText, relativeEnd, found)) continue;
         const dedupeKey = `${start}:${end}`;
         if (seen.has(dedupeKey)) continue;
 
@@ -691,7 +719,11 @@ function scanNarrativeAddress(text, narrativeRules) {
 
   const expectedByCharacter = new Map(valid.map((r) => [r.character, r.pronoun]));
   const names = [...new Set(valid.map((r) => r.character))];
-  const candidateWords = [...new Set(valid.map((r) => r.pronoun))];
+  // Longest first: without this, a shorter registered pronoun that's a
+  // prefix of a longer one ("cô" vs. "cô nàng") wins the alternation at the
+  // same starting position and the longer one's own, correctly-written text
+  // gets misread as the shorter word wearing a false mismatch.
+  const candidateWords = [...new Set(valid.map((r) => r.pronoun))].sort((a, b) => b.length - a.length);
 
   const quoteRanges = [...text.matchAll(/[“"]([^”"]+)[”"]/gu)].map((m) => [m.index, m.index + m[0].length]);
   const insideQuote = (pos) => quoteRanges.some(([a, b]) => pos >= a && pos < b);
@@ -703,6 +735,7 @@ function scanNarrativeAddress(text, narrativeRules) {
     const end = start + match[0].length;
     if (insideQuote(start)) continue;
     const found = match[0];
+    if (isSwallowedByCompound(text, end, found)) continue;
     const resolved = resolveNarrativeGovernor(text, start, names);
     if (!resolved) continue;
     const { name: governor, confidence } = resolved;
