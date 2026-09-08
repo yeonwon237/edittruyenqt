@@ -42,7 +42,7 @@ const ENGLISH_SUGGESTIONS = {
 };
 
 const SPEECH_VERBS = "nói|hỏi|đáp|trả lời|lên tiếng|thì thầm|quát|gọi|cười nói|tiếp lời";
-const SELF_PRONOUNS = new Set(["ta", "tôi", "mình", "trẫm", "bổn vương", "bổn tọa", "bổn cung", "bản thân"]);
+const SELF_PRONOUNS = new Set(["ta", "tôi", "mình", "trẫm", "bổn vương", "bổn tọa", "bổn cung", "bản thân", "tớ"]);
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -58,7 +58,7 @@ const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$
 const PRONOUN_COMPOUND_CONTINUATIONS = {
   "co": ["be", "ay", "gai", "dau", "nuong", "don", "doc", "hon"],
   "ba": ["ay", "con", "noi", "ngoai", "cu", "lao", "xa"],
-  "nang": ["ta", "dau", "tien"],
+  "nang": ["ta", "ay", "dau", "tien"],
   "cau": ["ay", "be", "ta"],
   "chi": ["ay", "em"],
   "em": ["ay", "be", "ut"],
@@ -439,8 +439,18 @@ function resolveQaAddressRole(quoteText, start, end) {
   const before = quoteText.slice(0, start);
   const after = quoteText.slice(end);
   const clauseStart = !before.split(/[.!?…]/u).at(-1).trim();
-  if (TARGET_ADDRESS_TERMS.has(word) && clauseStart &&
-      (looksLikeQuestionAboutListener(after) || looksLikeDirectAddress(after) || /^\s*[,!]/u.test(after))) return 'target';
+  if (TARGET_ADDRESS_TERMS.has(word)) {
+    if (clauseStart &&
+        (looksLikeQuestionAboutListener(after) || looksLikeDirectAddress(after) || /^\s*[,!]/u.test(after))) return 'target';
+    // Not a vocative, but still refers to the listener as the grammatical
+    // object of an addressee-taking verb ("mắng nàng", "nhớ nàng" — "à I
+    // can't scold HER?") — reusing looksLikeObjectMention here for the
+    // opposite conclusion it draws elsewhere in this file: there it downranks
+    // a NAME as an unlikely antecedent for a narrator pronoun; here the same
+    // "object of this verb" shape means the pronoun still names the listener,
+    // just not vocatively, so it's still the "target" role.
+    if (looksLikeObjectMention(quoteText, start)) return 'target';
+  }
   return 'unknown';
 }
 
@@ -583,7 +593,7 @@ const TARGET_ADDRESS_TERMS = new Set([
   "ngươi", "ngài", "nàng", "chàng", "muội", "huynh", "tỷ", "đệ",
   "ca", "ca ca", "tỷ tỷ", "muội muội", "đệ đệ", "khanh", "ái khanh",
   "thiếp", "nô tỳ", "nô gia", "hạ quan", "công tử", "cô nương",
-  "tiểu thư", "thiếu gia", "anh", "em", "chị", "cậu", "tớ",
+  "tiểu thư", "thiếu gia", "anh", "em", "chị", "cậu",
 ]);
 
 // Check dialogue only when participants and lexical role are supported.
@@ -705,6 +715,7 @@ const OBJECT_MARKING_PRECEDERS = [
   "với", "cho", "của", "cùng", "về phía", "đến bên", "cạnh", "bên", "bị",
   "nhìn", "ngắm", "gọi", "hỏi", "bảo", "ôm", "nắm", "kéo", "đẩy", "lấy",
   "bế", "hôn", "chạm", "sờ", "nhớ", "đợi", "chờ", "tìm", "dõi theo", "theo dõi",
+  "mắng", "yêu", "ghét", "trách", "giận", "thương",
 ];
 
 function findNamesIn(segment, names) {

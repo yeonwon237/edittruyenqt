@@ -197,6 +197,45 @@ test('a hub speaker abstains when the recent scene mentions two other registered
   assert.deepEqual(issues, []);
 });
 
+test('a target address term used as the OBJECT of a verb ("mắng nàng") is still caught, not just vocatives', () => {
+  // Real bug found by the user against a live story: "tôi không được mắng
+  // nàng à" — "nàng" here is the object of "mắng" (scold), addressing the
+  // listener, but not in vocative position (not clause-initial, no comma or
+  // question-about-listener pattern after it). Role resolution used to only
+  // recognize vocatives and silently skipped this shape entirely.
+  const text = 'Kỷ Khê nói với Trịnh Nặc: "Tôi không được mắng nàng à, đừng khóc nữa."';
+  const issues = pronounIssues(text);
+  assert.equal(issues.length, 2);
+  assert.deepEqual(issues.map((i) => i.value).sort(), ['Tôi', 'nàng'].sort());
+  assert.ok(issues.find((i) => i.value === 'nàng' && i.replacement === 'em'));
+});
+
+test('"nàng ấy" ("she") is not misread as the registered pronoun "nàng"', () => {
+  // Real bug found against a live story: same compound-word class as "cô
+  // bé"/"cô ta" fixed earlier, just missing from "nàng"'s own continuation
+  // list. "nàng ấy" refers to a third party, not a self/target mismatch.
+  const text = [
+    'Kỷ Khê nói với Trịnh Nặc: "Em đã ăn cơm chưa?"',
+    '"Công ty của nàng ấy ở xa lắm, em không biết đâu."',
+  ].join('\n');
+  assert.deepEqual(pronounIssues(text), []);
+});
+
+test('"tớ" is always a self-pronoun, never a way to address the listener', () => {
+  // Real bug found against a live story: "tớ" was listed among the target
+  // address terms, so "Nhớ tớ không?" ("do you miss ME?" — tớ pairs with
+  // cậu the way tôi/tao pair with other second-person words) got read as
+  // addressing the listener as "tớ" instead of recognizing "tớ" as the
+  // speaker's own self-reference.
+  const tuCauRules = [
+    { speaker: 'Thịnh Thanh Sơn', listener: 'Kỷ Khê', self_word: 'tớ', target_word: 'cậu' },
+    { speaker: 'Kỷ Khê', listener: 'Thịnh Thanh Sơn', self_word: 'Tôi', target_word: 'Cậu' },
+  ];
+  const text = 'Thịnh Thanh Sơn nói với Kỷ Khê: "Nhớ tớ không?"';
+  const issues = runQualityCheck(text, { pronounRules: tuCauRules }).filter((i) => i.type === 'pronoun');
+  assert.deepEqual(issues, []);
+});
+
 test('a passive "bị NAME [verb]:" beat does not hand an unregistered third party\'s line to that name', () => {
   // Real bug found against a live story: "... bị Kỷ Khê chắn lại: "..."" —
   // grammatically Kỷ Khê is only the AGENT of a passive clause ("was
