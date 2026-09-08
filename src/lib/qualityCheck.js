@@ -596,6 +596,22 @@ const TARGET_ADDRESS_TERMS = new Set([
   "tiểu thư", "thiếu gia", "anh", "em", "chị", "cậu",
 ]);
 
+// Attempts to flag a self_word/target_word used in the WRONG role ("Mù lỗi
+// hoán vị" from the original plan) were tried three different ways — qt_raw
+// evidence, "immediately after với/cho/gọi/hỏi/bảo/nhờ", and a bare vocative
+// shape (clause-initial, immediately followed by , ! ?) — and all three
+// produced real false positives once checked against the FULL real story
+// (178 chapters), not just a few samples. This book's dialogue routinely has
+// a character repeat their OWN self/target word for emphasis in exactly a
+// vocative's clause-initial-plus-punctuation shape ("Chị, chị đỉnh vãi
+// chưởng!", "Em, em suýt chút nữa bị xe tông chết rồi") — self-reference in
+// the third person via one's own address term, not addressing anyone.
+// Checked against all 26 real matches this produced: the large majority
+// were this pattern, not a genuine swap. No syntactic signal available here
+// reliably tells the two apart, so this file makes no attempt to — a
+// configured self_word or target_word found anywhere is trusted outright,
+// same as before this was tried.
+
 // Check dialogue only when participants and lexical role are supported.
 function scanContextualAddress(text, rules) {
   const validRules = (rules || []).filter(hasSpeakerSelfTarget);
