@@ -109,6 +109,23 @@ test('sentence-initial resumptive abstains when both previous-sentence names loo
   assert.deepEqual(narrativeIssues(text), []);
 });
 
+test('sentence-initial resumptive abstains after a perception verb (reaction-shot ambiguity)', () => {
+  // "Kỷ Khê looked at Trịnh Nặc. [Pronoun] frowned..." — the object of
+  // "nhìn" reacting in the next sentence is at least as likely a reading as
+  // the subject continuing, so this must NOT confidently pick Kỷ Khê the
+  // way the plain object-preceder case above picks the subject.
+  const text = 'Kỷ Khê ngẩng đầu nhìn Trịnh Nặc đối diện. Nàng khẽ nhíu mày.';
+  assert.deepEqual(narrativeIssues(text), []);
+});
+
+test('sentence-initial resumptive still prefers the subject over an object of a non-perception verb', () => {
+  const text = 'Kỷ Khê kéo Trịnh Nặc đứng dậy. Nàng mỉm cười dịu dàng.';
+  const issues = narrativeIssues(text);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].value, 'Nàng');
+  assert.equal(issues[0].replacement, 'cô');
+});
+
 test('the sole name in a sentence is not attributed the anchor when it is the AGENT acting on someone else\'s body part', () => {
   // Real bug found against a live story: "Kỷ Khê nắm chặt lấy cánh tay
   // nàng" ("Kỷ Khê grabbed HER arm tightly") — Kỷ Khê is the only name in

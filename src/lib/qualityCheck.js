@@ -869,6 +869,25 @@ const OBJECT_MARKING_PRECEDERS = [
   "vuốt ve", "vuốt", "siết chặt", "siết", "lướt qua", "lướt",
 ];
 
+// Subset of OBJECT_MARKING_PRECEDERS that specifically means "looked at" —
+// "nhìn", "ngắm", "liếc", "dõi theo"/"theo dõi". Real chapters showed the
+// resumptive-pronoun rule below (pick the subject, down-rank the object)
+// is wrong more often than right specifically after one of these: "X nhìn
+// Y. [Pronoun] cau mày..." (X looked at Y. [Pronoun] frowned...) reads as Y
+// reacting to being looked at at least as often as X continuing — a
+// reaction-shot pattern generic Centering theory's subject-continuity
+// preference doesn't cover, and the codebase's own established rule is to
+// abstain rather than guess wrong on a genuine 50/50. Every OTHER object
+// preceder (ôm, kéo, đẩy, gọi...) keeps the subject-preference default —
+// only perception verbs get this carve-out.
+const PERCEPTION_OBJECT_PRECEDERS = ["nhìn", "ngắm", "liếc", "dõi theo", "theo dõi"];
+function looksLikePerceptionObjectMention(segment, start) {
+  let before = segment.slice(Math.max(0, start - 34), start).replace(/\s+$/, "").toLocaleLowerCase("vi");
+  const anchor = POSSESSIVE_ANCHOR_NOUNS.find((noun) => before.endsWith(noun));
+  if (anchor) before = before.slice(0, before.length - anchor.length).replace(/\s+$/, "");
+  return PERCEPTION_OBJECT_PRECEDERS.some((word) => before.endsWith(word));
+}
+
 function findNamesIn(segment, names) {
   return names
     .flatMap((name) => {
@@ -907,7 +926,12 @@ function looksLikeObjectMention(segment, start) {
 // names exactly two characters: Centering theory's "continued topic is the
 // previous clause's subject" picks whichever of the two wasn't a
 // grammatical object (looksLikeObjectMention); abstains if both or neither
-// qualify. Only ever chooses between the sentence's own two names.
+// qualify. Only ever chooses between the sentence's own two names. Carve-out:
+// if the object was specifically the object of a PERCEPTION verb ("X nhìn
+// Y." — see looksLikePerceptionObjectMention), abstains instead of picking
+// the subject — "X looked at Y. [Pronoun] frowned..." reads as Y reacting
+// to being looked at at least as often as X continuing, a genuine coin-flip
+// generic subject-continuity doesn't resolve.
 //
 // Two weaker heuristics were tried and removed after real-chapter testing
 // showed both wrong more often than right, even surfaced at low confidence
@@ -963,7 +987,11 @@ function resolveNarrativeGovernor(text, start, names) {
       const [a, b] = found;
       const aIsObject = looksLikeObjectMention(prevSentence, a.start);
       const bIsObject = looksLikeObjectMention(prevSentence, b.start);
-      if (aIsObject !== bIsObject) return { name: aIsObject ? b.name : a.name, confidence: "trung bình" };
+      if (aIsObject !== bIsObject) {
+        const object = aIsObject ? a : b;
+        if (looksLikePerceptionObjectMention(prevSentence, object.start)) return null;
+        return { name: aIsObject ? b.name : a.name, confidence: "trung bình" };
+      }
     }
     return null;
   }
