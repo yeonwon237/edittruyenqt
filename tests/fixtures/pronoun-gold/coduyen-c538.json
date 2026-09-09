@@ -1,0 +1,13 @@
+{
+  "chapter": "coduyen-c538",
+  "annotated": "Biết Ngọc dì là tận tâm đề điểm trợ giúp mình, trong lòng Đinh Kỳ Vũ ấm áp cực kỳ, cảm kích nói: \"Vâng! {{Vũ nhi}} hiểu rồi, cảm ơn {{Ngọc dì}}! {{Vũ nhi}} cũng sẽ thường xuyên gửi thư cho Ngọc dì và Hoài sư phụ!\"",
+  "qt_raw": "",
+  "rules": [
+    {
+      "speaker": "Đinh Kỳ Vũ",
+      "listener": "Ngọc dì",
+      "self_word": "Vũ nhi",
+      "target_word": "Ngọc dì"
+    }
+  ]
+}
