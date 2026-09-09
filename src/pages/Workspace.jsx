@@ -3719,7 +3719,7 @@ ${sourceText}`;
     setExportingSelected(false);
   };
 
-  const handleAnalyzeTranslationWorkflow = async (sampleSize = 5) => {
+  const handleAnalyzeTranslationWorkflow = async (sampleSizeOrRange = 5) => {
     if (!hasCustomAI()) {
       toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
       return;
@@ -3733,13 +3733,22 @@ ${sourceText}`;
     setTranslationBootstrapRunning(true);
     setTranslationBootstrapResult(null);
     try {
-      // Spread samples across the whole book instead of reading only the opening,
-      // which catches later cast/identity changes while keeping one reviewable AI call.
-      const count = Math.max(1, Math.min(Number(sampleSize) || 5, ordered.length));
-      const indices = count === 1
-        ? [0]
-        : Array.from({ length: count }, (_, index) => Math.round(index * (ordered.length - 1) / (count - 1)));
-      const sampleMeta = [...new Set(indices)].map((index) => ordered[index]);
+      // Either a contiguous chapter range (user-picked "từ chương X đến chương Y")
+      // or samples spread evenly across the whole book — spreading catches later
+      // cast/identity changes while keeping one reviewable AI call.
+      const isRange = sampleSizeOrRange && typeof sampleSizeOrRange === "object";
+      let sampleMeta;
+      if (isRange) {
+        const from = Math.max(1, Number(sampleSizeOrRange.from) || 1);
+        const to = Math.min(ordered.length, Number(sampleSizeOrRange.to) || ordered.length);
+        sampleMeta = ordered.slice(from - 1, to);
+      } else {
+        const count = Math.max(1, Math.min(Number(sampleSizeOrRange) || 5, ordered.length));
+        const indices = count === 1
+          ? [0]
+          : Array.from({ length: count }, (_, index) => Math.round(index * (ordered.length - 1) / (count - 1)));
+        sampleMeta = [...new Set(indices)].map((index) => ordered[index]);
+      }
       const samples = await Promise.all(sampleMeta.map(async (meta) => {
         const cached = chapterCacheRef.current.get(meta.id);
         const chapter = cached || await Chapter.get(meta.id);
@@ -3844,12 +3853,15 @@ ${sourceText}`;
     }
   };
 
-  const handleStartBatchQt = async ({ overwriteExisting = false } = {}) => {
+  const handleStartBatchQt = async ({ overwriteExisting = false, from, to } = {}) => {
     if (!supportsSelfTranslate(project?.source_language)) {
       toast({ title: "Tự dịch QT hàng loạt hiện chỉ hỗ trợ nguồn tiếng Trung", variant: "destructive" });
       return;
     }
-    const ordered = [...chapterList].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+    const fullOrder = [...chapterList].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+    const startIndex = from ? Math.max(0, from - 1) : 0;
+    const endIndex = to ? Math.min(fullOrder.length, to) : fullOrder.length;
+    const ordered = fullOrder.slice(startIndex, endIndex);
     batchQtStopRef.current = false;
     setBatchQtErrors([]);
     setBatchQtFinished(false);

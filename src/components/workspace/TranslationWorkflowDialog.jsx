@@ -11,11 +11,25 @@ export default function TranslationWorkflowDialog({
   onStartQt, onStopQt, onOpenBatchEdit, onDiscoverGlossary,
 }) {
   const [sampleSize, setSampleSize] = useState(5);
+  const [analyzeMode, setAnalyzeMode] = useState("spread");
+  const [analyzeFrom, setAnalyzeFrom] = useState(1);
+  const [analyzeTo, setAnalyzeTo] = useState(Math.min(5, totalChapters || 1));
   const [draft, setDraft] = useState(null);
   const [selectedTerms, setSelectedTerms] = useState(new Set());
   const [selectedRules, setSelectedRules] = useState(new Set());
   const [selectedCharacters, setSelectedCharacters] = useState(new Set());
   const [overwriteQt, setOverwriteQt] = useState(false);
+  const [fromChapter, setFromChapter] = useState(1);
+  const [toChapter, setToChapter] = useState(totalChapters || 1);
+
+  useEffect(() => {
+    if (open) {
+      setFromChapter(1);
+      setToChapter(totalChapters || 1);
+      setAnalyzeFrom(1);
+      setAnalyzeTo(Math.min(5, totalChapters || 1));
+    }
+  }, [open, totalChapters]);
 
   useEffect(() => {
     if (!analysisResult) return;
@@ -58,11 +72,31 @@ export default function TranslationWorkflowDialog({
         <section className="space-y-3 rounded-2xl border border-cyan-100 bg-cyan-50/40 p-4">
           <div className="flex flex-wrap items-center gap-2">
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-cyan-600 text-sm font-bold text-white">1</span>
-            <div className="min-w-0 flex-1"><h3 className="font-semibold text-slate-800">AI lập bộ quy ước</h3><p className="text-xs text-slate-500">Lấy mẫu rải đều toàn truyện; AI chỉ đề xuất và chưa tự lưu.</p></div>
-            <select value={sampleSize} onChange={(e) => setSampleSize(Number(e.target.value))} disabled={busy} className="rounded-lg border border-cyan-200 bg-white px-2 py-1.5 text-sm">
-              {[5, 10, 20].filter((n) => n <= Math.max(5, totalChapters)).map((n) => <option key={n} value={n}>{n} chương mẫu</option>)}
-            </select>
-            <Button onClick={() => onAnalyze(Math.min(sampleSize, totalChapters))} disabled={busy || !totalChapters} className="bg-cyan-600 hover:bg-cyan-700">
+            <div className="min-w-0 flex-1"><h3 className="font-semibold text-slate-800">AI lập bộ quy ước</h3><p className="text-xs text-slate-500">{analyzeMode === "spread" ? "Lấy mẫu rải đều toàn truyện" : "Lấy mẫu trong khoảng chương đã chọn"}; AI chỉ đề xuất và chưa tự lưu.</p></div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-lg border border-cyan-200 bg-white p-0.5 text-xs">
+              <button type="button" disabled={busy} onClick={() => setAnalyzeMode("spread")} className={`rounded-md px-2.5 py-1.5 font-medium transition-colors ${analyzeMode === "spread" ? "bg-cyan-600 text-white" : "text-slate-600 hover:bg-cyan-50"}`}>Rải đều</button>
+              <button type="button" disabled={busy} onClick={() => setAnalyzeMode("range")} className={`rounded-md px-2.5 py-1.5 font-medium transition-colors ${analyzeMode === "range" ? "bg-cyan-600 text-white" : "text-slate-600 hover:bg-cyan-50"}`}>Khoảng chương</button>
+            </div>
+            {analyzeMode === "spread" ? (
+              <select value={sampleSize} onChange={(e) => setSampleSize(Number(e.target.value))} disabled={busy} className="rounded-lg border border-cyan-200 bg-white px-2 py-1.5 text-sm">
+                {[5, 10, 20].filter((n) => n <= Math.max(5, totalChapters)).map((n) => <option key={n} value={n}>{n} chương mẫu</option>)}
+              </select>
+            ) : (
+              <div className="flex items-center gap-1.5 text-xs text-slate-600">
+                <span>Từ chương</span>
+                <input type="number" min={1} max={totalChapters || 1} value={analyzeFrom} onChange={(e) => setAnalyzeFrom(Math.max(1, Math.min(Number(e.target.value) || 1, totalChapters || 1)))} disabled={busy || !totalChapters} className="w-16 rounded-lg border border-cyan-200 bg-white px-2 py-1.5 text-center disabled:bg-slate-50" />
+                <span>đến chương</span>
+                <input type="number" min={1} max={totalChapters || 1} value={analyzeTo} onChange={(e) => setAnalyzeTo(Math.max(1, Math.min(Number(e.target.value) || 1, totalChapters || 1)))} disabled={busy || !totalChapters} className="w-16 rounded-lg border border-cyan-200 bg-white px-2 py-1.5 text-center disabled:bg-slate-50" />
+              </div>
+            )}
+            <Button
+              onClick={() => onAnalyze(analyzeMode === "range" ? { from: analyzeFrom, to: analyzeTo } : Math.min(sampleSize, totalChapters))}
+              disabled={busy || !totalChapters || (analyzeMode === "range" && analyzeFrom > analyzeTo)}
+              className="bg-cyan-600 hover:bg-cyan-700"
+            >
               {analysisRunning ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Bot className="mr-1.5 h-4 w-4" />} Phân tích
             </Button>
           </div>
@@ -81,7 +115,30 @@ export default function TranslationWorkflowDialog({
 
         <section className="space-y-3 rounded-2xl border border-amber-100 bg-amber-50/40 p-4">
           <div className="flex flex-wrap items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-sm font-bold text-white">2</span><div className="min-w-0 flex-1"><h3 className="font-semibold text-slate-800">Máy tạo QT hàng loạt</h3><p className="text-xs text-slate-500">Dùng Glossary đã lưu, không gọi AI; lưu ngay từng chương.</p></div>
-            {!qtRunning ? <Button onClick={() => onStartQt({ overwriteExisting: overwriteQt })} disabled={busy || !totalChapters} className="bg-amber-500 hover:bg-amber-600">Tạo QT cho {totalChapters} chương</Button> : <Button variant="outline" onClick={onStopQt} className="border-red-200 text-red-600"><OctagonX className="mr-1 h-4 w-4" />Dừng sau chương này</Button>}
+            {!qtRunning ? <Button onClick={() => onStartQt({ overwriteExisting: overwriteQt, from: fromChapter, to: toChapter })} disabled={busy || !totalChapters || fromChapter > toChapter} className="bg-amber-500 hover:bg-amber-600">Tạo QT cho {Math.max(0, Math.min(toChapter, totalChapters) - fromChapter + 1)} chương</Button> : <Button variant="outline" onClick={onStopQt} className="border-red-200 text-red-600"><OctagonX className="mr-1 h-4 w-4" />Dừng sau chương này</Button>}
+          </div>
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            <span>Từ chương</span>
+            <input
+              type="number"
+              min={1}
+              max={totalChapters || 1}
+              value={fromChapter}
+              onChange={(e) => setFromChapter(Math.max(1, Math.min(Number(e.target.value) || 1, totalChapters || 1)))}
+              disabled={busy || !totalChapters}
+              className="w-16 rounded-lg border border-amber-200 bg-white px-2 py-1 text-center disabled:bg-slate-50"
+            />
+            <span>đến chương</span>
+            <input
+              type="number"
+              min={1}
+              max={totalChapters || 1}
+              value={toChapter}
+              onChange={(e) => setToChapter(Math.max(1, Math.min(Number(e.target.value) || 1, totalChapters || 1)))}
+              disabled={busy || !totalChapters}
+              className="w-16 rounded-lg border border-amber-200 bg-white px-2 py-1 text-center disabled:bg-slate-50"
+            />
+            <span className="text-slate-400">(tổng {totalChapters} chương)</span>
           </div>
           <label className="flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={overwriteQt} onChange={(e) => setOverwriteQt(e.target.checked)} disabled={busy} className="accent-amber-500" /> Ghi đè chương đã có QT. Mặc định tắt để bảo vệ dữ liệu hiện tại.</label>
           {(qtRunning || qtFinished) && <div className="space-y-1.5"><div className="h-2 overflow-hidden rounded-full bg-amber-100"><div className="h-full bg-amber-500" style={{ width: `${pct}%` }} /></div><p className="text-xs text-slate-500">{qtProgress.done}/{qtProgress.total} · đã dịch {qtProgress.translated} · bỏ qua {qtProgress.skipped} · lỗi {qtProgress.failed}{qtProgress.currentTitle ? ` · ${qtProgress.currentTitle}` : ""}</p></div>}
