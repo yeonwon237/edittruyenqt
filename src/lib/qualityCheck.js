@@ -255,66 +255,10 @@ function inferSceneListener(text, quoteStart, speakerName, names) {
 // người khác") — capped at "thấp" since there's no session corroborating it.
 // Failing that, falls back to inferSceneListener (see above) for hub
 // characters — same "thấp" cap, since it's the weakest evidence of all.
-// A conversation session can go stale mid-monologue: the same speaker keeps
-// talking turn after turn (no scene break, so the session never resets) but
-// who they're addressing quietly changes — real chapters showed this exact
-// case (A Trì answers Lưu Tế, session locks speaker=A Trì/listener=Lưu Tế,
-// then without any break she turns and addresses "Bệ hạ, ..." — the session
-// kept insisting the listener was still Lưu Tế). A leading vocative is the
-// one signal strong enough to override a session outright: the character's
-// own words name who they're talking to, right at the start of the line
-// ("Bệ hạ, tôi..."), the classic Vietnamese direct-address shape. Requires
-// the registered target_word to be the very first thing in the quote,
-// immediately followed by , or ! — anything looser (the word merely
-// appearing somewhere in the line) is not a vocative and is deliberately not
-// matched here, to avoid firing on a target_word used as an object mid-
-// sentence ("...nói cho Bệ hạ nghe") which says nothing about who is being
-// addressed right now. Only fires when exactly one of the speaker's
-// registered listeners matches — two matching, or the matched listener being
-// the session's own, changes nothing (falls through to the existing logic).
-// Generic address words (TARGET_ADDRESS_TERMS — "ngươi", "ngài", "muội"...)
-// never trigger this, even as a lone match: a hub speaker often has several
-// listeners who happen to share the exact same generic word, so "the one
-// listener whose word matches" isn't distinctive evidence for those — a real
-// chapter showed this ("Ngươi, ngươi theo dõi..." matched a completely
-// unrelated listener elsewhere in the matrix who also happens to be
-// addressed as "ngươi", silently swallowing a genuine flag). Only a SPECIFIC
-// registered title (a name, rank, or kin term particular to one relationship
-// — "Bệ hạ", "Sư phụ", "Nương nương") is distinctive enough on its own.
-//
-// FIRST ATTEMPT AT THIS BROKE A REAL CHAPTER (see git history) — not because
-// of the logic above, but because the rules data had the same character
-// registered under two different names ("Đỗ Chiêu Ly" and "Hoàng hậu" were
-// one person), so a correct vocative match could jump the session to the
-// character's OTHER name and inherit that name's separate, inconsistent
-// rule variant. Fixed by merging duplicate-identity names in the rules data
-// itself before re-adding this — that root cause, not this function, was
-// what made it unsafe the first time.
-function findVocativeOverride(quoteText, speakerName, validRules) {
-  const leading = /^[\s.…"“]*([^,!]{1,40}?)\s*[,!]/u.exec(quoteText);
-  if (!leading) return null;
-  const leadingWord = normalize(leading[1]);
-  if (!leadingWord || TARGET_ADDRESS_TERMS.has(leading[1].trim().toLocaleLowerCase("vi"))) return null;
-  const speakerRules = validRules.filter((r) => r.speaker.trim() === speakerName);
-  const matches = new Map();
-  for (const rule of speakerRules) {
-    for (const word of splitSuggestions(rule.target_word)) {
-      if (normalize(word) === leadingWord) matches.set(rule.listener?.trim() || "", rule);
-    }
-  }
-  if (matches.size !== 1) return null;
-  const [[listener, rule]] = matches;
-  return { listener, rule };
-}
-
-function resolveListenerForSpeaker(speakerName, activeSession, validRules, tagConfidence, text, quoteStart, names, quoteText) {
+function resolveListenerForSpeaker(speakerName, activeSession, validRules, tagConfidence, text, quoteStart, names) {
   if (activeSession && (speakerName === activeSession.speaker || speakerName === activeSession.listener)) {
-    const sessionListener = speakerName === activeSession.speaker ? activeSession.listener : activeSession.speaker;
-    const override = quoteText && findVocativeOverride(quoteText, speakerName, validRules);
-    if (override && override.listener !== sessionListener) {
-      return { listener: override.listener, rule: override.rule, confidence: weaker("trung bình", tagConfidence) };
-    }
-    return { listener: sessionListener, rule: pickRule(validRules, speakerName, sessionListener), confidence: weaker(tagConfidence, activeSession.confidence) };
+    const listener = speakerName === activeSession.speaker ? activeSession.listener : activeSession.speaker;
+    return { listener, rule: pickRule(validRules, speakerName, listener), confidence: weaker(tagConfidence, activeSession.confidence) };
   }
   const speakerRules = validRules.filter((r) => r.speaker.trim() === speakerName);
   const distinctListeners = [...new Set(speakerRules.map((r) => r.listener?.trim() || "*"))];
@@ -373,7 +317,6 @@ function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) 
     return { speaker: explicit.speaker, listener, rule: explicit.rule, speakerRules: explicit.speakerRules, confidence: "cao", end: quoteEnd };
   }
 
-  const quoteText = text.slice(quoteStart, quoteEnd);
   const names = [...new Set(validRules.flatMap((r) => [r.speaker.trim(), r.listener?.trim()]).filter((n) => n && n !== "*"))];
 
   // A quote that opens its own paragraph (no lead-in on its own line) very
@@ -397,7 +340,7 @@ function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) 
 
   const looseSpeaker = findLooseSpeakerTag(before, names);
   if (looseSpeaker) {
-    const resolvedListener = resolveListenerForSpeaker(looseSpeaker, activeSession, validRules, "trung bình", text, quoteStart, names, quoteText);
+    const resolvedListener = resolveListenerForSpeaker(looseSpeaker, activeSession, validRules, "trung bình", text, quoteStart, names);
     if (resolvedListener) {
       const speakerRules = validRules.filter((r) => r.speaker.trim() === looseSpeaker);
       return { speaker: looseSpeaker, listener: resolvedListener.listener, rule: resolvedListener.rule, speakerRules, confidence: resolvedListener.confidence, end: quoteEnd };
@@ -406,7 +349,7 @@ function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) 
 
   const beatSpeaker = !looseSpeaker ? findActionBeatSpeaker(beatBefore, names) : null;
   if (beatSpeaker) {
-    const resolvedListener = resolveListenerForSpeaker(beatSpeaker, activeSession, validRules, "thấp", text, quoteStart, names, quoteText);
+    const resolvedListener = resolveListenerForSpeaker(beatSpeaker, activeSession, validRules, "thấp", text, quoteStart, names);
     if (resolvedListener) {
       const speakerRules = validRules.filter((r) => r.speaker.trim() === beatSpeaker);
       return { speaker: beatSpeaker, listener: resolvedListener.listener, rule: resolvedListener.rule, speakerRules, confidence: resolvedListener.confidence, end: quoteEnd };
@@ -761,12 +704,7 @@ function scanContextualAddress(text, rules) {
     if (!resolved) continue;
     session = resolved;
     const { speaker, speakerRules, rule, confidence } = resolved;
-    // self_word/target_word can list several valid forms separated by "," or
-    // "/" (e.g. "điện hạ / ngài") — split them so each form is its own
-    // candidate to scan for and matches on its own below, instead of only
-    // ever matching the combined string verbatim (which never occurs in
-    // real text).
-    const speakerWords = [...new Set(speakerRules.flatMap((item) => [...splitSuggestions(item.self_word), ...splitSuggestions(item.target_word)]))];
+    const speakerWords = [...new Set(speakerRules.flatMap((item) => [item.self_word.trim(), item.target_word.trim()]).filter(Boolean))];
     const candidateWords = [...new Set([...speakerWords, ...SELF_PRONOUNS, ...TARGET_ADDRESS_TERMS])];
 
     candidateWords.forEach((word) => {
@@ -792,8 +730,8 @@ function scanContextualAddress(text, rules) {
         const role = resolveQaAddressRole(quoteText, relativeStart, relativeEnd);
         if (rule) {
           const normFound = normalize(found);
-          const matchesSelf = splitSuggestions(rule.self_word).some((alt) => normFound === normalize(alt));
-          const matchesTarget = splitSuggestions(rule.target_word).some((alt) => normFound === normalize(alt));
+          const matchesSelf = normFound === normalize(rule.self_word);
+          const matchesTarget = normFound === normalize(rule.target_word);
           if (matchesSelf || matchesTarget) {
             confirmedSpans.add(dedupeKey);
             continue;
