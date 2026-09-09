@@ -46,6 +46,37 @@ const EditorPanel = forwardRef(function EditorPanel(
   const [searchQuery, setSearchQuery] = useState("");
   const [activeMatch, setActiveMatch] = useState(-1);
   const matches = useMemo(() => findTextMatches(value, searchQuery), [value, searchQuery]);
+
+  // highlightTerms/highlightQualityIssues rebuild a regex over every glossary
+  // term (900+ in an active project) and walk the full chapter text — tens to
+  // hundreds of ms. Keyed only on [value, terms]/[value, qualityIssues] (not
+  // the click callbacks, which change identity every render) so typing in a
+  // SIBLING panel, opening the QA dialog, or any other unrelated re-render of
+  // the parent Workspace no longer reruns this for panels whose own text
+  // didn't change.
+  const onTermClickRef = useRef(onTermClick);
+  onTermClickRef.current = onTermClick;
+  const stableOnTermClick = useMemo(() => (term) => onTermClickRef.current?.(term), []);
+  const onIssueClickRef = useRef(onIssueClick);
+  onIssueClickRef.current = onIssueClick;
+  const stableOnIssueClick = useMemo(() => (items, e) => onIssueClickRef.current?.(items, e), []);
+
+  const termsHighlight = useMemo(
+    () => highlightTerms(value, terms, stableOnTermClick),
+    [value, terms, stableOnTermClick]
+  );
+  const qualityHighlight = useMemo(
+    () => highlightQualityIssues(value, qualityIssues, { onIssueClick: stableOnIssueClick }),
+    [value, qualityIssues, stableOnIssueClick]
+  );
+  const foreignCharsHighlight = useMemo(
+    () => highlightForeignChars(termsHighlight),
+    [termsHighlight]
+  );
+  const editOverlayHighlight = useMemo(
+    () => highlightQualityIssues(value || "", qualityIssues, { overlay: true }),
+    [value, qualityIssues]
+  );
   const panelMeta = {
     source: { Icon: FileText, label: "Nguồn", tone: "text-slate-500 bg-slate-100" },
     draft: { Icon: WandSparkles, label: "Chuyển ngữ", tone: "text-blue-600 bg-blue-50" },
@@ -174,11 +205,9 @@ const EditorPanel = forwardRef(function EditorPanel(
             <div data-etq-role="view-content" className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700 min-h-full">
               {value ? (
                 flagForeignChars ? (
-                  qualityIssues.length
-                    ? highlightQualityIssues(value, qualityIssues, { onIssueClick })
-                    : highlightForeignChars(highlightTerms(value, terms, onTermClick))
+                  qualityIssues.length ? qualityHighlight : foreignCharsHighlight
                 ) : (
-                  highlightTerms(value, terms, onTermClick)
+                  termsHighlight
                 )
               ) : (
                 <span className="text-slate-300 italic">{placeholder}</span>
@@ -193,7 +222,7 @@ const EditorPanel = forwardRef(function EditorPanel(
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-y-0 left-0 right-[7px] z-20 m-0 overflow-hidden p-5 text-[15px] leading-8 text-transparent whitespace-pre-wrap break-words font-body"
               >
-                {highlightQualityIssues(value || "", qualityIssues, { overlay: true })}
+                {editOverlayHighlight}
               </pre>
             )}
             <textarea
