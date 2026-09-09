@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -67,8 +67,10 @@ export default function ContextualPronounDialog({
   const [storyPronounAiOpen, setStoryPronounAiOpen] = useState(false);
   const [narrativeRules, setNarrativeRules] = useState([]);
   const [narrativeForm, setNarrativeForm] = useState({ character: "", pronoun: "", note: "" });
+  const [narrativeEditingIndex, setNarrativeEditingIndex] = useState(-1);
   const [savingLearningSetting, setSavingLearningSetting] = useState(false);
   const learningEnabled = isChapterLearningEnabled(project?.style_toggles);
+  const pronounFormRef = useRef(null);
 
   useEffect(() => {
     if (open) {
@@ -80,6 +82,7 @@ export default function ContextualPronounDialog({
       setSelectedIndices(new Set());
       setNarrativeRules(project?.style_toggles?.story_memory?.narrativeRules || []);
       setNarrativeForm({ character: "", pronoun: "", note: "" });
+      setNarrativeEditingIndex(-1);
     }
   }, [open, project]);
 
@@ -138,24 +141,41 @@ export default function ContextualPronounDialog({
       source: "manual",
       confidence: 1,
     };
-    const existingIndex = narrativeRules.findIndex(
-      (item) => item.character?.trim().toLocaleLowerCase("vi") === normalized
-    );
+    const existingIndex = narrativeEditingIndex >= 0
+      ? narrativeEditingIndex
+      : narrativeRules.findIndex(
+          (item) => item.character?.trim().toLocaleLowerCase("vi") === normalized
+        );
     const next = existingIndex >= 0
       ? narrativeRules.map((item, index) => index === existingIndex ? rule : item)
       : [...narrativeRules, rule];
     try {
       await persistNarrativeRules(next);
       setNarrativeForm({ character: "", pronoun: "", note: "" });
+      setNarrativeEditingIndex(-1);
       toast({ title: existingIndex >= 0 ? "Đã cập nhật ngôi lời dẫn" : "Đã thêm ngôi lời dẫn" });
     } catch (error) {
       toast({ title: "Không lưu được ngôi lời dẫn", description: error.message, variant: "destructive" });
     }
   };
 
+  const handleEditNarrativeRule = (index) => {
+    const rule = narrativeRules[index];
+    setNarrativeForm({ character: rule.character || "", pronoun: rule.pronoun || "", note: rule.note || "" });
+    setNarrativeEditingIndex(index);
+  };
+
+  const handleCancelEditNarrativeRule = () => {
+    setNarrativeForm({ character: "", pronoun: "", note: "" });
+    setNarrativeEditingIndex(-1);
+  };
+
   const handleDeleteNarrativeRule = async (index) => {
     try {
       await persistNarrativeRules(narrativeRules.filter((_, itemIndex) => itemIndex !== index));
+      if (narrativeEditingIndex === index) {
+        handleCancelEditNarrativeRule();
+      }
     } catch (error) {
       toast({ title: "Không xóa được ngôi lời dẫn", description: error.message, variant: "destructive" });
     }
@@ -274,6 +294,7 @@ export default function ContextualPronounDialog({
     });
     setIsDefault(!r.listener || r.listener === "*");
     setEditingIndex(idx);
+    pronounFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const handleDelete = async (idx) => {
@@ -345,7 +366,12 @@ export default function ContextualPronounDialog({
           {narrativeRules.length > 0 && (
             <div className="space-y-1">
               {narrativeRules.map((rule, index) => (
-                <div key={`${rule.character}-${index}`} className="flex items-center gap-2 rounded-lg border border-indigo-100 bg-white px-2.5 py-2 text-xs">
+                <div
+                  key={`${rule.character}-${index}`}
+                  className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs ${
+                    narrativeEditingIndex === index ? "border-indigo-400 bg-indigo-50" : "border-indigo-100 bg-white"
+                  }`}
+                >
                   <span className="min-w-0 flex-1">
                     <strong className="text-slate-700">{rule.character}</strong>
                     <span className="mx-1.5 text-slate-300">→</span>
@@ -353,6 +379,9 @@ export default function ContextualPronounDialog({
                     {rule.note ? <span className="ml-2 text-slate-400">({rule.note})</span> : null}
                   </span>
                   {rule.source === "ai_chapter_learning" && <span className="rounded bg-fuchsia-50 px-1.5 py-0.5 text-[10px] text-fuchsia-600">AI học</span>}
+                  <button type="button" onClick={() => handleEditNarrativeRule(index)} className="text-slate-400 hover:text-indigo-600" title="Sửa quy tắc lời dẫn">
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
                   <button type="button" onClick={() => handleDeleteNarrativeRule(index)} className="text-slate-400 hover:text-red-500" title="Xóa quy tắc lời dẫn">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -380,9 +409,25 @@ export default function ContextualPronounDialog({
               placeholder="Ghi chú/điều kiện (không bắt buộc)"
               className="rounded-lg border border-indigo-100 bg-white px-2.5 py-2 text-xs outline-none focus:border-indigo-400"
             />
-            <button type="button" onClick={handleAddNarrativeRule} className="flex items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700">
-              <Plus className="mr-1 h-3.5 w-3.5" /> Thêm
-            </button>
+            <div className="flex gap-1.5">
+              <button type="button" onClick={handleAddNarrativeRule} className="flex flex-1 items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700">
+                {narrativeEditingIndex >= 0 ? (
+                  <>Cập nhật</>
+                ) : (
+                  <><Plus className="mr-1 h-3.5 w-3.5" /> Thêm</>
+                )}
+              </button>
+              {narrativeEditingIndex >= 0 && (
+                <button
+                  type="button"
+                  onClick={handleCancelEditNarrativeRule}
+                  className="flex items-center justify-center rounded-lg border border-indigo-200 bg-white px-2 py-2 text-slate-500 hover:bg-indigo-50"
+                  title="Huỷ chỉnh sửa"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           </div>
         </section>
 
@@ -455,7 +500,7 @@ export default function ContextualPronounDialog({
         )}
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-3 rounded-xl border border-violet-100 bg-violet-50/40 p-3">
+        <form ref={pronounFormRef} onSubmit={handleSubmit} className="space-y-3 rounded-xl border border-violet-100 bg-violet-50/40 p-3">
           <div>
             <p className="mb-1.5 text-xs font-medium text-violet-700">Áp dụng khi nói với *</p>
             <div className="grid grid-cols-2 gap-2 rounded-xl border border-violet-100 bg-white p-1">
