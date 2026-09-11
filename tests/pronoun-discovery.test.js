@@ -93,3 +93,30 @@ test('folds accents when rejecting a likely truncated translation variant', () =
   const report = discoverPronounRules(chapters, { knownNames: ['Thịnh Vân Thư'] });
   assert.ok(!report.candidateNames.includes('Văn Thư'));
 });
+
+test('learns narrator pronouns outside dialogue without reading address words inside quotes', () => {
+  const chapters = Array.from({ length: 3 }, (_, index) => ({
+    id: `narrative-${index}`,
+    title: `Chương ${index + 1}`,
+    chapter_order: index + 1,
+    edited: [
+      'Thịnh Vân Thư khép cửa lại, cô chậm rãi bước về phía cửa sổ.',
+      'Thịnh Vân Thư nói: “Chị đừng lo cho em.”',
+    ].join('\n'),
+  }));
+  const report = discoverPronounRules(chapters, { knownNames: ['Thịnh Vân Thư'] });
+  const narrative = report.narrativeRules.find((rule) => rule.character === 'Thịnh Vân Thư');
+  assert.ok(narrative);
+  assert.equal(narrative.pronoun, 'cô');
+  assert.equal(narrative.confidence, 1);
+});
+
+test('deep scan keeps one-sample candidates for manual review', () => {
+  const chapter = [{
+    id: 'deep-1', title: 'Một chương', chapter_order: 1,
+    edited: 'Kỷ Khê nói với Trình Nặc: “Tôi hiểu rồi.”',
+  }];
+  const knownNames = ['Kỷ Khê', 'Trình Nặc'];
+  assert.equal(discoverPronounRules(chapter, { knownNames }).rules.length, 0);
+  assert.equal(discoverPronounRules(chapter, { knownNames, deep: true }).rules.length, 1);
+});

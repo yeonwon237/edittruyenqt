@@ -7,7 +7,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X, SearchCheck, Compass, Bot, BookOpen } from "lucide-react";
+import { Trash2, Pencil, Plus, RotateCcw, Sparkles, Loader2, ListChecks, X, SearchCheck, Compass, Bot, BookOpen, Download, Upload } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { ruleSummary } from "@/lib/pronounMatrix";
@@ -71,6 +71,7 @@ export default function ContextualPronounDialog({
   const [savingLearningSetting, setSavingLearningSetting] = useState(false);
   const learningEnabled = isChapterLearningEnabled(project?.style_toggles);
   const pronounFormRef = useRef(null);
+  const worldRulesFileRef = useRef(null);
 
   useEffect(() => {
     if (open) {
@@ -222,8 +223,8 @@ export default function ContextualPronounDialog({
     }
   };
 
-  const handleApplyBootstrap = async (rows) => {
-    if (!rows.length) return;
+  const handleApplyBootstrap = async (rows, narrativeRows = []) => {
+    if (!rows.length && !narrativeRows.length) return;
     const key = (r) => `${r.speaker.trim().toLocaleLowerCase("vi")}${r.listener.trim().toLocaleLowerCase("vi")}`;
     let next = [...rules];
     rows.forEach((row) => {
@@ -231,10 +232,83 @@ export default function ContextualPronounDialog({
       if (idx >= 0) next[idx] = { ...next[idx], ...row };
       else next = [...next, row];
     });
+    const narrativeByName = new Map(narrativeRules.map((rule) => [String(rule.character || "").trim().toLocaleLowerCase("vi"), rule]));
+    narrativeRows.forEach((row) => {
+      const narrativeKey = String(row.character || "").trim().toLocaleLowerCase("vi");
+      if (!narrativeByName.has(narrativeKey)) narrativeByName.set(narrativeKey, row);
+    });
+    const nextNarrative = [...narrativeByName.values()];
     setRules(next);
+    setNarrativeRules(nextNarrative);
     setBootstrapOpen(false);
-    toast({ title: `Đã thêm ${rows.length} quy tắc từ đề xuất khởi tạo` });
-    await persist(next);
+    toast({ title: `Đã thêm ${rows.length} quy tắc đối thoại và ${narrativeRows.length} ngôi lời dẫn` });
+    await onUpdateProject({
+      contextual_pronoun_rules: next,
+      style_toggles: {
+        ...(project?.style_toggles || {}),
+        story_memory: { ...(project?.style_toggles?.story_memory || {}), narrativeRules: nextNarrative },
+      },
+    });
+  };
+
+  const exportWorldRules = () => {
+    const payload = {
+      type: "edittruyenqt-world-rules",
+      version: 1,
+      name: project?.title || "Bộ quy ước thế giới",
+      exportedAt: new Date().toISOString(),
+      dialogueRules: rules,
+      narrativeRules,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${String(project?.title || "world-rules").replace(/[^\p{L}\p{N}]+/gu, "-")}-quy-uoc.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importWorldRules = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      if (payload?.type !== "edittruyenqt-world-rules" || !Array.isArray(payload.dialogueRules) || !Array.isArray(payload.narrativeRules)) {
+        throw new Error("Tệp không phải Bộ quy ước thế giới hợp lệ.");
+      }
+      const dialogueKey = (rule) => `${String(rule.speaker || "").trim().toLocaleLowerCase("vi")}\u0001${String(rule.listener || "").trim().toLocaleLowerCase("vi")}`;
+      const existingDialogue = new Set(rules.map(dialogueKey));
+      const importedDialogue = payload.dialogueRules.filter((rule) => {
+        const key = dialogueKey(rule);
+        if (!rule?.speaker?.trim() || !rule?.self_word?.trim() || !rule?.target_word?.trim() || existingDialogue.has(key)) return false;
+        existingDialogue.add(key);
+        return true;
+      });
+      const existingNarrative = new Set(narrativeRules.map((rule) => String(rule.character || "").trim().toLocaleLowerCase("vi")));
+      const importedNarrative = payload.narrativeRules.filter((rule) => {
+        const key = String(rule?.character || "").trim().toLocaleLowerCase("vi");
+        if (!key || !rule?.pronoun?.trim() || existingNarrative.has(key)) return false;
+        existingNarrative.add(key);
+        return true;
+      });
+      const nextRules = [...rules, ...importedDialogue];
+      const nextNarrative = [...narrativeRules, ...importedNarrative];
+      await onUpdateProject({
+        contextual_pronoun_rules: nextRules,
+        style_toggles: {
+          ...(project?.style_toggles || {}),
+          story_memory: { ...(project?.style_toggles?.story_memory || {}), narrativeRules: nextNarrative },
+        },
+      });
+      setRules(nextRules);
+      setNarrativeRules(nextNarrative);
+      const skipped = payload.dialogueRules.length + payload.narrativeRules.length - importedDialogue.length - importedNarrative.length;
+      toast({ title: `Đã nhập ${importedDialogue.length + importedNarrative.length} quy tắc`, description: skipped ? `Giữ nguyên ${skipped} quy tắc đã tồn tại, không ghi đè.` : "Không có xung đột." });
+    } catch (error) {
+      toast({ title: "Không nhập được bộ quy ước", description: error.message, variant: "destructive" });
+    }
   };
 
   const handleSubmit = async (e) => {
@@ -352,6 +426,17 @@ export default function ContextualPronounDialog({
               aria-label="Bật hoặc tắt AI tự học xưng hô"
               className="data-[state=checked]:bg-fuchsia-600"
             />
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-sky-100 bg-sky-50/50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><p className="text-sm font-semibold text-sky-800">Bộ quy ước thế giới</p><p className="text-[11px] text-slate-500">Chuyển toàn bộ xưng hô đối thoại và ngôi lời dẫn sang truyện cùng thế giới.</p></div>
+            <div className="flex gap-2">
+              <button type="button" onClick={exportWorldRules} className="inline-flex items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 py-1.5 text-xs font-medium text-sky-700 hover:bg-sky-50"><Download className="h-3.5 w-3.5" />Xuất</button>
+              <button type="button" onClick={() => worldRulesFileRef.current?.click()} className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-sky-700"><Upload className="h-3.5 w-3.5" />Nhập</button>
+              <input ref={worldRulesFileRef} type="file" accept="application/json,.json" onChange={importWorldRules} className="hidden" />
+            </div>
           </div>
         </section>
 

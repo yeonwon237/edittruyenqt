@@ -19,6 +19,7 @@ const MIN_VERB_ADJACENT_HITS = 2;
 const MIN_REPEAT_HITS = 3;
 const MAX_CANDIDATE_NAMES = 40;
 const MIN_RULE_SAMPLE = 2;
+const NARRATIVE_PRONOUNS = ['cô ấy', 'anh ấy', 'chị ấy', 'ông ấy', 'bà ấy', 'cô', 'nàng', 'hắn', 'y', 'anh', 'chị', 'cậu', 'ông', 'bà'];
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const normalize = (value) => String(value || '').trim().toLocaleLowerCase('vi');
@@ -115,7 +116,46 @@ function findExplicitListener(text, quoteStart, speaker, allNames) {
   return matches.length === 1 ? matches[0] : '';
 }
 
-export function discoverPronounRules(chapters, { knownNames = [] } = {}) {
+function discoverNarrativeRules(chapters, knownNames, minimumSample) {
+  const groups = new Map();
+  const pronounPattern = NARRATIVE_PRONOUNS.map(escapeRegex).sort((a, b) => b.length - a.length).join('|');
+  for (const chapter of chapters || []) {
+    const text = String(chapter.edited || '');
+    // Remove dialogue before learning narrator voice. Learning from words
+    // spoken by a character would confuse address terms with narration.
+    const narrative = text.replace(/[“"][^”"]*[”"]/gu, (quote) => ' '.repeat(quote.length));
+    const sentences = narrative.split(/(?<=[.!?…])|\n+/u);
+    let offset = 0;
+    for (const sentence of sentences) {
+      const names = knownNames.filter((name) => new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, 'u').test(sentence));
+      if (names.length !== 1) { offset += sentence.length; continue; }
+      const name = names[0];
+      const nameMatch = new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, 'u').exec(sentence);
+      if (!nameMatch) { offset += sentence.length; continue; }
+      const after = sentence.slice(nameMatch.index + name.length, nameMatch.index + name.length + 140);
+      const pronounMatch = new RegExp(`(?<!\\p{L})(${pronounPattern})(?!\\p{L})`, 'iu').exec(after);
+      if (!pronounMatch) { offset += sentence.length; continue; }
+      const pronoun = pronounMatch[1].toLocaleLowerCase('vi');
+      const key = normalize(name);
+      const group = groups.get(key) || { character: name, terms: {}, occurrences: [] };
+      group.terms[pronoun] = (group.terms[pronoun] || 0) + 1;
+      if (group.occurrences.length < 20) group.occurrences.push({
+        chapterId: chapter.id, chapterTitle: chapter.title, chapterOrder: chapter.chapter_order,
+        line: text.slice(0, offset + nameMatch.index).split('\n').length,
+        context: sentence.trim().slice(0, 180), value: pronoun,
+      });
+      groups.set(key, group);
+      offset += sentence.length;
+    }
+  }
+  return [...groups.values()].map((group) => {
+    const entries = Object.entries(group.terms).sort((a, b) => b[1] - a[1]);
+    const sampleCount = entries.reduce((sum, [, count]) => sum + count, 0);
+    return { ...group, pronoun: entries[0]?.[0] || '', confidence: sampleCount ? entries[0][1] / sampleCount : 0, sampleCount };
+  }).filter((rule) => rule.sampleCount >= minimumSample).sort((a, b) => b.sampleCount - a.sampleCount);
+}
+
+export function discoverPronounRules(chapters, { knownNames = [], deep = false } = {}) {
   const mined = mineCandidateNames(chapters);
   const cleanedKnownNames = [...new Set(knownNames.map((n) => String(n || '').trim()).filter(Boolean))];
   // A capitalized-name miner will see "Thanh Sơn" inside "Thịnh Thanh
@@ -208,11 +248,13 @@ export function discoverPronounRules(chapters, { knownNames = [] } = {}) {
         occurrences: group.occurrences,
       };
     })
-    .filter((rule) => rule.sampleCount >= MIN_RULE_SAMPLE)
+    .filter((rule) => rule.sampleCount >= (deep ? 1 : MIN_RULE_SAMPLE))
     .sort((a, b) => b.sampleCount - a.sampleCount);
 
+  const narrativeRules = discoverNarrativeRules(chapters, candidateNames, deep ? 1 : MIN_RULE_SAMPLE);
   return {
     rules,
+    narrativeRules,
     chapterCount: (chapters || []).length,
     quoteCount,
     resolvedQuoteCount,

@@ -8,7 +8,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { Loader2, Compass, AlertTriangle } from "lucide-react";
+import { Loader2, Compass, AlertTriangle, BookOpenText } from "lucide-react";
 
 const FIELDS = ["speaker", "listener", "self_word", "target_word"];
 
@@ -21,6 +21,9 @@ export default function PronounBootstrapDialog({ open, onOpenChange, report, run
   const [chapterCount, setChapterCount] = useState("all");
   const [selected, setSelected] = useState({});
   const [edited, setEdited] = useState({});
+  const [deep, setDeep] = useState(false);
+  const [selectedNarrative, setSelectedNarrative] = useState({});
+  const [editedNarrative, setEditedNarrative] = useState({});
 
   useEffect(() => {
     if (report) {
@@ -28,6 +31,10 @@ export default function PronounBootstrapDialog({ open, onOpenChange, report, run
       (report.rules || []).forEach((rule, i) => { sel[i] = looksSolid(rule); });
       setSelected(sel);
       setEdited({});
+      const narrativeSelection = {};
+      (report.narrativeRules || []).forEach((rule, i) => { narrativeSelection[i] = rule.confidence >= 0.7 && rule.sampleCount >= 3; });
+      setSelectedNarrative(narrativeSelection);
+      setEditedNarrative({});
     }
   }, [report]);
 
@@ -47,10 +54,16 @@ export default function PronounBootstrapDialog({ open, onOpenChange, report, run
       }))
       .filter((_, i) => selected[i])
       .filter((rule) => rule.speaker && rule.listener && rule.self_word && rule.target_word);
-    onApply(rows);
+    const narrativeRows = (report?.narrativeRules || []).map((rule, i) => ({
+      character: rule.character.trim(),
+      pronoun: String(editedNarrative[i] ?? rule.pronoun ?? '').trim(),
+      note: 'Học từ Bản Edit', source: 'machine', confidence: rule.confidence,
+    })).filter((_, i) => selectedNarrative[i]).filter((rule) => rule.character && rule.pronoun);
+    onApply(rows, narrativeRows);
   };
 
   const selectedCount = Object.values(selected).filter(Boolean).length;
+  const selectedNarrativeCount = Object.values(selectedNarrative).filter(Boolean).length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -80,7 +93,7 @@ export default function PronounBootstrapDialog({ open, onOpenChange, report, run
           </select>
           <button
             type="button"
-            onClick={() => onScan(chapterCount)}
+            onClick={() => onScan(chapterCount, { deep })}
             disabled={running}
             className="flex items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
@@ -88,10 +101,14 @@ export default function PronounBootstrapDialog({ open, onOpenChange, report, run
             {running ? "Đang quét…" : report ? "Quét lại" : "Quét"}
           </button>
         </div>
+        <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-amber-900">
+          <input type="checkbox" checked={deep} onChange={(event) => setDeep(event.target.checked)} className="mt-0.5 accent-amber-600" />
+          <span><b>Quét sâu phần chưa đủ dữ liệu</b><br />Hiện cả cặp/ngôi chỉ có một bằng chứng. Các mục này không được chọn sẵn và bắt buộc xem lại.</span>
+        </label>
 
         {report && (
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[[report.chapterCount, "Chương đã quét"], [report.quoteCount, "Câu thoại"], [report.resolvedPairCount ?? 0, "Thoại rõ cả cặp"], [report.rules.length, "Cặp đề xuất"]].map(
+            {[[report.chapterCount, "Chương đã quét"], [report.quoteCount, "Câu thoại"], [report.rules.length, "Cặp đối thoại"], [(report.narrativeRules || []).length, "Ngôi lời dẫn"]].map(
               ([value, label]) => (
                 <div key={label} className="rounded-xl bg-slate-50 p-3 text-center">
                   <b className="block text-lg text-slate-800">{value}</b>
@@ -194,16 +211,35 @@ export default function PronounBootstrapDialog({ open, onOpenChange, report, run
           </div>
         )}
 
+        {report && !!report.narrativeRules?.length && (
+          <section className="space-y-2 border-t border-slate-100 pt-3">
+            <h3 className="flex items-center gap-2 text-sm font-semibold text-indigo-800"><BookOpenText className="h-4 w-4" />Ngôi lời dẫn đề xuất</h3>
+            <p className="text-xs text-slate-500">Máy chỉ học từ câu kể ngoài ngoặc thoại có đúng một nhân vật rõ ràng.</p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {report.narrativeRules.map((rule, i) => (
+                <label key={rule.character} className={`flex items-start gap-2 rounded-xl border p-3 ${selectedNarrative[i] ? 'border-indigo-300 bg-indigo-50/50' : 'border-slate-200 bg-white'}`}>
+                  <input type="checkbox" checked={!!selectedNarrative[i]} onChange={() => setSelectedNarrative((current) => ({ ...current, [i]: !current[i] }))} className="mt-2 accent-indigo-600" />
+                  <span className="min-w-0 flex-1">
+                    <b className="block truncate text-sm text-slate-800">{rule.character}</b>
+                    <input value={editedNarrative[i] ?? rule.pronoun} onChange={(event) => setEditedNarrative((current) => ({ ...current, [i]: event.target.value }))} className="mt-1 w-full rounded-lg border border-indigo-100 bg-white px-2 py-1.5 text-sm outline-none focus:border-indigo-400" />
+                    <span className="mt-1 block text-[11px] text-slate-500">{rule.sampleCount} mẫu · {Math.round(rule.confidence * 100)}% nhất quán</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </section>
+        )}
+
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Đóng
           </Button>
           <Button
             onClick={handleApply}
-            disabled={running || !report || selectedCount === 0}
+            disabled={running || !report || (selectedCount === 0 && selectedNarrativeCount === 0)}
             className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
           >
-            Thêm {selectedCount} quy tắc vào Ma Trận
+            Thêm {selectedCount + selectedNarrativeCount} quy tắc đã chọn
           </Button>
         </DialogFooter>
       </DialogContent>

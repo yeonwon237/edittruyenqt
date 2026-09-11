@@ -2693,7 +2693,7 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
     }
   };
 
-  const handleRunPronounBootstrap = async (chapterCount = "all") => {
+  const handleRunPronounBootstrap = async (chapterCount = "all", options = {}) => {
     setRunningPronounBootstrap(true);
     try {
       const chapters = chapterCount === "all"
@@ -2710,7 +2710,7 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
           ...glossaryTerms.filter((term) => term.category === "Tên người").map((term) => term.translation),
         ].filter((n) => n && n !== "*")
       )];
-      setPronounBootstrap(discoverPronounRules(chapters, { knownNames }));
+      setPronounBootstrap(discoverPronounRules(chapters, { knownNames, deep: Boolean(options.deep) }));
     } catch (error) {
       toast({ title: "Không khởi tạo được Ma Trận", description: error.message, variant: "destructive" });
     } finally {
