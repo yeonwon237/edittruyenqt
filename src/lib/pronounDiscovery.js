@@ -22,7 +22,15 @@ const MIN_RULE_SAMPLE = 2;
 
 const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const normalize = (value) => String(value || '').trim().toLocaleLowerCase('vi');
+const foldName = (value) => normalize(value).normalize('NFD').replace(/\p{M}/gu, '').replace(/đ/g, 'd');
 const VOCAB = [...ADDRESS_WORDS].sort((a, b) => b.length - a.length);
+
+function looksLikeShortFormOf(candidate, fullName) {
+  const shortTokens = foldName(candidate).split(/\s+/).filter(Boolean);
+  const fullTokens = foldName(fullName).split(/\s+/).filter(Boolean);
+  if (shortTokens.length < 2 || shortTokens.length >= fullTokens.length) return false;
+  return fullTokens.slice(-shortTokens.length).join(' ') === shortTokens.join(' ');
+}
 
 // Two independent, AI-free signals for "this capitalized token is a
 // character name", unioned together:
@@ -89,9 +97,10 @@ function mineCandidateNames(chapters) {
 // "only trust an unambiguous match" rule pronounInventory.js's findListener
 // already uses, just generalized to a flat name list instead of rules.
 function findListenerAmong(text, quoteStart, quoteEnd, speaker, allNames) {
-  const others = allNames.filter((name) => normalize(name) !== normalize(speaker));
+  const others = allNames.filter((name) =>
+    normalize(name) !== normalize(speaker) && !looksLikeShortFormOf(name, speaker));
   const nearby = text.slice(Math.max(0, quoteStart - 160), Math.min(text.length, quoteEnd + 160));
-  const mentioned = others.filter((name) => nearby.includes(name));
+  const mentioned = others.filter((name) => new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, 'iu').test(nearby));
   return mentioned.length === 1 ? mentioned[0] : '';
 }
 
@@ -108,9 +117,16 @@ function findExplicitListener(text, quoteStart, speaker, allNames) {
 
 export function discoverPronounRules(chapters, { knownNames = [] } = {}) {
   const mined = mineCandidateNames(chapters);
+  const cleanedKnownNames = [...new Set(knownNames.map((n) => String(n || '').trim()).filter(Boolean))];
+  // A capitalized-name miner will see "Thanh Sơn" inside "Thịnh Thanh
+  // Sơn", and OCR/translation variants such as "Văn Thư" beside "Thịnh
+  // Vân Thư". When Glossary already owns the full name, abstain from the
+  // shorter mined token instead of inventing a second character.
+  const safeMined = mined.filter((candidate) =>
+    !cleanedKnownNames.some((known) => looksLikeShortFormOf(candidate, known)));
   const candidateNames = [...new Set([
-    ...knownNames.map((n) => String(n || '').trim()).filter(Boolean),
-    ...mined,
+    ...cleanedKnownNames,
+    ...safeMined,
   ])];
 
   const groups = new Map();

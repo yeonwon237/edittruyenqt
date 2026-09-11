@@ -68,3 +68,28 @@ test('uses the previous directly tagged speaker as listener in a crowded scene',
   assert.equal(rule.target_word, 'cậu');
   assert.ok(report.resolvedPairCount > 0);
 });
+
+test('does not invent a listener from the tail of a full Glossary name', () => {
+  const chapters = Array.from({ length: 3 }, (_, index) => ({
+    id: `partial-${index}`,
+    title: `Chương ${index + 1}`,
+    chapter_order: index + 1,
+    edited: 'Thịnh Thanh Sơn nói: “Chị đã hiểu rồi.”',
+  }));
+  const report = discoverPronounRules(chapters, {
+    knownNames: ['Thịnh Thanh Sơn', 'Thịnh Vân Thư'],
+  });
+  assert.ok(!report.candidateNames.includes('Thanh Sơn'));
+  assert.ok(!report.rules.some((rule) => rule.speaker === 'Thịnh Thanh Sơn' && rule.listener === 'Thanh Sơn'));
+});
+
+test('folds accents when rejecting a likely truncated translation variant', () => {
+  const chapters = Array.from({ length: 3 }, (_, index) => ({
+    id: `variant-${index}`,
+    title: `Chương ${index + 1}`,
+    chapter_order: index + 1,
+    edited: 'Văn Thư nói: “Chị biết rồi.”',
+  }));
+  const report = discoverPronounRules(chapters, { knownNames: ['Thịnh Vân Thư'] });
+  assert.ok(!report.candidateNames.includes('Văn Thư'));
+});
