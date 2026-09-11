@@ -16,18 +16,12 @@ test('nearby characters do not establish dialogue participants', () => {
   const text = 'A Trì nhìn giỏ đồ Thu Sương mang đến, không khỏi bật cười: “Thu Sương luôn là người của ta mà! Nương nương ngay cả nàng cũng tra xét sao?”\nCuối cùng, Đỗ Chiêu Ly mới gật đầu, nói: “Ta tin tưởng ngươi.”';
   assert.deepEqual(runQualityCheck(text, { pronounRules: [rule] }), []);
 });
-test('a lone speaker rule with no explicit listener still resolves, but only at low confidence', () => {
-  // Was strictly "requires explicit listener" — real Vietnamese web-novel
-  // dialogue almost never tags "với <listener>" explicitly, so that left
-  // the story-wide QA scanner unable to seed a session from a huge share of
-  // real chapters. Since Thu Sương has exactly one rule in the whole
-  // matrix, "Thu Sương nói:" is still usable evidence — just weak evidence
-  // (she could in principle be addressing someone outside the matrix
-  // entirely), so it resolves at "thấp" rather than being silently dropped.
+test('a lone configured listener is not treated as evidence that they are in the scene', () => {
   const issues = runQualityCheck('Thu Sương nói: “Tôi hiểu rồi.”', { pronounRules: [rule] });
   assert.equal(issues.length, 1);
-  assert.equal(issues[0].replacement, 'ta');
+  assert.equal(issues[0].replacement, '');
   assert.equal(issues[0].confidence, 'thấp');
+  assert.match(issues[0].detail, /chưa xác định được người nghe/);
 });
 test('correct self reference after possessive cue is preserved', () => {
   assert.deepEqual(runQualityCheck('Thu Sương nói với A Trì: “Đó là người của ta.”', { pronounRules: [rule] }), []);
@@ -49,6 +43,126 @@ test('explicit self mismatch remains actionable with exact offsets', () => {
   assert.equal(issues.length, 1);
   assert.equal(issues[0].replacement, 'ta');
   assert.equal(text.slice(issues[0].start, issues[0].end), 'Tôi');
+});
+test('a glossary character missing from the pronoun matrix is surfaced for review', () => {
+  const text = 'Tiểu Mai nói: “Tôi đã chuẩn bị xong.”';
+  const issues = runQualityCheck(text, {
+    glossaryTerms: [{ category: 'Tên người', source_term: '小梅', translation: 'Tiểu Mai' }],
+    pronounRules: [rule],
+  }).filter((issue) => issue.label === 'Thiếu quy tắc xưng hô');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].value, 'Tôi');
+  assert.equal(issues[0].replacement, '');
+  assert.equal(issues[0].confidence, 'thấp');
+});
+test('an unconfigured glossary character action beat blocks a stale two-person session', () => {
+  const reverse = { speaker: 'A Trì', listener: 'Thu Sương', self_word: 'tại hạ', target_word: 'cô nương' };
+  const text = [
+    'Thu Sương nói với A Trì: “Ta hiểu rồi.”',
+    '',
+    'Thượng Quan Văn Trúc buông tay ra, khóe môi cong lên một độ cong cực nhạt,',
+    '',
+    '“Vậy có lẽ là tôi nhớ nhầm rồi.”',
+  ].join('\n');
+  const issues = runQualityCheck(text, {
+    pronounRules: [rule, reverse],
+    glossaryTerms: [{ category: 'Tên người', source_term: '上官文竹', translation: 'Thượng Quan Văn Trúc' }],
+  }).filter((issue) => issue.type === 'pronoun');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].label, 'Thiếu quy tắc xưng hô');
+  assert.match(issues[0].detail, /Thượng Quan Văn Trúc/);
+  assert.match(issues[0].detail, /người nghe có khả năng là Thu Sương/);
+  assert.doesNotMatch(issues[0].detail, /Thu Sương nên|A Trì nên/);
+});
+test('an unregistered action-beat speaker is discovered even before being added to Glossary', () => {
+  const text = [
+    'Trình Nặc nở nụ cười đúng mực, “Chào chị Thượng Quan.”',
+    '',
+    'Thượng Quan Văn Trúc buông tay ra, khóe môi cong lên một độ cong cực nhạt,',
+    '',
+    '“Vậy có lẽ là tôi nhớ nhầm rồi.”',
+  ].join('\n');
+  const issues = runQualityCheck(text, {
+    pronounRules: [{ speaker: 'Trình Nặc', listener: 'Kỷ Khê', self_word: 'em', target_word: 'chị' }],
+    glossaryTerms: [{ category: 'Tên người', source_term: '程诺', translation: 'Trình Nặc' }],
+  }).filter((issue) => issue.type === 'pronoun' && issue.value.toLowerCase() === 'tôi');
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].label, 'Thiếu quy tắc xưng hô');
+  assert.match(issues[0].detail, /người nói là Thượng Quan Văn Trúc/);
+  assert.match(issues[0].detail, /người nghe có khả năng là Trình Nặc/);
+  assert.doesNotMatch(issues[0].detail, /Kỷ Khê nên/);
+});
+test('the immediately previous speaker overrides a known speaker default listener', () => {
+  const text = [
+    'Tô Thịnh châm chọc: “Tiền cũng không thèm kiếm nữa rồi à?”',
+    '',
+    'Trình Nặc nhếch môi cười khẽ, “Ừ, lỗ bao nhiêu cứ ghi vào tài khoản của tôi, tôi đi tìm chị ấy đòi.”',
+  ].join('\n');
+  const issues = runQualityCheck(text, {
+    pronounRules: [{ speaker: 'Trình Nặc', listener: 'Kỷ Khê', self_word: 'em', target_word: 'chị' }],
+    glossaryTerms: [{ category: 'Tên người', source_term: '苏盛', translation: 'Tô Thịnh' }],
+  }).filter((issue) => issue.type === 'pronoun' && issue.value.toLowerCase() === 'tôi');
+  assert.equal(issues.length, 2);
+  assert.ok(issues.every((issue) => issue.replacement === ''));
+  assert.ok(issues.every((issue) => /người nói là Trình Nặc, người nghe là Tô Thịnh/.test(issue.detail)));
+  assert.ok(issues.every((issue) => !/Kỷ Khê/.test(issue.detail)));
+});
+
+test('an action-beat subject wins when they place the other character down', () => {
+  const text = [
+    'Kỷ Khê nói với Trình Nặc: “Chị sẽ bế em.”',
+    '',
+    'Kỷ Khê lập tức dừng lại, cẩn thận từng li từng tí đặt Trình Nặc xuống đất, lại còn nịnh nọt chỉnh lại vạt áo khoác cho nàng, nhưng cái miệng vẫn không chịu thua:',
+    '',
+    '“Quá đáng lắm nhé, em mà còn áp bức tôi như thế nữa là tôi sẽ vùng lên khởi nghĩa đấy!”',
+  ].join('\n');
+  const issues = runQualityCheck(text, {
+    pronounRules: [
+      { speaker: 'Kỷ Khê', listener: 'Trình Nặc', self_word: 'chị', target_word: 'em' },
+      { speaker: 'Trình Nặc', listener: 'Kỷ Khê', self_word: 'em', target_word: 'chị' },
+    ],
+    glossaryTerms: [
+      { category: 'Tên người', translation: 'Kỷ Khê' },
+      { category: 'Tên người', translation: 'Trình Nặc' },
+    ],
+  }).filter((issue) => issue.value === 'tôi');
+  assert.equal(issues.length, 2);
+  assert.ok(issues.every((issue) => issue.replacement === 'chị'));
+  assert.ok(issues.every((issue) => /Kỷ Khê nên tự xưng là "chị" khi nói với Trình Nặc/.test(issue.detail)));
+});
+
+test('a unique target address word overrides a stale listener session', () => {
+  const text = [
+    'Trình Nặc nói với Kỷ Khê: “Em biết rồi.”',
+    '',
+    '“Bất ngờ không?” Kỷ Khê ấn Thịnh Thanh Sơn đang định ngồi dậy xuống, sau khi chào hỏi Thượng Quan Văn Trúc xong liền cười nói: “Chị Thượng Quan tuần trước đã về rồi, tôi vẫn luôn giấu không nói cho cậu. Thế nào, nhìn thấy chị ấy có thấy thân thiết không?”',
+  ].join('\n');
+  const issues = runQualityCheck(text, {
+    pronounRules: [
+      { speaker: 'Kỷ Khê', listener: 'Trình Nặc', self_word: 'chị', target_word: 'em' },
+      { speaker: 'Kỷ Khê', listener: 'Thịnh Thanh Sơn', self_word: 'tôi', target_word: 'cậu' },
+      { speaker: 'Trình Nặc', listener: 'Kỷ Khê', self_word: 'em', target_word: 'chị' },
+    ],
+    glossaryTerms: [
+      { category: 'Tên người', translation: 'Kỷ Khê' },
+      { category: 'Tên người', translation: 'Trình Nặc' },
+      { category: 'Tên người', translation: 'Thịnh Thanh Sơn' },
+      { category: 'Tên người', translation: 'Thượng Quan Văn Trúc' },
+    ],
+  });
+  assert.ok(!issues.some((issue) => issue.value === 'cậu'));
+  assert.ok(!issues.some((issue) => /Kỷ Khê nên gọi Trình Nặc/.test(issue.detail)));
+});
+test('QT evidence is attached to a dialogue mismatch without making it auto-fixable', () => {
+  const text = 'Thu Sương nói với A Trì: “Tôi hiểu rồi.”';
+  const issues = runQualityCheck(text, {
+    pronounRules: [rule],
+    qtRaw: 'Thu Sương nói: “我明白了。”',
+  }).filter((issue) => issue.type === 'pronoun');
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].detail, /Bằng chứng QT/);
+  assert.match(issues[0].detail, /ngôi 1: 我/);
+  assert.equal(issues[0].severity, 'review');
 });
 test('ambiguous contextual glossary does not default to replacement', () => {
   assert.deepEqual(runQualityCheck('Nàng nhìn ta.', { glossaryTerms: [{ source_term: 'ta', translation: 'đại nhân', category: 'Xưng hô' }] }), []);

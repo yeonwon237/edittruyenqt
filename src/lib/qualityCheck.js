@@ -1,3 +1,5 @@
+import { alignParagraphs, extractQtEvidence } from "./qtPronounEvidence.js";
+
 const CJK_RUN_REGEX = /[一-鿿㐀-䶿]+/g;
 const ASCII_WORD_REGEX = /(?<!\p{L})[A-Za-z][A-Za-z'’-]{1,}(?!\p{L})/gu;
 
@@ -221,6 +223,56 @@ function findActionBeatSpeaker(before, candidateNames) {
   return nonObject.length === 1 ? nonObject[0].name : null;
 }
 
+// Proper-name fallback for characters that have not reached Glossary or the
+// pronoun matrix yet. It is deliberately limited to 2–5 consecutive
+// capitalized Vietnamese words inside one action beat. Known names are
+// removed first so overlapping forms do not create two candidates.
+function inferUnregisteredNames(segment, knownNames = []) {
+  const matches = [...String(segment || "").matchAll(/(?<!\p{L})(\p{Lu}[\p{L}'’-]*(?:\s+\p{Lu}[\p{L}'’-]*){1,4})(?!\p{L})/gu)]
+    .map((match) => match[1].trim());
+  return [...new Set(matches)].filter((candidate) =>
+    !knownNames.some((known) => normalize(candidate).includes(normalize(known))));
+}
+
+function immediateQuoteSpeaker(text, quoteStart, knownNames) {
+  const ownLineStart = text.lastIndexOf("\n", quoteStart - 1) + 1;
+  const before = text.slice(ownLineStart, quoteStart - 1);
+  let beat = before;
+  if (!before.trim()) {
+    const prefix = text.slice(0, ownLineStart).replace(/\s+$/, "");
+    const prevBreak = prefix.lastIndexOf("\n\n");
+    const prevStart = prevBreak === -1 ? 0 : prevBreak + 2;
+    const previousParagraph = text.slice(prevStart, quoteStart - 1);
+    if (!/[“"]/u.test(previousParagraph)) beat = previousParagraph;
+  }
+  const candidates = [...new Set([...knownNames, ...inferUnregisteredNames(beat, knownNames)])];
+  return findLooseSpeakerTag(before, candidates) || findActionBeatSpeaker(beat, candidates);
+}
+
+// Once the speaker is known, an address word inside the quote can identify
+// the listener more reliably than a stale two-person session. Example:
+// Kỷ Khê has different rules for Trình Nặc ("em") and Thịnh Thanh Sơn
+// ("cậu"); a quote containing "...không nói cho cậu" uniquely selects the
+// latter. Abstain when the same target word belongs to several listeners.
+function inferListenerFromTargetWord(quoteText, speakerName, validRules) {
+  const matches = validRules.filter((rule) => {
+    if (rule.speaker.trim() !== speakerName) return false;
+    const target = rule.target_word?.trim();
+    if (!target || !rule.listener?.trim() || rule.listener.trim() === "*") return false;
+    const regex = new RegExp(`(?<!\\p{L})${escapeRegex(target)}(?!\\p{L})`, "giu");
+    return [...quoteText.matchAll(regex)].some((match) => {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (isSwallowedByCompound(quoteText, end, match[0]) || isPrecededByCompound(quoteText, start, match[0])) return false;
+      return resolveQaAddressRole(quoteText, start, end) === "target";
+    });
+  });
+  const listeners = [...new Set(matches.map((rule) => rule.listener.trim()))];
+  if (listeners.length !== 1) return null;
+  const listener = listeners[0];
+  return { listener, rule: pickRule(validRules, speakerName, listener) };
+}
+
 // A "hub" character (registered with several different listeners across
 // the matrix) can't be resolved by resolveListenerForSpeaker's own-rules
 // fallback, which only works when a speaker has exactly one possible
@@ -250,27 +302,22 @@ function inferSceneListener(text, quoteStart, speakerName, names) {
 // talking to? Prefers the active session (same pair if the speaker repeats,
 // swapped if the other party replies) — resolved this way, confidence is
 // capped by whichever is weaker: the tag's own strength or the session's.
-// Without a session, resolvable if that speaker has exactly one listener
-// across the whole matrix (a single specific rule, or a lone default "Mọi
-// người khác") — capped at "thấp" since there's no session corroborating it.
-// Failing that, falls back to inferSceneListener (see above) for hub
-// characters — same "thấp" cap, since it's the weakest evidence of all.
+// Without a session, the matrix is NOT evidence of who is present in this
+// scene. Having only one configured listener used to assign that person to
+// every quote by the speaker, which mislabeled supporting-character scenes.
+// Local evidence may identify a listener; otherwise retain the speaker but
+// explicitly abstain on the listener and never suggest a rewrite.
 function resolveListenerForSpeaker(speakerName, activeSession, validRules, tagConfidence, text, quoteStart, names) {
   if (activeSession && (speakerName === activeSession.speaker || speakerName === activeSession.listener)) {
     const listener = speakerName === activeSession.speaker ? activeSession.listener : activeSession.speaker;
     return { listener, rule: pickRule(validRules, speakerName, listener), confidence: weaker(tagConfidence, activeSession.confidence) };
   }
-  const speakerRules = validRules.filter((r) => r.speaker.trim() === speakerName);
-  const distinctListeners = [...new Set(speakerRules.map((r) => r.listener?.trim() || "*"))];
-  if (distinctListeners.length === 1) {
-    return { listener: distinctListeners[0] === "*" ? "" : distinctListeners[0], rule: speakerRules[0], confidence: "thấp" };
-  }
   const sceneListener = names && inferSceneListener(text, quoteStart, speakerName, names);
   if (sceneListener) {
     const rule = pickRule(validRules, speakerName, sceneListener);
-    if (rule) return { listener: sceneListener, rule, confidence: "thấp" };
+    return { listener: sceneListener, rule, confidence: "thấp" };
   }
-  return null;
+  return { listener: "", rule: null, confidence: weaker(tagConfidence, "thấp") };
 }
 
 // Resolves a quote's speaker/listener the way resolveSpeakerAndRule does,
@@ -305,7 +352,7 @@ function resolveListenerForSpeaker(speakerName, activeSession, validRules, tagCo
 // actually uses to mark a jump; no scene boundary detector exists to do
 // better than that.
 const SCENE_BREAK_GAP = /\n[ \t]*\n[ \t]*\n|^[ \t]*(?:\.{3,}|…+|\*{3,}|-{3,}|—{2,})[ \t]*$/mu;
-function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) {
+function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session, observedCharacterNames = []) {
   const ownLineStart = text.lastIndexOf("\n", quoteStart - 1) + 1;
   const before = text.slice(ownLineStart, quoteStart - 1);
   const gapBeforeQuote = text.slice(session?.end ?? 0, quoteStart);
@@ -365,11 +412,13 @@ function resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session) 
   // speaker's line, not Kỷ Khê's, and not a simple turn swap either).
   // Only proceeds when a session exists to alternate from in the first place.
   if (activeSession && !looseSpeaker && !beatSpeaker) {
-    const suspiciousMention = names.some((name) => {
-      const found = [...before.matchAll(new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, "gu"))];
+    const blockerNames = [...new Set([...names, ...observedCharacterNames])];
+    const unknownBeatSpeaker = findActionBeatSpeaker(beatBefore, inferUnregisteredNames(beatBefore, blockerNames));
+    const suspiciousMention = Boolean(unknownBeatSpeaker) || blockerNames.some((name) => {
+      const found = [...beatBefore.matchAll(new RegExp(`(?<!\\p{L})${escapeRegex(name)}(?!\\p{L})`, "gu"))];
       if (!found.length) return false;
       if (name !== activeSession.speaker && name !== activeSession.listener) return true;
-      return looksLikeObjectMention(before, found.at(-1).index);
+      return looksLikeObjectMention(beatBefore, found.at(-1).index);
     });
     if (!suspiciousMention) {
       const speaker = activeSession.listener;
@@ -683,7 +732,31 @@ const TARGET_ADDRESS_TERMS = new Set([
 // same as before this was tried.
 
 // Check dialogue only when participants and lexical role are supported.
-function scanContextualAddress(text, rules) {
+function qtEvidenceLookup(qtRaw, edited) {
+  const aligned = alignParagraphs(qtRaw, edited);
+  return aligned.map((paragraph) => ({
+    start: paragraph.editedOffset,
+    end: paragraph.editedOffset + paragraph.editedText.length,
+    evidence: extractQtEvidence(paragraph.qtText),
+  }));
+}
+
+function evidenceAt(lookup, position) {
+  return lookup.find((item) => position >= item.start && position <= item.end)?.evidence || null;
+}
+
+function qtEvidenceDetail(evidence) {
+  if (!evidence) return "";
+  const parts = [];
+  if (evidence.speaker) parts.push(`QT ghi người nói: ${evidence.speaker}`);
+  if (evidence.selfMarkers?.length) parts.push(`ngôi 1: ${evidence.selfMarkers.join(", ")}`);
+  if (evidence.secondPerson?.length) parts.push(`ngôi 2: ${evidence.secondPerson.join(", ")}`);
+  if (evidence.register === "imperial") parts.push("sắc thái đế vương");
+  if (evidence.register === "humble") parts.push("sắc thái khiêm xưng");
+  return parts.length ? ` Bằng chứng QT: ${parts.join("; ")}.` : "";
+}
+
+function scanContextualAddress(text, rules, qtRaw = "", glossaryTerms = []) {
   const validRules = (rules || []).filter(hasSpeakerSelfTarget);
   if (!validRules.length) return { issues: [], confirmedSpans: new Set() };
 
@@ -694,16 +767,51 @@ function scanContextualAddress(text, rules) {
   // era mismatch on a word the matrix just confirmed is the right one here.
   const confirmedSpans = new Set();
   const quoteRegex = /[“"]([^”"]+)[”"]/gu;
+  const qtLookup = qtEvidenceLookup(qtRaw, text);
+  const observedCharacterNames = [...new Set((glossaryTerms || [])
+    .filter((term) => term.category === "Tên người" && term.translation?.trim())
+    .map((term) => term.translation.trim()))];
+  const allObservedNames = [...new Set([
+    ...observedCharacterNames,
+    ...validRules.flatMap((rule) => [rule.speaker?.trim(), rule.listener?.trim()]).filter((name) => name && name !== "*"),
+  ])];
   let session = null;
+  let previousObservedSpeaker = null;
   for (const quoteMatch of text.matchAll(quoteRegex)) {
     const quoteText = quoteMatch[1];
     if (!quoteText.trim()) continue;
     const quoteStart = quoteMatch.index + 1;
     const quoteEnd = quoteStart + quoteText.length;
-    const resolved = resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session);
+    const observedSpeaker = immediateQuoteSpeaker(text, quoteStart, allObservedNames);
+    let resolved = resolveSpeakerSession(text, quoteStart, quoteEnd, validRules, session, observedCharacterNames);
+    const addressedListener = observedSpeaker
+      ? inferListenerFromTargetWord(quoteText, observedSpeaker, validRules)
+      : null;
+    if (resolved && observedSpeaker === resolved.speaker && addressedListener) {
+      resolved = {
+        ...resolved,
+        listener: addressedListener.listener,
+        rule: addressedListener.rule,
+        confidence: "trung bình",
+      };
+    }
+    // A directly attributed previous turn is stronger listener evidence than
+    // a stale/default matrix pair. Keep the current speaker, but bind their
+    // listener to the person who just spoke; missing pair => review only.
+    if (resolved && !addressedListener && observedSpeaker === resolved.speaker && previousObservedSpeaker &&
+        normalize(previousObservedSpeaker) !== normalize(resolved.speaker) &&
+        normalize(previousObservedSpeaker) !== normalize(resolved.listener)) {
+      resolved = {
+        ...resolved,
+        listener: previousObservedSpeaker,
+        rule: pickRule(validRules, resolved.speaker, previousObservedSpeaker),
+        confidence: "thấp",
+      };
+    }
+    if (observedSpeaker) previousObservedSpeaker = observedSpeaker;
     if (!resolved) continue;
     session = resolved;
-    const { speaker, speakerRules, rule, confidence } = resolved;
+    const { speaker, listener, speakerRules, rule, confidence } = resolved;
     const speakerWords = [...new Set(speakerRules.flatMap((item) => [item.self_word.trim(), item.target_word.trim()]).filter(Boolean))];
     const candidateWords = [...new Set([...speakerWords, ...SELF_PRONOUNS, ...TARGET_ADDRESS_TERMS])];
 
@@ -727,7 +835,14 @@ function scanContextualAddress(text, rules) {
         // apart from "Ta thật xin lỗi." (self-statement) — both are just a
         // leading pronoun + adjective. Guessing is only needed below, for a
         // word that matches NEITHER configured slot (a genuine mix-up).
-        const role = resolveQaAddressRole(quoteText, relativeStart, relativeEnd);
+        let role = resolveQaAddressRole(quoteText, relativeStart, relativeEnd);
+        const qtEvidence = evidenceAt(qtLookup, start);
+        // QT is supporting evidence only. It may resolve an otherwise
+        // unknown lexical role, but never upgrades an issue to auto-fix.
+        if (role === "unknown" && qtEvidence) {
+          if (qtEvidence.selfMarkers?.length && !qtEvidence.secondPerson?.length) role = "self";
+          else if (qtEvidence.secondPerson?.length && !qtEvidence.selfMarkers?.length) role = "target";
+        }
         if (rule) {
           const normFound = normalize(found);
           const matchesSelf = normFound === normalize(rule.self_word);
@@ -745,8 +860,11 @@ function scanContextualAddress(text, rules) {
           seen.add(dedupeKey);
           issues.push(makeIssue(text, {
             type: "pronoun", severity: "review", label: "Xưng hô cần xem lại",
+            missingPronounRule: true, speaker, listener,
             value: found, replacement: "", suggestions: speakerWords, confidence,
-            detail: `Đã nhận ra ${speaker} đang nói, nhưng chưa xác định được người nghe nên chưa chắc từ nào đúng ở đây (độ tin cậy: ${confidence}).`,
+            detail: listener
+              ? `Đã nhận ra người nói là ${speaker}, người nghe là ${listener}, nhưng chưa có quy tắc cho cặp này nên chưa thể đề xuất cách sửa (độ tin cậy: ${confidence}).${qtEvidenceDetail(qtEvidence)}`
+              : `Đã nhận ra ${speaker} đang nói, nhưng chưa xác định được người nghe nên chưa chắc từ nào đúng ở đây (độ tin cậy: ${confidence}).${qtEvidenceDetail(qtEvidence)}`,
             start, end,
           }));
           continue;
@@ -761,13 +879,72 @@ function scanContextualAddress(text, rules) {
           value: found, replacement: expected, suggestions: [...new Set([expected, ...speakerWords])], confidence,
           detail: (role === "self"
             ? `${speaker} nên tự xưng là "${expected}" khi nói với ${listenerLabel} (đang thấy "${found}").`
-            : `${speaker} nên gọi ${listenerLabel} là "${expected}" (đang thấy "${found}").`) + ` (độ tin cậy: ${confidence})`,
+            : `${speaker} nên gọi ${listenerLabel} là "${expected}" (đang thấy "${found}").`) + ` (độ tin cậy: ${confidence}).${qtEvidenceDetail(qtEvidence)}`,
           start, end,
         }));
       }
     });
   }
   return { issues, confirmedSpans };
+}
+
+// Surface dialogue from glossary characters who are invisible to the
+// relationship matrix. This intentionally has no replacement: its job is
+// to expose coverage holes (especially supporting characters), not guess.
+function scanPronounCoverage(text, rules, glossaryTerms) {
+  const configured = new Set((rules || []).map((rule) => normalize(rule?.speaker)).filter(Boolean));
+  const characterNames = [...new Set((glossaryTerms || [])
+    .filter((term) => term.category === "Tên người" && term.translation?.trim())
+    .map((term) => term.translation.trim()))];
+  if (!characterNames.length) return [];
+
+  const issues = [];
+  const quoteRegex = /[“"]([^”"]+)[”"]/gu;
+  let lastSpeaker = null;
+  for (const quote of text.matchAll(quoteRegex)) {
+    const quoteText = quote[1];
+    const quoteStart = quote.index + 1;
+    const lineStart = text.lastIndexOf("\n", quote.index - 1) + 1;
+    const before = text.slice(lineStart, quote.index);
+    const knownNames = [...new Set([...characterNames, ...(rules || []).flatMap((rule) => [rule.speaker, rule.listener]).filter(Boolean)])];
+    const explicit = resolveSpeakerAndRule(text, quoteStart, quoteStart + quoteText.length, (rules || []).filter(hasSpeakerSelfTarget));
+    let speaker = explicit?.speaker || findLooseSpeakerTag(before, knownNames) || findActionBeatSpeaker(before, knownNames);
+    // A quote in its own paragraph may inherit a speaker from the immediately
+    // preceding action beat, but only when that beat contains exactly one
+    // plausible glossary character. This catches supporting characters
+    // without reviving the noisy same-paragraph heuristic.
+    if (!speaker && !before.trim()) {
+      const prefix = text.slice(0, lineStart).replace(/\s+$/, "");
+      const prevBreak = prefix.lastIndexOf("\n\n");
+      const prevStart = prevBreak === -1 ? 0 : prevBreak + 2;
+      const previousParagraph = text.slice(prevStart, quote.index);
+      if (!/[“"]/u.test(previousParagraph)) {
+        speaker = findActionBeatSpeaker(previousParagraph, knownNames);
+        if (!speaker) speaker = findActionBeatSpeaker(previousParagraph, inferUnregisteredNames(previousParagraph, knownNames));
+      }
+    }
+    if (!speaker) continue;
+    const listener = lastSpeaker && normalize(lastSpeaker) !== normalize(speaker) ? lastSpeaker : null;
+    lastSpeaker = speaker;
+    if (configured.has(normalize(speaker))) continue;
+    const words = [...SELF_PRONOUNS, ...TARGET_ADDRESS_TERMS].sort((a, b) => b.length - a.length);
+    const regex = new RegExp(`(?<!\\p{L})(${words.map(escapeRegex).join("|")})(?!\\p{L})`, "giu");
+    const match = regex.exec(quoteText);
+    if (!match) continue;
+    const start = quoteStart + match.index;
+    const end = start + match[0].length;
+    if (isSwallowedByCompound(quoteText, match.index + match[0].length, match[0]) || isPrecededByCompound(quoteText, match.index, match[0])) continue;
+    issues.push(makeIssue(text, {
+      type: "pronoun", severity: "review", label: "Thiếu quy tắc xưng hô",
+      missingPronounRule: true, speaker, listener,
+      value: match[0], replacement: "", suggestions: [], confidence: "thấp",
+      detail: listener
+        ? `Đã nhận ra người nói là ${speaker}, người nghe có khả năng là ${listener}. Chưa có quy tắc cho cặp này trong ma trận; hãy bổ sung cách tự xưng và gọi đối phương.`
+        : `Đã nhận ra người nói là ${speaker}, nhưng chưa đủ bằng chứng xác định người nghe. Nhân vật này chưa có quy tắc trong ma trận.`,
+      start, end,
+    }));
+  }
+  return issues;
 }
 
 // Common Vietnamese narrative nouns that typically take a possessive pronoun
@@ -801,7 +978,7 @@ const POSSESSIVE_ANCHOR_NOUNS = [
 const OBJECT_MARKING_PRECEDERS = [
   "với", "cho", "của", "cùng", "về phía", "đến bên", "cạnh", "bên", "bị",
   "nhìn", "ngắm", "gọi", "hỏi", "bảo", "ôm", "nắm", "kéo", "đẩy", "lấy",
-  "bế", "hôn", "chạm", "sờ", "nhớ", "đợi", "chờ", "tìm", "dõi theo", "theo dõi",
+  "bế", "đặt", "hôn", "chạm", "sờ", "nhớ", "đợi", "chờ", "tìm", "dõi theo", "theo dõi",
   "mắng", "yêu", "ghét", "trách", "giận", "thương",
   "gỡ", "hất", "giữ", "vỗ", "cầm", "níu", "túm", "xoa", "ấn", "đè", "giằng", "giật",
   "vuốt ve", "vuốt", "siết chặt", "siết", "lướt qua", "lướt",
@@ -988,9 +1165,9 @@ function scanConfiguredWords(text, qaSettings) {
   return issues;
 }
 
-export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], narrativeRules = [], qaSettings = {} } = {}) {
+export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], narrativeRules = [], qaSettings = {}, qtRaw = "" } = {}) {
   const source = String(text || "");
-  const { issues: addressIssues } = scanContextualAddress(source, pronounRules);
+  const { issues: addressIssues } = scanContextualAddress(source, pronounRules, qtRaw, glossaryTerms);
   const issues = [
     ...scanConfiguredWords(source, qaSettings),
     ...scanSpacing(source),
@@ -999,6 +1176,7 @@ export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], n
     ...scanEnglish(source, glossaryTerms),
     ...scanNames(source, glossaryTerms),
     ...addressIssues,
+    ...scanPronounCoverage(source, pronounRules, glossaryTerms),
     ...scanNarrativeAddress(source, narrativeRules),
   ];
   const occupied = new Set();

@@ -34,15 +34,15 @@ export default function ChapterPicker({ chapters, currentChapterId, onSelect, wo
     <button type="button" onClick={() => setOpen(value => { const next = !value; if (next) onOpen?.(); return next; })} className="flex max-w-[230px] items-center gap-2 rounded-xl border border-white/10 bg-white/10 px-3 py-2 text-left text-sm text-white hover:bg-white/15" aria-haspopup="listbox" aria-expanded={open}>
       <span className="truncate">{current?.title || 'Chọn chương'}</span><ChevronDown className="h-4 w-4 shrink-0 text-violet-300" />
     </button>
-    {open && <div className="absolute right-0 top-full z-[80] mt-2 w-[min(440px,calc(100vw-24px))] overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl">
-      <div className="border-b border-slate-100 p-3">
+    {open && <div className="fixed inset-x-3 bottom-[calc(72px+env(safe-area-inset-bottom))] top-[68px] z-[80] flex w-auto flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white text-slate-900 shadow-2xl md:absolute md:bottom-auto md:left-auto md:right-0 md:top-full md:mt-2 md:block md:w-[min(440px,calc(100vw-24px))]">
+      <div className="shrink-0 border-b border-slate-100 p-3">
         <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-violet-400 focus-within:bg-white">
           <Search className="h-4 w-4 text-slate-400" />
           <input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="Tìm theo tiêu đề chương…" className="min-w-0 flex-1 bg-transparent py-2.5 text-sm outline-none" />
         </div>
         <p className="mt-2 text-xs text-slate-500">{filtered.length}/{chapters.length} chương · Trung bình {averageWords ? averageWords.toLocaleString('vi-VN') : 0} chữ/chương đã edit</p>
       </div>
-      <div ref={listRef} className="max-h-[60vh] overflow-y-auto p-1" role="listbox">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto p-1 md:max-h-[60vh]" role="listbox">
         {filtered.map((chapter) => {
           const wordCount = wordCounts[chapter.id] || 0;
           const warning = chapterLengthWarning(wordCount, averageWords, editedSampleSize);

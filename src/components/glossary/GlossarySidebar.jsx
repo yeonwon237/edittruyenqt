@@ -98,7 +98,7 @@ export default function GlossarySidebar({
   };
 
   return (
-    <aside className="absolute md:static inset-y-0 left-0 z-40 md:z-auto md:w-[300px] w-[88%] max-w-[330px] shrink-0 flex flex-col border-r border-slate-200 bg-white/95 backdrop-blur-xl shadow-2xl md:shadow-none">
+    <aside className="absolute md:static inset-y-0 left-0 z-[80] md:z-auto md:w-[300px] w-[88%] max-w-[330px] shrink-0 flex flex-col border-r border-slate-200 bg-white/95 backdrop-blur-xl shadow-2xl md:shadow-none">
       {/* Header */}
       <div className="px-4 py-4 border-b border-slate-100 bg-white">
         <div className="flex items-center justify-between mb-2">

@@ -1132,6 +1132,7 @@ export default function Workspace() {
     pronounRules: project?.contextual_pronoun_rules || [],
     narrativeRules: project?.style_toggles?.story_memory?.narrativeRules || [],
     qaSettings: project?.style_toggles?.qa_settings || {},
+    qtRaw: currentChapter?.qt_raw || "",
   });
 
   const handleSaveQaSettings = async (qaSettings) => {
@@ -1148,7 +1149,7 @@ export default function Workspace() {
   const patchStoryQaReportForChapters = (chapters, qaSettings) => {
     setStoryQaReport((report) => {
       if (!report) return report;
-      const options = { glossaryTerms, pronounRules: project?.contextual_pronoun_rules || [], narrativeRules: project?.style_toggles?.story_memory?.narrativeRules || [], qaSettings };
+      const baseOptions = { glossaryTerms, pronounRules: project?.contextual_pronoun_rules || [], narrativeRules: project?.style_toggles?.story_memory?.narrativeRules || [], qaSettings };
       const touched = new Map(chapters.map((c) => [c.id, c]));
       const groupMap = new Map();
       report.groups.forEach((g) => {
@@ -1157,7 +1158,7 @@ export default function Workspace() {
       });
       const chapterResults = report.chapters.filter((c) => !touched.has(c.id));
       touched.forEach((chapter) => {
-        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, { ...baseOptions, qtRaw: chapter.qt_raw || "" }) : [];
         const issues = qaSettings.hidePronounNarrative ? rawIssues.filter((i) => i.type !== "pronoun" && i.type !== "narrative") : rawIssues;
         issues.forEach((issue) => {
           const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct", issue.confidence || ""].join("\u0001");
@@ -1199,11 +1200,11 @@ export default function Workspace() {
     setStoryQaRunning(true);
     try {
       if (currentChapter) await flushSave(currentChapter, true);
-      const chapters = await loadAllProjectChapters(["title", "chapter_order", "edited"]);
+      const chapters = await loadAllProjectChapters(["title", "chapter_order", "qt_raw", "edited"]);
       const options = { glossaryTerms, pronounRules:project?.contextual_pronoun_rules || [], narrativeRules: project?.style_toggles?.story_memory?.narrativeRules || [], qaSettings };
       const issueGroups = new Map();
       const results = chapters.map((chapter) => {
-        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, options) : [];
+        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, { ...options, qtRaw: chapter.qt_raw || "" }) : [];
         const issues = qaSettings.hidePronounNarrative ? rawIssues.filter((i) => i.type !== "pronoun" && i.type !== "narrative") : rawIssues;
         issues.forEach((issue) => {
           const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct", issue.confidence || ""].join("\u0001");
@@ -4491,7 +4492,11 @@ ${compact}`;
           to the document instead, so both problems showed up together: the
           header/toolbar scrolled out of view, and columns never got tall
           enough to need their own scrollbar. */}
-      <header className="shrink-0 z-30 bg-slate-950 text-white border-b border-white/10 shadow-xl">
+      {/* Keep the chapter picker above the editor toolbar. The picker is a
+          child of this stacking context, so its own z-index cannot escape a
+          lower-z header; on narrow/tablet viewports the toolbar used to cut
+          straight across the open chapter list. */}
+      <header className="shrink-0 z-[60] bg-slate-950 text-white border-b border-white/10 shadow-xl">
         <div className="flex min-h-14 items-center gap-2 px-2 py-2 md:min-h-0 md:gap-3 md:px-4 md:py-3">
           <Link
             to="/stories"
@@ -4579,7 +4584,7 @@ ${compact}`;
               <MoreHorizontal className="w-4 h-4" />
             </button>
             {showHeaderMenu && (
-              <div role="menu" className="absolute right-0 top-full z-40 mt-2 w-64 rounded-xl border border-violet-100 bg-white p-1.5 text-slate-700 shadow-2xl">
+              <div role="menu" className="fixed right-3 top-[68px] z-40 max-h-[calc(100dvh-148px)] w-64 overflow-y-auto rounded-xl border border-violet-100 bg-white p-1.5 text-slate-700 shadow-2xl">
                 <button onClick={() => { setMobileReadingMode(true); setMobileActiveCol("edited"); setShowHeaderMenu(false); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-50">
                   <BookOpenText className="h-4 w-4 shrink-0" /> Chế độ đọc &amp; edit
                 </button>
@@ -5075,7 +5080,7 @@ ${compact}`;
           ref={issuePopoverRef}
           role="dialog"
           aria-label="Cách sửa lỗi nghi vấn"
-          className="fixed z-[90] w-80 max-w-[calc(100vw-24px)] rounded-2xl border border-violet-100 bg-white p-3 shadow-2xl"
+          className="fixed z-[90] w-80 max-w-[calc(100vw-24px)] rounded-2xl border border-violet-100 bg-white p-3 shadow-2xl max-md:!bottom-[calc(72px+env(safe-area-inset-bottom))] max-md:!left-3 max-md:!right-3 max-md:!top-auto max-md:!w-auto"
           style={{ left: issuePopover.x, top: issuePopover.y }}
         >
           <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
@@ -5135,6 +5140,20 @@ ${compact}`;
         onUndo={handleUndoQualitySuggestion}
         canUndo={qualityUndo?.chapterId === currentChapter?.id}
         onApplyAllSafe={handleApplyAllSafeQuality}
+        onAddPronounRule={async (rule) => {
+          const currentRules = project?.contextual_pronoun_rules || [];
+          const normalized = (value) => String(value || "").trim().toLocaleLowerCase("vi");
+          const existingIndex = currentRules.findIndex((item) =>
+            normalized(item.speaker) === normalized(rule.speaker) &&
+            normalized(item.listener) === normalized(rule.listener)
+          );
+          const savedRule = { ...rule, note: "Thêm nhanh từ QA", source: "manual", confidence: 1 };
+          const nextRules = existingIndex >= 0
+            ? currentRules.map((item, index) => index === existingIndex ? { ...item, ...savedRule } : item)
+            : [...currentRules, savedRule];
+          await handleUpdateProject({ contextual_pronoun_rules: nextRules });
+          toast({ title: existingIndex >= 0 ? "Đã cập nhật quy tắc xưng hô" : "Đã thêm quy tắc xưng hô", description: `${rule.speaker} → ${rule.listener}` });
+        }}
       />
       <BetaCheckDialog open={showBetaCheck} onOpenChange={setShowBetaCheck} issues={betaIssues} onApply={handleApplyBeta} onLocate={handleLocateBeta} onIgnore={handleIgnoreBeta} onAiCheck={handleAiBeta} aiRunning={betaAiRunning} onUndo={handleUndoBeta} canUndo={betaUndo?.chapterId===currentChapter?.id} onApplyAllSafe={handleApplyAllSafeBeta}/>
       <BetaReaderDialog

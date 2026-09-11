@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Languages, Loader2, LocateFixed, RotateCcw, SearchCheck, Space, Sparkles, UserRoundCheck, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Languages, Loader2, LocateFixed, Plus, RotateCcw, SearchCheck, Space, Sparkles, UserRoundCheck, Zap } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { QUALITY_LABELS } from "@/lib/qualityCheck";
 
@@ -18,13 +18,16 @@ const isSafeIssue = (issue) =>
   String(issue.replacement || "").trim() &&
   issue.replacement !== issue.value;
 
-export default function QualityCheckDialog({ open, onOpenChange, issues, onApply, onLocate, onTranslate, onUndo, canUndo, onApplyAllSafe }) {
+export default function QualityCheckDialog({ open, onOpenChange, issues, onApply, onLocate, onTranslate, onUndo, canUndo, onApplyAllSafe, onAddPronounRule }) {
   const [filter, setFilter] = useState("all");
   const [replacements, setReplacements] = useState({});
   const [ignored, setIgnored] = useState(new Set());
   const [translating, setTranslating] = useState(null);
   const [selections, setSelections] = useState({});
   const [batchTranslating, setBatchTranslating] = useState(false);
+  const [ruleEditor, setRuleEditor] = useState(null);
+  const [ruleDraft, setRuleDraft] = useState({ self_word: "", target_word: "" });
+  const [savingRule, setSavingRule] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -32,6 +35,8 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
     setIgnored(new Set());
     setReplacements(Object.fromEntries((issues || []).map((issue) => [issue.id, issue.replacement || ""])));
     setSelections({});
+    setRuleEditor(null);
+    setRuleDraft({ self_word: "", target_word: "" });
   }, [open]);
 
   useEffect(() => {
@@ -116,6 +121,23 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
     }
   };
 
+  const savePronounRule = async (group) => {
+    if (!ruleDraft.self_word.trim() || !ruleDraft.target_word.trim() || savingRule) return;
+    setSavingRule(true);
+    try {
+      await onAddPronounRule({
+        speaker: group.speaker,
+        listener: group.listener,
+        self_word: ruleDraft.self_word.trim(),
+        target_word: ruleDraft.target_word.trim(),
+      });
+      setRuleEditor(null);
+      setRuleDraft({ self_word: "", target_word: "" });
+    } finally {
+      setSavingRule(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-3xl h-[86vh] overflow-hidden flex flex-col rounded-2xl border-violet-100 p-0">
@@ -180,6 +202,25 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
                           </div>
                         ))}
                       </div>
+                    )}
+                    {group.missingPronounRule && group.speaker && group.listener && (
+                      ruleEditor === group.key ? (
+                        <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50/60 p-3">
+                          <p className="text-xs font-semibold text-violet-800">{group.speaker} → {group.listener}</p>
+                          <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <input value={ruleDraft.self_word} onChange={(event) => setRuleDraft((current) => ({ ...current, self_word: event.target.value }))} placeholder={`${group.speaker} tự xưng…`} className="min-w-0 rounded-lg border border-violet-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-violet-400" />
+                            <input value={ruleDraft.target_word} onChange={(event) => setRuleDraft((current) => ({ ...current, target_word: event.target.value }))} placeholder={`Gọi ${group.listener} là…`} className="min-w-0 rounded-lg border border-violet-200 bg-white px-2.5 py-2 text-xs outline-none focus:border-violet-400" />
+                          </div>
+                          <div className="mt-2 flex items-center gap-2">
+                            <button disabled={savingRule || !ruleDraft.self_word.trim() || !ruleDraft.target_word.trim()} onClick={() => savePronounRule(group)} className="rounded-lg bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-700 disabled:opacity-40">{savingRule ? "Đang lưu…" : "Lưu quy tắc"}</button>
+                            <button onClick={() => setRuleEditor(null)} className="rounded-lg px-2.5 py-1.5 text-xs text-slate-500 hover:bg-white">Hủy</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button onClick={() => { setRuleEditor(group.key); setRuleDraft({ self_word: "", target_word: "" }); }} className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700 hover:bg-violet-100">
+                          <Plus className="h-3.5 w-3.5" /> Thêm quy tắc cho cặp này
+                        </button>
+                      )
                     )}
                     {aiSelectable && (
                       <div className="mt-3 rounded-xl border border-violet-100 bg-violet-50/50 p-2.5">
