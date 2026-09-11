@@ -68,12 +68,13 @@ export default function EditorToolbar({
   const [showDataTools, setShowDataTools] = useState(false);
   const colsRef = useRef(null);
   const moreRef = useRef(null);
+  const mobileMoreRef = useRef(null);
   const dataToolsRef = useRef(null);
 
   useEffect(() => {
     const onDocClick = (e) => {
       if (colsRef.current && !colsRef.current.contains(e.target)) setShowCols(false);
-      if (moreRef.current && !moreRef.current.contains(e.target)) setShowMore(false);
+      if (!moreRef.current?.contains(e.target) && !mobileMoreRef.current?.contains(e.target)) setShowMore(false);
       if (dataToolsRef.current && !dataToolsRef.current.contains(e.target)) setShowDataTools(false);
     };
     document.addEventListener("mousedown", onDocClick);
@@ -84,21 +85,44 @@ export default function EditorToolbar({
   const provider = PROVIDER_INFO[customAIProvider] || PROVIDER_INFO.gemini;
 
   return (
-    // flex-wrap (not overflow-x-auto): a scrolling axis on this row forces
-    // the CSS engine to also clip the cross axis (overflow-x != visible
-    // makes overflow-y compute to "auto" too, per spec), which was cutting
-    // off the "Thêm"/"Cột" dropdown panels that need to extend below the
-    // row. Wrapping to a second row on narrow screens has no such clipping
-    // side effect.
-    //
-    // relative z-50: `backdrop-blur` (backdrop-filter) makes this row its
-    // own stacking context, which traps the dropdowns' z-40 *inside* it —
-    // without a z-index of its own, this whole (position: static) row then
-    // paints in plain DOM order at the page level, so GlossarySidebar
-    // (rendered right after it in Workspace.jsx) painted on top and hid the
-    // open dropdown underneath it (confirmed via elementFromPoint). Giving
-    // the row itself a z-index promotes the whole row above that sibling.
-    <div className="relative z-50 shrink-0 flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2.5 bg-white/90 backdrop-blur-xl border-b border-slate-200 shadow-[0_8px_24px_-24px_rgba(15,23,42,.5)]">
+    <>
+      <nav
+        className="fixed inset-x-0 bottom-0 z-[70] grid grid-cols-4 border-t border-slate-200 bg-white/95 px-2 pt-1.5 shadow-[0_-12px_30px_-22px_rgba(15,23,42,.45)] backdrop-blur-xl md:hidden"
+        style={{ paddingBottom: "max(.375rem, env(safe-area-inset-bottom))" }}
+        aria-label="Thao tác nhanh"
+      >
+        <button type="button" onClick={onToggleSidebar} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold text-slate-600 active:bg-violet-50 active:text-violet-700">
+          <PanelLeft className="h-5 w-5" /><span>Từ điển</span>
+        </button>
+        <button type="button" onClick={onSelfTranslate} disabled={!selfTranslateSupported || selfTranslating} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold text-slate-600 active:bg-violet-50 active:text-violet-700 disabled:opacity-35">
+          {selfTranslating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Languages className="h-5 w-5" />}<span>Tự dịch</span>
+        </button>
+        <button type="button" onClick={hasCustomAI ? onCustomEdit : onOpenAISettings} disabled={customAIEditing} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl bg-violet-600 text-[11px] font-bold text-white shadow-sm active:bg-violet-700 disabled:opacity-50">
+          {customAIEditing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Bot className="h-5 w-5" />}<span>{hasCustomAI ? provider.label : "Thiết lập AI"}</span>
+        </button>
+        <div ref={mobileMoreRef} className="relative">
+          <button type="button" onClick={() => setShowMore((value) => !value)} className="flex min-h-12 w-full flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold text-slate-600 active:bg-violet-50 active:text-violet-700" aria-expanded={showMore}>
+            <MoreHorizontal className="h-5 w-5" /><span>Công cụ</span>
+          </button>
+          {showMore && (
+            <div className="absolute bottom-full right-0 mb-3 max-h-[min(65dvh,520px)] w-[min(22rem,calc(100vw-16px))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
+              <p className="px-3 pb-2 pt-1 text-xs font-bold uppercase tracking-wider text-slate-400">Công cụ biên tập</p>
+              <button onClick={() => { onQuickAddGlossary(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Plus className="h-4 w-4 text-violet-600" /> Thêm từ bôi đen vào Glossary</button>
+              <button onClick={() => { onBatchReplace(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Wand2 className="h-4 w-4 text-amber-600" /> Thay thế hàng loạt</button>
+              <button onClick={() => { onPronounSwitcher(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Users className="h-4 w-4 text-purple-600" /> Đổi xưng hô</button>
+              <button onClick={() => { onRuleEdit(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Sparkles className="h-4 w-4 text-violet-600" /> Rule Edit</button>
+              <button onClick={() => { onOpenTranslationSettings(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Palette className="h-4 w-4 text-pink-600" /> Preset văn phong</button>
+              <button onClick={() => { onOpenImageTranslate(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><ImagePlus className="h-4 w-4 text-sky-600" /> Dịch từ ảnh</button>
+              <button onClick={() => { onOpenColumnMove(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><ArrowRightLeft className="h-4 w-4 text-indigo-600" /> Chuyển dữ liệu giữa các cột</button>
+              <button onClick={() => { onOpenQtCleanup(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Eraser className="h-4 w-4 text-amber-600" /> Dọn dấu chia Phần trong QT</button>
+              <button onClick={() => { onOpenSettings(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><SettingsIcon className="h-4 w-4 text-slate-500" /> Cài đặt</button>
+            </div>
+          )}
+        </div>
+      </nav>
+    {/* Desktop toolbar stays unchanged; the compact mobile toolbar above is
+        fixed to the bottom and only rendered below the md breakpoint. */}
+    <div className="relative z-50 hidden shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white/90 px-4 py-2.5 shadow-[0_8px_24px_-24px_rgba(15,23,42,.5)] backdrop-blur-xl md:flex">
       {/* Column selector */}
       <div ref={colsRef} className="relative shrink-0">
         <button
@@ -304,5 +328,6 @@ export default function EditorToolbar({
         <SettingsIcon className="w-4 h-4" />
       </button>
     </div>
+    </>
   );
 }

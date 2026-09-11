@@ -6,6 +6,7 @@ import { Project, Chapter, GlossaryTerm, PromptPreset } from "@/api/entities";
 import { useToast } from "@/components/ui/use-toast";
 import EditorPanel from "@/components/workspace/EditorPanel";
 import EditorToolbar from "@/components/workspace/EditorToolbar";
+import MobileReadingEditor from "@/components/workspace/MobileReadingEditor";
 import GlossarySidebar from "@/components/glossary/GlossarySidebar";
 import GlossaryTermFindDialog from "@/components/glossary/GlossaryTermFindDialog";
 import GlossaryTermForm from "@/components/glossary/GlossaryTermForm";
@@ -63,7 +64,7 @@ import { scanPronounInventory } from "@/lib/pronounInventory";
 import { discoverPronounRules } from "@/lib/pronounDiscovery";
 import { buildStoryLearningPrompt, isChapterLearningEnabled, mergeStoryLearning, parseStoryLearningResult } from "@/lib/storyLearning";
 import { buildTranslationBootstrapPrompt, dedupeTranslationBootstrap, parseTranslationBootstrapResult } from "@/lib/translationBootstrap";
-import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send, MessageSquareText, Sparkles } from "lucide-react";
+import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, BookOpenText, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send, MessageSquareText, Sparkles } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -156,6 +157,7 @@ export default function Workspace() {
   const [loading, setLoading] = useState(true);
   const [visibleColumns, setVisibleColumns] = useState(["raw", "qt", "edited"]);
   const [mobileActiveCol, setMobileActiveCol] = useState("edited");
+  const [mobileReadingMode, setMobileReadingMode] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draftMode] = useState(isDraftMode());
   const [checkingPronouns, setCheckingPronouns] = useState(false);
@@ -3131,7 +3133,7 @@ ${sourceText}`;
     <>
       <button
         onClick={() => handleCopyColumn(value, label)}
-        className="p-1.5 rounded-lg bg-white/70 hover:bg-violet-50 text-slate-400 hover:text-violet-600 transition-colors border border-violet-100"
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-white/70 text-slate-500 transition-colors hover:bg-violet-50 hover:text-violet-600 md:h-auto md:w-auto md:rounded-lg md:p-1.5"
         title={`Sao chép toàn bộ ${label}`}
       >
         <Copy className="w-3.5 h-3.5" />
@@ -3139,7 +3141,7 @@ ${sourceText}`;
       {value ? (
         <button
           onClick={() => setClearTarget({ field, label })}
-          className="p-1.5 rounded-lg bg-white/70 hover:bg-red-50 text-slate-400 hover:text-red-500 transition-colors border border-violet-100"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-white/70 text-slate-500 transition-colors hover:bg-red-50 hover:text-red-500 md:h-auto md:w-auto md:rounded-lg md:p-1.5"
           title={`Xóa toàn bộ ${label}`}
         >
           <Trash2 className="w-3.5 h-3.5" />
@@ -4471,7 +4473,16 @@ ${compact}`;
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-100/80 flex flex-col">
+    <div className="h-[100dvh] overflow-hidden bg-slate-100/80 flex flex-col">
+      <MobileReadingEditor
+        open={mobileReadingMode}
+        projectTitle={project.title}
+        chapter={currentChapter}
+        chapters={chapterList}
+        onChange={(edited) => setCurrentChapter((chapter) => ({ ...chapter, edited }))}
+        onClose={() => setMobileReadingMode(false)}
+        onSelectChapter={switchChapter}
+      />
       {/* Header + toolbar stay put — the page itself never scrolls (h-screen
           overflow-hidden below), only the columns and sidebar do, each via
           their own internal overflow-y-auto (see EditorPanel/GlossarySidebar).
@@ -4481,22 +4492,22 @@ ${compact}`;
           header/toolbar scrolled out of view, and columns never got tall
           enough to need their own scrollbar. */}
       <header className="shrink-0 z-30 bg-slate-950 text-white border-b border-white/10 shadow-xl">
-        <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex min-h-14 items-center gap-2 px-2 py-2 md:min-h-0 md:gap-3 md:px-4 md:py-3">
           <Link
             to="/stories"
-            className="p-2 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white/60 transition-colors hover:bg-white/10 hover:text-white md:h-auto md:w-auto md:p-2"
             title="Về danh sách truyện"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
           <Link
             to="/"
-            className="p-2 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-colors"
+            className="hidden p-2 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-colors md:block"
             title="Về trang chủ"
           >
             <Home className="w-4 h-4" />
           </Link>
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="hidden items-center gap-2 min-w-0 md:flex">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10 text-violet-300"><BookOpen className="h-4 w-4" /></span>
             <div className="min-w-0">
               {editingTitle ? (
@@ -4548,7 +4559,7 @@ ${compact}`;
             </div>
           </div>
 
-          <div className="flex-1" />
+          <div className="hidden flex-1 md:block" />
 
           {/* Chapter selector */}
           <ChapterPicker chapters={chapterList} currentChapterId={currentChapter?.id} onSelect={switchChapter} wordCounts={editedWordCounts} averageWords={editedWordSummary.average} editedSampleSize={editedWordSummary.sampleSize} editedChapterIds={editedChapterIds} qaIssueIds={qaIssueIds} betaIssueIds={betaIssueIds} onOpen={ensureWordCountsLoaded} />
@@ -4560,7 +4571,7 @@ ${compact}`;
           <div ref={headerMenuRef} className="relative shrink-0 md:hidden">
             <button
               onClick={() => setShowHeaderMenu((v) => !v)}
-              className="p-2 rounded-xl bg-white/10 hover:bg-white/15 text-violet-300 transition-colors"
+              className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-violet-300 transition-colors hover:bg-white/15"
               title="Thêm thao tác"
               aria-haspopup="menu"
               aria-expanded={showHeaderMenu}
@@ -4569,6 +4580,10 @@ ${compact}`;
             </button>
             {showHeaderMenu && (
               <div role="menu" className="absolute right-0 top-full z-40 mt-2 w-64 rounded-xl border border-violet-100 bg-white p-1.5 text-slate-700 shadow-2xl">
+                <button onClick={() => { setMobileReadingMode(true); setMobileActiveCol("edited"); setShowHeaderMenu(false); }} className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-50">
+                  <BookOpenText className="h-4 w-4 shrink-0" /> Chế độ đọc &amp; edit
+                </button>
+                <div className="my-1 h-px bg-slate-100" />
                 <button onClick={() => { setShowStoryQa(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
                   <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-amber-600" /> QA toàn truyện{storyQaReport?.chapters.length ? ` · ${storyQaReport.chapters.length}` : ""}
                 </button>
@@ -4805,18 +4820,18 @@ ${compact}`;
             />
           </>
         )}
-        <div className="flex-1 flex flex-col gap-3 p-3 min-w-0 min-h-0 md:p-4">
+        <div className="flex-1 flex flex-col gap-2 p-2 pb-20 min-w-0 min-h-0 md:gap-3 md:p-4">
           {currentChapter ? (
             <>
               {visibleColumns.length > 1 && (
-                <div className="md:hidden flex gap-1.5 shrink-0">
+                <div className="md:hidden flex min-h-11 gap-1.5 shrink-0 rounded-2xl bg-white p-1 shadow-sm">
                   {visibleColumns.map((col) => {
                     const def = COLUMN_DEFS[col];
                     return (
                       <button
                         key={col}
                         onClick={() => setMobileActiveCol(col)}
-                        className={`flex-1 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
+                        className={`flex-1 px-3 py-2 rounded-xl text-sm font-semibold transition-colors ${
                           activeMobile === col
                             ? "bg-violet-600 text-white"
                             : "bg-white/70 text-slate-500 border border-violet-100"

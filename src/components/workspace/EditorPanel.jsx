@@ -127,16 +127,16 @@ const EditorPanel = forwardRef(function EditorPanel(
 
   return (
     <div ref={panelRef} data-etq-panel={variant} className="flex-1 flex flex-col min-w-0 rounded-[1.25rem] bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.04),0_16px_40px_-34px_rgba(15,23,42,.35)] overflow-hidden">
-      <div className="shrink-0 flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-white">
-        <div className="flex min-w-0 items-center gap-2.5">
+      <div className="shrink-0 flex min-h-12 items-center justify-between px-3 py-2 border-b border-slate-100 bg-white md:min-h-0 md:px-4 md:py-3">
+        <div className="hidden min-w-0 items-center gap-2.5 md:flex">
           <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${panelMeta.tone}`}><PanelIcon className="h-4 w-4" /></span>
           <div className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-800">{title}</span><span className="block text-[10px] font-medium uppercase tracking-[.12em] text-slate-400">{panelMeta.label}</span></div>
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-0.5 md:w-auto md:overflow-visible md:pb-0">
           {searchable && (
             <button
               onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}
-              className={`p-1.5 rounded-lg border transition-colors ${searchOpen ? "border-violet-200 bg-violet-50 text-violet-700" : "border-violet-100 bg-white/70 text-slate-400 hover:text-violet-600"}`}
+              className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors md:h-auto md:w-auto md:p-1.5 md:rounded-lg ${searchOpen ? "border-violet-200 bg-violet-50 text-violet-700" : "border-violet-100 bg-white/70 text-slate-400 hover:text-violet-600"}`}
               title="Tìm câu hoặc đoạn trong Bản Edit"
             >
               <Search className="h-3.5 w-3.5" />
@@ -147,7 +147,7 @@ const EditorPanel = forwardRef(function EditorPanel(
             <button
               data-etq-role="toggle-mode"
               onClick={onToggleMode}
-              className="text-xs px-2 py-1 rounded-lg bg-white/70 hover:bg-white text-slate-500 hover:text-violet-600 transition-colors border border-violet-100"
+              className="flex min-h-10 items-center gap-1 rounded-xl border border-violet-100 bg-white/70 px-3 text-sm text-slate-600 transition-colors hover:bg-white hover:text-violet-600 md:inline-block md:min-h-0 md:rounded-lg md:px-2 md:py-1 md:text-xs"
             >
               {mode === "view" ? <><Pencil className="h-3 w-3" /> Sửa</> : <><Eye className="h-3 w-3" /> Xem</>}
             </button>
@@ -155,7 +155,7 @@ const EditorPanel = forwardRef(function EditorPanel(
           {onHide && (
             <button
               onClick={onHide}
-              className="p-1 rounded-lg bg-white/70 hover:bg-white text-slate-400 hover:text-red-500 transition-colors border border-violet-100"
+              className="hidden p-1 rounded-lg bg-white/70 hover:bg-white text-slate-400 hover:text-red-500 transition-colors border border-violet-100 md:block"
               title={`Ẩn cột ${title} (bấm nút Cột trên toolbar để hiện lại)`}
             >
               <X className="w-3.5 h-3.5" />
@@ -200,9 +200,9 @@ const EditorPanel = forwardRef(function EditorPanel(
             ref={scrollRef}
             onScroll={onScroll}
             onCopy={handleRichCopy}
-            className="h-full overflow-y-auto cute-scrollbar p-5 panel-scroll bg-slate-50/20"
+            className="h-full overflow-y-auto cute-scrollbar p-4 pb-24 panel-scroll bg-slate-50/20 md:p-5"
           >
-            <div data-etq-role="view-content" className="whitespace-pre-wrap text-[15px] leading-8 text-slate-700 min-h-full">
+            <div data-etq-role="view-content" className="whitespace-pre-wrap text-base leading-8 text-slate-700 min-h-full md:text-[15px]">
               {value ? (
                 flagForeignChars ? (
                   qualityIssues.length ? qualityHighlight : foreignCharsHighlight
@@ -220,7 +220,7 @@ const EditorPanel = forwardRef(function EditorPanel(
               <pre
                 ref={qaOverlayRef}
                 aria-hidden="true"
-                className="pointer-events-none absolute inset-y-0 left-0 right-[7px] z-20 m-0 overflow-hidden p-5 text-[15px] leading-8 text-transparent whitespace-pre-wrap break-words font-body"
+                className="pointer-events-none absolute inset-y-0 left-0 right-[7px] z-20 m-0 overflow-hidden p-4 pb-24 text-base leading-8 text-transparent whitespace-pre-wrap break-words font-body md:p-5 md:text-[15px]"
               >
                 {editOverlayHighlight}
               </pre>
@@ -234,7 +234,7 @@ const EditorPanel = forwardRef(function EditorPanel(
               }}
               value={value || ""}
               onChange={(e) => onChange?.(e.target.value)}
-              className="relative z-10 h-full w-full resize-none overflow-y-auto cute-scrollbar p-5 bg-transparent text-[15px] leading-8 text-slate-700 focus:outline-none placeholder:text-slate-300 font-body"
+              className="relative z-10 h-full w-full resize-none overflow-y-auto cute-scrollbar p-4 pb-24 bg-transparent text-base leading-8 text-slate-700 focus:outline-none placeholder:text-slate-300 font-body md:p-5 md:text-[15px]"
               placeholder={placeholder}
               spellCheck={false}
             />
