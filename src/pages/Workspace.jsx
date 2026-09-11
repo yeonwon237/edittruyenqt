@@ -2693,14 +2693,22 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
     }
   };
 
-  const handleRunPronounBootstrap = async (chapterCount) => {
+  const handleRunPronounBootstrap = async (chapterCount = "all") => {
     setRunningPronounBootstrap(true);
     try {
-      const chapters = await Chapter.filterNonEmpty(
-        { project_id: projectId }, "edited", "chapter_order", chapterCount, 0, ["title", "chapter_order", "edited"]
-      );
+      const chapters = chapterCount === "all"
+        ? await fetchAllPages(
+            (limit, skip) => Chapter.filterNonEmpty({ project_id: projectId }, "edited", "chapter_order", limit, skip, ["title", "chapter_order", "edited"]),
+            { pageSize: 300, maxItems: CHAPTER_FETCH_CAP }
+          )
+        : await Chapter.filterNonEmpty(
+            { project_id: projectId }, "edited", "chapter_order", Number(chapterCount), 0, ["title", "chapter_order", "edited"]
+          );
       const knownNames = [...new Set(
-        (project?.contextual_pronoun_rules || []).flatMap((r) => [r.speaker, r.listener]).filter((n) => n && n !== "*")
+        [
+          ...(project?.contextual_pronoun_rules || []).flatMap((r) => [r.speaker, r.listener]),
+          ...glossaryTerms.filter((term) => term.category === "Tên người").map((term) => term.translation),
+        ].filter((n) => n && n !== "*")
       )];
       setPronounBootstrap(discoverPronounRules(chapters, { knownNames }));
     } catch (error) {

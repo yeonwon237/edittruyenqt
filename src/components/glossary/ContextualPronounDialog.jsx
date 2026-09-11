@@ -434,11 +434,11 @@ export default function ContextualPronounDialog({
         {onRunPronounBootstrap && (
           <button
             type="button"
-            onClick={() => { setBootstrapOpen(true); if (!pronounBootstrap && !runningPronounBootstrap) onRunPronounBootstrap(5); }}
+            onClick={() => { setBootstrapOpen(true); if (!pronounBootstrap && !runningPronounBootstrap) onRunPronounBootstrap("all"); }}
             className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs font-medium text-sky-700 hover:bg-sky-100"
           >
             <Compass className="h-3.5 w-3.5" />
-            Khởi tạo Ma Trận từ chương đầu · Không AI
+            Học xưng hô từ Bản Edit · Không AI
           </button>
         )}
 

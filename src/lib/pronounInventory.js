@@ -11,20 +11,43 @@ const normalize = value => String(value || '').trim().toLocaleLowerCase('vi');
 export function findSpeaker(text, quoteStart, quoteEnd, names) {
   const from = Math.max(0, quoteStart - 140), to = Math.min(text.length, quoteEnd + 140);
   const nearby = text.slice(from, to);
-  let best = null;
+  let bestBefore = null;
+  let bestAfter = null;
   for (const name of names) {
     const escaped = escapeRegex(name);
     const patterns = [
       new RegExp(`${escaped}[^“”"]{0,70}(?:${SPEECH_VERBS})[^“”"]{0,25}[“"]`, 'giu'),
       new RegExp(`[”"][^“”"]{0,35}${escaped}[^“”"]{0,35}(?:${SPEECH_VERBS})`, 'giu'),
     ];
-    for (const pattern of patterns) for (const match of nearby.matchAll(pattern)) {
+    for (const [patternIndex, pattern] of patterns.entries()) for (const match of nearby.matchAll(pattern)) {
       const absolute = from + match.index;
-      const distance = Math.min(Math.abs(quoteStart - (absolute + match[0].length)), Math.abs(absolute - quoteEnd));
-      if (!best || distance < best.distance) best = { name, distance };
+      const matchedQuote = patternIndex === 0
+        ? absolute + match[0].length - 1
+        : absolute;
+      const expectedQuote = patternIndex === 0 ? quoteStart - 1 : quoteEnd;
+      if (matchedQuote !== expectedQuote) continue;
+      // Compare distance to the NAME itself, not to the whole regex match.
+      // Every pre-quote match ends at the same opening quote, so the old
+      // metric produced a zero-distance tie and whichever candidate name
+      // happened to be iterated first won — often a bystander earlier in
+      // the sentence instead of "Kỷ Khê đáp:" immediately before the quote.
+      const nameOffset = match[0].toLocaleLowerCase('vi').lastIndexOf(name.toLocaleLowerCase('vi'));
+      const absoluteName = absolute + Math.max(0, nameOffset);
+      const distance = Math.min(
+        Math.abs(quoteStart - (absoluteName + name.length)),
+        Math.abs(absoluteName - quoteEnd)
+      );
+      const bucket = patternIndex === 0 ? bestBefore : bestAfter;
+      if (!bucket || distance < bucket.distance) {
+        if (patternIndex === 0) bestBefore = { name, distance };
+        else bestAfter = { name, distance };
+      }
     }
   }
-  return best?.name || '';
+  // An attribution that introduces this quote wins over prose after it.
+  // The latter may already be setting up a later quote and otherwise steals
+  // the current line from its explicitly named speaker.
+  return bestBefore?.name || bestAfter?.name || '';
 }
 
 function findListener(text, quoteStart, quoteEnd, speaker, rules) {

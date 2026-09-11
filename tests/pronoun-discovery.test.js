@@ -47,3 +47,24 @@ test('merges in knownNames even if the mined text alone would not surface them',
   const report = discoverPronounRules(makeChapters(4), { knownNames: ['Diệp Khinh Thần'] });
   assert.ok(report.candidateNames.includes('Diệp Khinh Thần'));
 });
+
+test('uses the previous directly tagged speaker as listener in a crowded scene', () => {
+  const chapters = Array.from({ length: 3 }, (_, index) => ({
+    id: `crowded-${index}`,
+    title: `Cảnh đông người ${index + 1}`,
+    chapter_order: index + 1,
+    edited: [
+      'Thịnh Thanh Sơn cười nói: “Tôi đã biết rồi, cậu đừng giấu nữa.”',
+      'Thượng Quan Văn Trúc đứng cạnh cửa, Trình Nặc cũng có mặt trong phòng.',
+      'Kỷ Khê đáp: “Tôi chỉ muốn tạo bất ngờ thôi, tôi vẫn luôn giấu không nói cho cậu.”',
+    ].join('\n'),
+  }));
+  const report = discoverPronounRules(chapters, {
+    knownNames: ['Thịnh Thanh Sơn', 'Thượng Quan Văn Trúc', 'Trình Nặc', 'Kỷ Khê'],
+  });
+  const rule = report.rules.find((item) => item.speaker === 'Kỷ Khê' && item.listener === 'Thịnh Thanh Sơn');
+  assert.ok(rule);
+  assert.equal(rule.self_word, 'tôi');
+  assert.equal(rule.target_word, 'cậu');
+  assert.ok(report.resolvedPairCount > 0);
+});

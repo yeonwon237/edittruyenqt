@@ -18,7 +18,7 @@ const looksSolid = (rule) =>
   rule.selfConfidence >= 0.6 && rule.targetConfidence >= 0.6 && rule.sampleCount >= 4;
 
 export default function PronounBootstrapDialog({ open, onOpenChange, report, running, onScan, onApply }) {
-  const [chapterCount, setChapterCount] = useState(5);
+  const [chapterCount, setChapterCount] = useState("all");
   const [selected, setSelected] = useState({});
   const [edited, setEdited] = useState({});
 
@@ -57,25 +57,27 @@ export default function PronounBootstrapDialog({ open, onOpenChange, report, run
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto cute-scrollbar">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-violet-700">
-            <Compass className="h-5 w-5" /> Khởi tạo Ma Trận từ chương đầu
+            <Compass className="h-5 w-5" /> Học xưng hô từ Bản Edit
           </DialogTitle>
           <DialogDescription>
-            Quét N chương đầu để đề xuất cách xưng hô giữa các cặp nhân vật — quét bằng luật,
-            không dùng AI. Đây chỉ là đề xuất: Ma Trận không đổi cho tới khi bạn duyệt và bấm
+            Quét các chương đã có Bản Edit để đề xuất cách xưng hô giữa các cặp nhân vật — quét bằng luật,
+            không dùng AI. Máy dùng tên trong Glossary và theo dõi lượt hội thoại. Đây chỉ là đề xuất: Ma Trận không đổi cho tới khi bạn duyệt và bấm
             "Thêm vào Ma Trận".
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex items-center gap-2">
-          <label className="text-xs font-medium text-violet-700 shrink-0">Số chương quét</label>
-          <input
-            type="number"
-            min={1}
-            max={50}
+          <label className="text-xs font-medium text-violet-700 shrink-0">Phạm vi quét</label>
+          <select
             value={chapterCount}
-            onChange={(e) => setChapterCount(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-            className="w-20 px-2 py-1.5 text-sm rounded-lg border border-violet-100 focus:outline-none focus:border-violet-300"
-          />
+            onChange={(e) => setChapterCount(e.target.value === "all" ? "all" : Number(e.target.value))}
+            className="min-w-40 px-2 py-1.5 text-sm rounded-lg border border-violet-100 bg-white focus:outline-none focus:border-violet-300"
+          >
+            <option value="all">Toàn bộ chương đã Edit</option>
+            <option value="10">10 chương đầu</option>
+            <option value="25">25 chương đầu</option>
+            <option value="50">50 chương đầu</option>
+          </select>
           <button
             type="button"
             onClick={() => onScan(chapterCount)}
@@ -88,8 +90,8 @@ export default function PronounBootstrapDialog({ open, onOpenChange, report, run
         </div>
 
         {report && (
-          <div className="grid grid-cols-3 gap-2">
-            {[[report.chapterCount, "Chương đã quét"], [report.quoteCount, "Câu thoại"], [report.rules.length, "Cặp đề xuất"]].map(
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {[[report.chapterCount, "Chương đã quét"], [report.quoteCount, "Câu thoại"], [report.resolvedPairCount ?? 0, "Thoại rõ cả cặp"], [report.rules.length, "Cặp đề xuất"]].map(
               ([value, label]) => (
                 <div key={label} className="rounded-xl bg-slate-50 p-3 text-center">
                   <b className="block text-lg text-slate-800">{value}</b>

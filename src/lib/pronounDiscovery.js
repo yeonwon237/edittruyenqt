@@ -95,6 +95,17 @@ function findListenerAmong(text, quoteStart, quoteEnd, speaker, allNames) {
   return mentioned.length === 1 ? mentioned[0] : '';
 }
 
+function findExplicitListener(text, quoteStart, speaker, allNames) {
+  const lineStart = text.lastIndexOf('\n', quoteStart - 1) + 1;
+  const before = text.slice(lineStart, quoteStart - 1);
+  const others = allNames.filter((name) => normalize(name) !== normalize(speaker));
+  const matches = others.filter((name) => new RegExp(
+    `${escapeRegex(speaker)}[^“”"]{0,100}(?:nói|hỏi|đáp|bảo|gọi|thì thầm|trả lời)\\s+với\\s+${escapeRegex(name)}[^“”"]{0,30}:?\\s*$`,
+    'iu'
+  ).test(before));
+  return matches.length === 1 ? matches[0] : '';
+}
+
 export function discoverPronounRules(chapters, { knownNames = [] } = {}) {
   const mined = mineCandidateNames(chapters);
   const candidateNames = [...new Set([
@@ -105,10 +116,12 @@ export function discoverPronounRules(chapters, { knownNames = [] } = {}) {
   const groups = new Map();
   let quoteCount = 0;
   let resolvedQuoteCount = 0;
+  let resolvedPairCount = 0;
   const quoteRegex = /[“"]([^”"]+)[”"]/gu;
 
   for (const chapter of chapters || []) {
     const text = String(chapter.edited || '');
+    let previousSpeaker = '';
     for (const quoteMatch of text.matchAll(quoteRegex)) {
       quoteCount++;
       const quoteText = quoteMatch[1];
@@ -117,8 +130,18 @@ export function discoverPronounRules(chapters, { knownNames = [] } = {}) {
       const quoteEnd = quoteStart + quoteText.length;
       const speaker = findSpeaker(text, quoteStart, quoteEnd, candidateNames);
       if (!speaker) continue;
-      const listener = findListenerAmong(text, quoteStart, quoteEnd, speaker, candidateNames);
+      const explicitListener = findExplicitListener(text, quoteStart, speaker, candidateNames);
+      // A directly observed previous speaker is strong conversational
+      // evidence: the newly tagged speaker is normally replying to them.
+      // It also survives scenes containing several other named characters,
+      // where the old "only one nearby name" heuristic always gave up.
+      const turnListener = previousSpeaker && normalize(previousSpeaker) !== normalize(speaker)
+        ? previousSpeaker
+        : '';
+      const listener = explicitListener || turnListener || findListenerAmong(text, quoteStart, quoteEnd, speaker, candidateNames);
       resolvedQuoteCount++;
+      if (listener) resolvedPairCount++;
+      previousSpeaker = speaker;
 
       const key = `${speaker}${listener}`;
       const group = groups.get(key) || {
@@ -177,6 +200,7 @@ export function discoverPronounRules(chapters, { knownNames = [] } = {}) {
     chapterCount: (chapters || []).length,
     quoteCount,
     resolvedQuoteCount,
+    resolvedPairCount,
     candidateNames,
   };
 }
