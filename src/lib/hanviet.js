@@ -160,6 +160,83 @@ const REORDER_VERB_GUARD = new Set([
 const MAX_MODIFIER_LEN = 6;
 const MAX_NOUN_LEN = 6;
 
+// --- "把/将 + object + verb" reorder (Nhóm 5: đảo câu 把/将-construction) ---
+// 把/将 fronts the object before the verb (把字句/将字句) — Chinese "[chủ ngữ]
+// 把/将 [tân ngữ] [động từ]...", Vietnamese wants the verb before the object.
+// Same narrow, bail-rather-than-guess philosophy as Nhóm 4 above: only
+// reorders a clause that is exactly "[optional subject]把/将[object][verb
+// phrase]" with nothing ambiguous in it.
+//
+// Finding where the object ends and the verb phrase begins needs real
+// parsing, which this engine doesn't have — instead this scans forward from
+// the marker for the first character in BA_VERB_SIGNAL (a deliberately small
+// set of common, unambiguous action-verb characters) and treats that as the
+// start of the verb phrase. BA_VERB_SIGNAL intentionally excludes copulas,
+// modals, degree adverbs and conjunctions (是/有/很/和/跟/与...) — those are
+// far more likely to occur *inside* a multi-character or coordinated object
+// ("他和她", "很重要的东西") than to genuinely start the next predicate, and
+// firing on them risks splitting the object in the wrong place. Missing some
+// valid verb starts this way is an acceptable trade for not garbling ones it
+// does catch.
+//
+// Deliberately excluded: 给. It's extremely common as the *second* syllable
+// of a compound verb (递给/交给/还给/送给/寄给/带给— "hand/return/send X to")
+// rather than a verb start on its own, and including it made the scanner
+// stop one character too early on those ("把书递给我" was splitting at 给
+// instead of 递, stranding "书递" as a nonsense "object"). Every compound's
+// *first* syllable (递/交/还/送/寄...) is in the set instead, so the scan
+// still stops at the right place.
+//
+// The object is appended at the END of the verb phrase rather than right
+// after the verb itself (e.g. "đưa cho người bên cạnh quyển sổ nhỏ" instead
+// of the more natural "đưa quyển sổ nhỏ cho người bên cạnh") — knowing
+// exactly where the verb word ends and a complement/preposition begins would
+// again need real parsing. This settles for turning an unreadable sentence
+// into a readable-but-not-perfectly-ordered one.
+const BA_VERB_SIGNAL = new Set([
+  "看", "听", "走", "跑", "坐", "站", "躺", "笑", "哭", "打", "杀", "死", "生",
+  "活", "来", "去", "进", "出", "开", "关", "拿", "放", "取", "问", "答",
+  "想", "知", "道", "记", "忘", "喜", "欢", "爱", "恨", "怕", "惊", "修", "炼",
+  "到", "动", "说", "认", "识", "明", "觉", "希", "望", "决", "定", "始",
+  "继", "续", "停", "止", "结", "束", "推", "拉", "扔", "丢", "摔", "撞",
+  "抱", "抓", "握", "踢", "咬", "撕", "砸", "敲", "揉", "拽", "扯", "摸",
+  "递", "交", "还", "送", "寄", "翻", "掀", "甩", "晃", "捏", "拧", "扭",
+  "插", "塞", "挂", "摆", "藏", "躲", "遮", "盖", "擦", "洗", "刷", "剪",
+  "削", "砍", "穿", "戴", "写", "画", "建", "造", "买", "卖", "搬", "抬",
+  "举", "投", "踩", "带",
+]);
+const MAX_BA_OBJECT_LEN = 8;
+
+function reorderOneBaJiangClause(clause) {
+  const baIndex = clause.indexOf("把");
+  const jiangIndex = clause.indexOf("将");
+  // Both markers, or the same marker twice, means a compound/ambiguous
+  // construction this heuristic isn't confident about — bail.
+  if (baIndex >= 0 && jiangIndex >= 0) return clause;
+  const markerIndex = baIndex >= 0 ? baIndex : jiangIndex;
+  if (markerIndex < 0) return clause;
+  const marker = baIndex >= 0 ? "把" : "将";
+  if (clause.indexOf(marker, markerIndex + 1) >= 0) return clause;
+
+  const before = clause.slice(0, markerIndex);
+  const after = clause.slice(markerIndex + marker.length);
+  let verbStart = -1;
+  for (let idx = 1; idx < after.length; idx += 1) {
+    if (BA_VERB_SIGNAL.has(after[idx])) {
+      verbStart = idx;
+      break;
+    }
+  }
+  if (verbStart <= 0) return clause;
+
+  const obj = after.slice(0, verbStart);
+  const rest = after.slice(verbStart);
+  if (obj.length > MAX_BA_OBJECT_LEN) return clause;
+  if (obj.includes("把") || obj.includes("将") || obj.includes("的")) return clause;
+
+  return before + rest + obj;
+}
+
 // --- Sentence capitalization ---
 // The dictionary/reading tables are all lowercase (that's the normal way to
 // write a Vietnamese entry), so raw output never capitalizes anything except
@@ -188,8 +265,26 @@ function reorderOneClause(clause) {
   for (const ch of noun) {
     if (REORDER_VERB_GUARD.has(ch)) return clause;
   }
+  // A verb character inside the MODIFIER span (not just the noun span, above)
+  // means this isn't really "[modifier]的[noun]" at all — it's "[subject]
+  // [verb]...的[noun]" with the noun as the verb's object, e.g. "温锦没点评
+  // 她的狂妄发言" ("Ôn Cẩm didn't comment on her arrogant remarks"): the
+  // 6-char span before 的 ("温锦没点评她") slips under MAX_MODIFIER_LEN and
+  // has no verb char *in the noun*, but it's a full clause (subject+negation
+  // +verb+object), not an attributive phrase — swapping it with the noun
+  // produces "cuồng vọng phát ngôn ôn cẩm không bình luận nàng"-style
+  // nonsense. Real chapter example that motivated this.
+  for (const ch of modifier) {
+    if (REORDER_VERB_GUARD.has(ch)) return clause;
+  }
 
   return noun + modifier;
+}
+
+function reorderClause(clause) {
+  // 把/将-restructure first: it can move a 的-bearing object phrase to a spot
+  // where Nhóm 4 can still catch it, but not the other way around.
+  return reorderOneClause(reorderOneBaJiangClause(clause));
 }
 
 function reorderModifierClauses(sourceText) {
@@ -198,11 +293,11 @@ function reorderModifierClauses(sourceText) {
   const n = sourceText.length;
   for (let i = 0; i < n; i += 1) {
     if (CLAUSE_BOUNDARY_CHARS.has(sourceText[i])) {
-      out += reorderOneClause(sourceText.slice(clauseStart, i)) + sourceText[i];
+      out += reorderClause(sourceText.slice(clauseStart, i)) + sourceText[i];
       clauseStart = i + 1;
     }
   }
-  out += reorderOneClause(sourceText.slice(clauseStart));
+  out += reorderClause(sourceText.slice(clauseStart));
   return out;
 }
 
@@ -260,6 +355,23 @@ const SURNAME_CHARS = new Set([
   "汤", "白", "金",
 ]);
 const MAX_NAME_SPAN = 3; // surname + up to 2 given-name characters
+
+// --- Adverbial 地 particle ---
+// 地 is overwhelmingly used in ordinary prose as the adverb-forming suffix
+// (形容词/短语+地+动词, like English "-ly") once it falls through to the
+// single-character fallback table — every common *noun* sense of 地 ("land",
+// "ground", "地方/地上/原地/当地"...) is a 2+ character compound that the
+// WORDS-layer dictionary matches first via greedy longest-match, so this
+// fallback is essentially never reached for those. Real example that
+// motivated this: "毫不留情地敲在...后脑勺上" was coming out "không nương
+// tay địa dập đầu..." — "địa" isn't a Vietnamese word here, it's just noise
+// left over from reading 地 by its formal Hán-Việt sound.
+// The one case where a bare fallback 地 genuinely is the noun "land/place"
+// (rather than the adverb suffix) is immediately followed by a locative
+// character forming an unlisted compound (地旁/地头...) — kept as "địa"
+// there rather than silently dropped, since guessing wrong by dropping a
+// real noun is worse than guessing wrong by keeping an adverb suffix.
+const LOCATIVE_SUFFIX_CHARS = new Set(["上", "下", "里", "内", "外", "面", "中", "间", "头", "旁", "边", "前", "后", "左", "右", "东", "南", "西", "北", "方"]);
 
 function hasWordMatchAt(sourceText, pos, glossaryMap, WORDS, maxWordLen) {
   const maxLen = Math.min(maxWordLen, sourceText.length - pos);
@@ -450,8 +562,9 @@ export async function translateHanViet(sourceText, glossaryTerms = []) {
     if (!matched) {
       cjkTotal += 1;
       recordFallback(i, 1);
-      const reading = CHARS[ch];
-      if (reading) {
+      const isAdverbialDe = ch === "地" && !LOCATIVE_SUFFIX_CHARS.has(sourceText[i + 1]);
+      const reading = isAdverbialDe ? "" : CHARS[ch];
+      if (isAdverbialDe || reading) {
         pushWord(reading);
         cjkMatched += 1;
         diagnostics.fallbackChars += 1;

@@ -183,6 +183,10 @@ export const HANVIET_WORDS = {
   "喝酒": "uống rượu",
   "瞧见": "nhìn thấy",
   "看见": "nhìn thấy",
+  // 看病/看诊 mean "consult/examine a patient", not a literal "look at
+  // illness" — matters a lot for doctor-protagonist (神医) stories.
+  "看病": "khám bệnh",
+  "看诊": "khám bệnh",
   "外面": "bên ngoài",
   "里面": "bên trong",
   "无奈": "đành phải",
@@ -286,6 +290,14 @@ export const HANVIET_WORDS = {
   "个": "",
   "把": "",
   "些": "",
+  // Bare 将 as a 把字句-style object-fronting marker (see hanviet.js's
+  // reorderOneBaJiangClause) is far more common in narrative prose than its
+  // noun sense "general" (almost always the 2-char 将军, a separate entry) or
+  // its modal "will/about to" sense (usually 即将/将要/将会). When the
+  // reorder heuristic has to bail on a 将-clause it's too unsure about,
+  // falling through to the single-character Hán-Việt reading "tướng" reads
+  // as a bizarre extra noun; dropping it like "把" is the smaller error.
+  "将": "",
 
   // Grammatical particles with no standalone Vietnamese word — drop them
   "的": "",
@@ -327,7 +339,10 @@ export const HANVIET_CHARS = {
   "晚": "vãn", "今": "kim", "明": "minh", "昨": "tạc", "古": "cổ",
 
   // Verbs
-  "看": "khán", "听": "thính", "走": "tẩu", "跑": "bào", "坐": "tọa",
+  // 看 alone defaults to "xem" (its ordinary-prose sense: "look at/read/
+  // watch") rather than the formal reading "khán", which reads as archaic/
+  // stilted in modern Vietnamese narrative outside compounds like "khán giả".
+  "看": "xem", "听": "thính", "走": "tẩu", "跑": "bào", "坐": "tọa",
   "站": "trạm", "躺": "thảng", "笑": "tiếu", "哭": "khốc", "打": "đả",
   "杀": "sát", "死": "tử", "生": "sinh", "活": "hoạt", "来": "lai",
   "去": "khứ", "进": "tiến", "出": "xuất", "上": "thượng", "下": "hạ",
@@ -382,7 +397,10 @@ export const HANVIET_CHARS = {
   // More gaps found from a second real-chapter test pass — very common
   // characters (人, 回, 感, 极...) that should have been here from the start.
   "顺": "thuận", "话": "thoại", "无": "vô", "赖": "lại", "算": "toán",
-  "身": "thân", "软": "nhuyễn", "奈": "nại", "却": "khước", "往": "vãng",
+  // 却 alone defaults to "lại" (its ordinary adversative "but/yet" sense in
+  // narrative prose) rather than the formal reading "khước", which modern
+  // Vietnamese readers don't use as a standalone word.
+  "身": "thân", "软": "nhuyễn", "奈": "nại", "却": "lại", "往": "vãng",
   "某": "mỗ", "人": "nhân", "怀": "hoài", "伸": "thân", "回": "hồi",
   "抱": "bão", "住": "trụ", "腰": "yêu", "温": "ôn", "依": "y",
   "极": "cực", "侧": "trắc", "感": "cảm", "叹": "thán", "里": "lý",
