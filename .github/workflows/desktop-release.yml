@@ -80,7 +80,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: LilyNovel ${{ github.ref_name }}
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
           args: --target ${{ matrix.rust_target }}
 
