@@ -2,7 +2,7 @@ import LilyBetaSync from "@/components/workspace/LilyBetaSync";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/api/supabaseClient";
-import { Project, Chapter, GlossaryTerm, PromptPreset } from "@/api/entities";
+import { Project, Chapter, GlossaryTerm, PromptPreset } from "@/api/dataClient";
 import { useToast } from "@/components/ui/use-toast";
 import EditorPanel from "@/components/workspace/EditorPanel";
 import EditorToolbar from "@/components/workspace/EditorToolbar";
@@ -50,9 +50,13 @@ import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
 import { diffTextChanges } from "@/lib/textDiff";
 import { countForeignChars } from "@/lib/highlight";
 import { applyQualitySuggestion, runQualityCheck } from "@/lib/qualityCheck";
+import { buildSpeakerClfLookup } from "@/lib/speakerClf";
 import { applyBetaSuggestion, betaCandidatePayload, runBetaCheck } from "@/lib/betaCheck";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
 import { translateWithNmt } from "@/lib/nmtTranslate";
+import { isDesktopApp } from "@/lib/platform";
+import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSidebarContext";
+import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
 import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
@@ -65,7 +69,7 @@ import { scanPronounInventory } from "@/lib/pronounInventory";
 import { discoverPronounRules } from "@/lib/pronounDiscovery";
 import { buildStoryLearningPrompt, isChapterLearningEnabled, mergeStoryLearning, parseStoryLearningResult } from "@/lib/storyLearning";
 import { buildTranslationBootstrapPrompt, dedupeTranslationBootstrap, parseTranslationBootstrapResult } from "@/lib/translationBootstrap";
-import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, BookOpenText, PanelRightOpen, ShieldCheck, PenTool, MoreHorizontal, Send, MessageSquareText, Sparkles } from "lucide-react";
+import { Loader2, ArrowLeft, Home, Plus, LogOut, List as ListIcon, Copy, Trash2, Pencil, Check, X as XIcon, BookOpen, BookOpenText, ShieldCheck, PenTool, MoreHorizontal, Send, MessageSquareText, Sparkles, AlertTriangle, Undo2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const COLUMN_DEFS = {
@@ -142,6 +146,7 @@ export default function Workspace() {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const { toast } = useToast();
+  const inSidebarLayout = useInSidebarLayout();
 
   const [project, setProject] = useState(null);
   const aiChapterLearningEnabled = isChapterLearningEnabled(project?.style_toggles);
@@ -171,7 +176,12 @@ export default function Workspace() {
   const [selfTranslating, setSelfTranslating] = useState(false);
   const [aiTranslating, setAiTranslating] = useState(false);
   const [showSidebar, setShowSidebar] = useState(
-    typeof window !== "undefined" ? window.innerWidth >= 768 : true
+    // Sidebar layout (web or desktop) starts with Glossary collapsed — it
+    // already has its own persistent AppSidebar, so keeping this open by
+    // default just eats into the Edit column's width for no reason; a
+    // toggle (EditorToolbar's "Ẩn/hiện từ điển" button) still opens it when
+    // actually needed.
+    inSidebarLayout ? false : (typeof window !== "undefined" ? window.innerWidth >= 768 : true)
   );
   const [panel1Mode, setPanel1Mode] = useState("view");
   const [panel2Mode, setPanel2Mode] = useState("view");
@@ -707,7 +717,12 @@ export default function Workspace() {
 
   const switchChapter = async (chapterId) => {
     if (!chapterId || chapterId === currentChapter?.id) return;
-    if (currentChapter) await flushSave(currentChapter);
+    // Save the outgoing chapter in the background instead of awaiting it —
+    // this used to block every chapter switch on a full network round-trip
+    // to Supabase (Cloud mode), which is exactly why switching chapters felt
+    // laggy. flushSave already handles its own errors; nothing here depends
+    // on it finishing before the next chapter loads.
+    if (currentChapter) flushSave(currentChapter);
     let target = chapterCacheRef.current.get(chapterId);
     if (!target) {
       try {
@@ -1457,6 +1472,26 @@ export default function Workspace() {
     }
     setQualityIssues(runQualityCheck(text, qualityOptions()));
     setShowQualityCheck(true);
+    qualityScannedChapterRef.current = currentChapter?.id || null;
+    // Desktop only: progressively enrich with the AI speaker-classifier
+    // signal (src/lib/speakerClf.js) once it resolves — the dialog above
+    // already opened instantly with the heuristic-only result, so this never
+    // adds latency to opening QA; it just quietly re-runs the (still fully
+    // synchronous, deterministic) scan a moment later with one extra
+    // supporting signal, same chapter guard as the debounced badge effect.
+    if (isDesktopApp()) {
+      const chapterId = currentChapter?.id;
+      const rawOriginal = currentChapter?.raw_original || "";
+      const zhToViName = new Map(
+        glossaryTerms
+          .filter((term) => term.category === "Tên người" && term.source_term?.trim() && term.translation?.trim())
+          .map((term) => [term.source_term.trim(), term.translation.trim()])
+      );
+      buildSpeakerClfLookup(rawOriginal, text, zhToViName).then((speakerClfLookup) => {
+        if (!speakerClfLookup.length || qualityScannedChapterRef.current !== chapterId) return;
+        setQualityIssues(runQualityCheck(text, { ...qualityOptions(), speakerClfLookup }));
+      });
+    }
   };
 
   const handleApplyQualitySuggestion = (issueList, replacement) => {
@@ -3148,7 +3183,7 @@ ${sourceText}`;
     <>
       <button
         onClick={() => handleCopyColumn(value, label)}
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-white/70 text-slate-500 transition-colors hover:bg-violet-50 hover:text-violet-600 md:h-auto md:w-auto md:rounded-lg md:p-1.5"
+        className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 transition-colors hover:text-violet-600 md:h-6 md:w-6 dark:text-slate-500 dark:hover:text-violet-300"
         title={`Sao chép toàn bộ ${label}`}
       >
         <Copy className="w-3.5 h-3.5" />
@@ -3156,33 +3191,13 @@ ${sourceText}`;
       {value ? (
         <button
           onClick={() => setClearTarget({ field, label })}
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-100 bg-white/70 text-slate-500 transition-colors hover:bg-red-50 hover:text-red-500 md:h-auto md:w-auto md:rounded-lg md:p-1.5"
+          className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-400 transition-colors hover:text-red-500 md:h-6 md:w-6 dark:text-slate-500 dark:hover:text-red-400"
           title={`Xóa toàn bộ ${label}`}
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
       ) : null}
     </>
-  );
-
-  // Always-visible restore tab shown in place of a hidden column — the
-  // "Cột" dropdown in the toolbar also toggles this, but a tab right where
-  // the panel used to be is impossible to miss.
-  const renderRestoreTab = (col, _legacyIcon, label) => (
-    <button
-      data-legacy-icon={_legacyIcon}
-      onClick={() => handleToggleColumn(col)}
-      className="hidden md:flex flex-col items-center justify-center gap-2 w-10 shrink-0 rounded-xl bg-white border border-slate-200 text-slate-400 hover:border-violet-300 hover:text-violet-600 transition-colors py-4 shadow-sm"
-      title={`Hiện lại cột ${label}`}
-    >
-      <PanelRightOpen className="h-4 w-4" />
-      <span
-        className="text-[10px] font-medium tracking-wide"
-        style={{ writingMode: "vertical-rl" }}
-      >
-        {label}
-      </span>
-    </button>
   );
 
   // Import glossary terms (bulk create)
@@ -3872,7 +3887,7 @@ ${sourceText}`;
 
   const handleStartBatchQt = async ({ overwriteExisting = false, from, to } = {}) => {
     if (!supportsSelfTranslate(project?.source_language)) {
-      toast({ title: "Tự dịch QT hàng loạt hiện chỉ hỗ trợ nguồn tiếng Trung", variant: "destructive" });
+      toast({ title: "Dịch QT hàng loạt bằng AI hiện chỉ hỗ trợ nguồn tiếng Trung", variant: "destructive" });
       return;
     }
     const fullOrder = [...chapterList].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
@@ -3895,7 +3910,7 @@ ${sourceText}`;
           continue;
         }
         const translationTerms = mergeHanVietVocabulary(glossaryTerms, hanVietVocabulary);
-        const result = await translateHanViet(chapter.raw_original, translationTerms);
+        const result = await translateWithNmt(chapter.raw_original, translationTerms);
         await Chapter.update(meta.id, { qt_raw: result.text }, { returning: false });
         const updated = { ...chapter, qt_raw: result.text };
         chapterCacheRef.current.set(meta.id, updated);
@@ -3911,7 +3926,7 @@ ${sourceText}`;
     setBatchQtRunning(false);
     setBatchQtFinished(true);
     setBatchQtProgress((current) => ({ ...current, currentTitle: "" }));
-    toast({ title: batchQtStopRef.current ? "Đã dừng tạo QT hàng loạt" : "Hoàn tất tạo QT hàng loạt" });
+    toast({ title: batchQtStopRef.current ? "Đã dừng dịch QT hàng loạt" : "Hoàn tất dịch QT hàng loạt bằng AI" });
   };
 
   const handleStopBatchQt = () => {
@@ -4379,6 +4394,48 @@ ${compact}`;
   const editedWordSummary = useMemo(() => summarizeChapterWordCounts(editedWordCounts), [editedWordCounts]);
   const qaIssueIds = useMemo(() => new Set((storyQaReport?.chapters || []).map(item => item.id)), [storyQaReport]);
   const betaIssueIds = useMemo(() => new Set((storyBetaReport?.chapters || []).map(item => item.id)), [storyBetaReport]);
+
+  // Desktop app: publish the chapter list (already computed above, QA/beta
+  // badges included) up to the persistent AppSidebar instead of making it
+  // re-fetch chapters and re-run QA scans on its own. See
+  // src/lib/desktopSidebarContext.jsx.
+  // Depend on setChapterNav itself (stable, from useState — never changes
+  // identity), not on the whole desktopSidebar object: that object is
+  // recreated every time chapterNav changes, which this effect itself
+  // triggers — depending on it directly caused an infinite render loop.
+  // switchChapter/ensureWordCountsLoaded/handleCreateChapter are also
+  // recreated every render (not memoized), and calling setChapterNav
+  // re-renders DesktopSidebarProvider's whole subtree (Workspace included,
+  // via Outlet) — so putting them straight in the deps array re-triggers
+  // this same effect every time, looping forever. Route through a ref
+  // instead (same pattern as onTermClickRef in EditorPanel.jsx) so the
+  // published callbacks stay stable while always calling the latest version.
+  const chapterNavCallbacksRef = useRef({});
+  chapterNavCallbacksRef.current = { onSelect: switchChapter, onOpen: ensureWordCountsLoaded, onCreateChapter: handleCreateChapter };
+  const stableOnSelectChapter = useMemo(() => (id) => chapterNavCallbacksRef.current.onSelect(id), []);
+  const stableOnOpenChapterNav = useMemo(() => (...args) => chapterNavCallbacksRef.current.onOpen(...args), []);
+  const stableOnCreateChapterNav = useMemo(() => (...args) => chapterNavCallbacksRef.current.onCreateChapter(...args), []);
+
+  const setDesktopChapterNav = useDesktopSidebarContext()?.setChapterNav;
+  useEffect(() => {
+    if (!setDesktopChapterNav) return undefined;
+    setDesktopChapterNav({
+      projectId,
+      projectTitle: project?.title || "",
+      chapters: chapterList,
+      currentChapterId: currentChapter?.id,
+      onSelect: stableOnSelectChapter,
+      onOpen: stableOnOpenChapterNav,
+      onCreateChapter: stableOnCreateChapterNav,
+      wordCounts: editedWordCounts,
+      averageWords: editedWordSummary.average,
+      editedSampleSize: editedWordSummary.sampleSize,
+      editedChapterIds,
+      qaIssueIds,
+      betaIssueIds,
+    });
+    return () => setDesktopChapterNav(null);
+  }, [setDesktopChapterNav, projectId, project?.title, chapterList, currentChapter?.id, editedWordCounts, editedWordSummary, editedChapterIds, qaIssueIds, betaIssueIds, stableOnSelectChapter, stableOnOpenChapterNav, stableOnCreateChapterNav]);
   const qaNeedsRecheck = chapterList.filter((chapter) => qaRecords[chapter.id] && qaStatusOf(chapter) === "stale").length;
   const betaCount=chapterList.filter(ch=>betaStatusOf(ch)==="done").length;
   const betaNeedsRecheck=chapterList.filter(ch=>betaRecords[ch.id]&&betaStatusOf(ch)==="stale").length;
@@ -4488,7 +4545,7 @@ ${compact}`;
   }
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-slate-100/80 flex flex-col">
+    <div className="h-[100dvh] overflow-hidden bg-slate-100/80 flex flex-col dark:bg-[#1e1e1e]">
       <MobileReadingEditor
         open={mobileReadingMode}
         projectTitle={project.title}
@@ -4506,10 +4563,31 @@ ${compact}`;
           to the document instead, so both problems showed up together: the
           header/toolbar scrolled out of view, and columns never got tall
           enough to need their own scrollbar. */}
+      {/* AppSidebar (web and desktop both, via DesktopLayout) already
+          carries the chapter picker, settings and logout — this header
+          would duplicate it, so it's replaced by the slimmer
+          WorkspaceDesktopBar below instead. */}
+      {inSidebarLayout && (
+        <WorkspaceDesktopBar
+          projectTitle={project.title}
+          editingTitle={editingTitle}
+          titleDraft={titleDraft}
+          onTitleDraftChange={setTitleDraft}
+          onStartEditTitle={() => { setTitleDraft(project.title || ""); setEditingTitle(true); }}
+          onSaveTitle={handleSaveTitle}
+          onCancelEditTitle={() => setEditingTitle(false)}
+          chapterCount={chapterList.length}
+          glossaryCount={glossaryTerms.length}
+          saving={saving}
+          draftMode={draftMode}
+          onManualSave={handleManualSave}
+        />
+      )}
       {/* Keep the chapter picker above the editor toolbar. The picker is a
           child of this stacking context, so its own z-index cannot escape a
           lower-z header; on narrow/tablet viewports the toolbar used to cut
           straight across the open chapter list. */}
+      {!inSidebarLayout && (
       <header className="shrink-0 z-[60] bg-slate-950 text-white border-b border-white/10 shadow-xl">
         <div className="flex min-h-14 items-center gap-2 px-2 py-2 md:min-h-0 md:gap-3 md:px-4 md:py-3">
           <Link
@@ -4734,6 +4812,7 @@ ${compact}`;
           </button>
         </div>
       </header>
+      )}
 
       {/* Toolbar */}
       <EditorToolbar
@@ -4759,6 +4838,17 @@ ${compact}`;
         onOpenImageTranslate={() => setShowImageTranslate(true)}
         onOpenColumnMove={() => setShowColumnMove(true)}
         onOpenQtCleanup={() => setShowQtCleanup(true)}
+        storyQaCount={storyQaReport?.chapters.length}
+        onOpenStoryQa={() => setShowStoryQa(true)}
+        storyBetaCount={storyBetaReport?.chapters.length}
+        onOpenStoryBeta={() => setShowStoryBeta(true)}
+        onOpenTranslationWorkflow={() => setShowTranslationWorkflow(true)}
+        onOpenChapterManager={() => setShowChapterManager(true)}
+        onCreateChapter={handleCreateChapter}
+        onExport={handleExport}
+        projectId={projectId}
+        currentChapterId={currentChapter?.id}
+        onBeforeLilyBetaSync={handleBeforeLilyBetaSync}
       />
 
       <WorkflowProgress
@@ -4864,7 +4954,6 @@ ${compact}`;
                 </div>
               )}
               <div className="flex flex-1 gap-3 min-h-0 min-w-0">
-                {!visibleColumns.includes("raw") && renderRestoreTab("raw", "📖", "Gốc")}
                 {visibleColumns.includes("raw") && (
                   <div
                     className={
@@ -4895,7 +4984,6 @@ ${compact}`;
                     />
                   </div>
                 )}
-                {!visibleColumns.includes("qt") && renderRestoreTab("qt", "✏️", "QT")}
                 {visibleColumns.includes("qt") && (
                   <div
                     className={
@@ -4926,7 +5014,6 @@ ${compact}`;
                     />
                   </div>
                 )}
-                {!visibleColumns.includes("edited") && renderRestoreTab("edited", "✨", "Edit")}
                 {visibleColumns.includes("edited") && (
                   <div
                     className={
@@ -4962,37 +5049,37 @@ ${compact}`;
                         <>
                           <button
                             onClick={handleOpenQualityCheck}
-                            className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-colors border ${qualityGroupCount > 0 ? "bg-red-50 hover:bg-red-100 text-red-700 border-red-200" : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-100"}`}
+                            className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 transition-colors ${qualityGroupCount > 0 ? "text-red-600 hover:text-red-700 dark:text-red-400" : "text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"}`}
                             title={qualityGroupCount > 0 ? `Phát hiện ${qualityGroupCount} nhóm lỗi nghi vấn — bấm để xem` : "QA đang tự động theo dõi Bản Edit — bấm để quét lại/xem chi tiết"}
                           >
                             <ShieldCheck className="h-3.5 w-3.5" />
-                            {qualityGroupCount > 0 ? `QA · ${qualityGroupCount} nhóm lỗi` : "QA · Không thấy lỗi"}
+                            {qualityGroupCount > 0 ? `QA · ${qualityGroupCount}` : "QA sạch"}
                           </button>
-                          <button onClick={handleOpenBetaCheck} className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors ${betaIssues.length?"border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700":"border-emerald-100 bg-emerald-50 text-emerald-700"}`} title="Beta văn phong, câu và trình bày"><PenTool className="h-3.5 w-3.5"/>{betaIssues.length?`Beta · ${betaIssues.length} nghi vấn`:"Beta · Sạch"}</button>
+                          <button onClick={handleOpenBetaCheck} className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 transition-colors ${betaIssues.length?"text-fuchsia-600 hover:text-fuchsia-700 dark:text-fuchsia-400":"text-emerald-600 hover:text-emerald-700 dark:text-emerald-400"}`} title="Beta văn phong, câu và trình bày"><PenTool className="h-3.5 w-3.5"/>{betaIssues.length?`Beta · ${betaIssues.length}`:"Beta sạch"}</button>
                           <button
                             onClick={() => setShowBetaReader(true)}
-                            className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs transition-colors ${betaReaderChapterId===currentChapter.id&&betaReaderNotes?.length?"border-indigo-200 bg-indigo-50 text-indigo-700":"border-violet-100 bg-violet-50/60 text-violet-600"}`}
+                            className={`inline-flex items-center gap-1 text-xs px-1.5 py-0.5 transition-colors ${betaReaderChapterId===currentChapter.id&&betaReaderNotes?.length?"text-indigo-600 hover:text-indigo-700 dark:text-indigo-400":"text-violet-600 hover:text-violet-700 dark:text-violet-300"}`}
                             title="AI đọc toàn chương và góp ý tự do như biên tập viên thật, không chỉ đối chiếu luật"
                           >
                             <MessageSquareText className="h-3.5 w-3.5"/>
-                            {betaReaderChapterId===currentChapter.id&&betaReaderNotes?.length?`Beta reader AI · ${betaReaderNotes.length}`:"Beta reader AI"}
+                            {betaReaderChapterId===currentChapter.id&&betaReaderNotes?.length?`Beta reader · ${betaReaderNotes.length}`:"Beta reader"}
                           </button>
                           {foreignCharCount > 0 && (
                             <button
                               onClick={() => setPanel3Mode("view")}
-                              className="text-xs px-2 py-1 rounded-lg bg-red-50 hover:bg-red-100 text-red-600 transition-colors border border-red-100"
+                              className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 text-red-600 hover:text-red-700 transition-colors dark:text-red-400"
                               title="Chuyển sang chế độ Xem để thấy vị trí ký tự còn sót"
                             >
-                              ⚠️ {foreignCharCount} ký tự Hán sót
+                              <AlertTriangle className="h-3.5 w-3.5" /> {foreignCharCount} Hán sót
                             </button>
                           )}
                           {aiUndo && aiUndo.chapterId === currentChapter.id && (
                             <button
                               onClick={handleUndoAiEdit}
-                              className="text-xs px-2 py-1 rounded-lg bg-white/70 hover:bg-emerald-50 text-slate-500 hover:text-emerald-600 transition-colors border border-violet-100"
+                              className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 text-slate-500 hover:text-emerald-600 transition-colors dark:text-slate-400 dark:hover:text-emerald-400"
                               title="Hoàn tác bản edit AI vừa chạy (chỉ trong phiên này)"
                             >
-                              ↩️ Hoàn tác AI
+                              <Undo2 className="h-3.5 w-3.5" /> Hoàn tác AI
                             </button>
                           )}
                           {renderColumnActions("edited", "Bản Edit", currentChapter.edited)}

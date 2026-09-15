@@ -1,0 +1,11 @@
+# Runtime deps for server.py (the Tauri sidecar). No torch/transformers —
+# CTranslate2 runs the converted int8 translation models directly, and the
+# pronoun speaker classifier (pronoun_clf_np.py) is a from-scratch numpy port
+# of DanVP/moxhimt-pronoun-clf. See requirements-convert.txt for the separate,
+# dev-only deps needed to (re)run convert_ct2.py or re-export that model.
+fastapi
+uvicorn
+ctranslate2>=4.0.0
+sentencepiece>=0.2.0
+tokenizers>=0.19.0
+numpy>=1.24.0

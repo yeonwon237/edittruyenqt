@@ -9,8 +9,11 @@ const STORAGE_KEY = "edittruyenqt_theme";
 export const THEMES = [
   { id: "violet", label: "Tím (mặc định)", swatch: "#7c3aed" },
   { id: "pink", label: "Hồng", swatch: "#db2777" },
+  { id: "rose", label: "Đỏ hồng", swatch: "#e11d48" },
   { id: "blue", label: "Xanh dương", swatch: "#2563eb" },
+  { id: "teal", label: "Xanh ngọc", swatch: "#0d9488" },
   { id: "emerald", label: "Ngọc lục bảo", swatch: "#059669" },
+  { id: "amber", label: "Hổ phách", swatch: "#d97706" },
 ];
 
 export function getTheme() {

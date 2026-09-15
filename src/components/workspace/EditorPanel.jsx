@@ -78,10 +78,10 @@ const EditorPanel = forwardRef(function EditorPanel(
     [value, qualityIssues]
   );
   const panelMeta = {
-    source: { Icon: FileText, label: "Nguồn", tone: "text-slate-500 bg-slate-100" },
-    draft: { Icon: WandSparkles, label: "Chuyển ngữ", tone: "text-blue-600 bg-blue-50" },
-    final: { Icon: PenLine, label: "Thành phẩm", tone: "text-violet-600 bg-violet-50" },
-  }[variant] || { Icon: FileText, label: "Văn bản", tone: "text-slate-500 bg-slate-100" };
+    source: { Icon: FileText, label: "Nguồn", iconTone: "text-slate-500 dark:text-slate-400" },
+    draft: { Icon: WandSparkles, label: "Chuyển ngữ", iconTone: "text-blue-600 dark:text-blue-400" },
+    final: { Icon: PenLine, label: "Thành phẩm", iconTone: "text-violet-600 dark:text-violet-300" },
+  }[variant] || { Icon: FileText, label: "Văn bản", iconTone: "text-slate-500 dark:text-slate-400" };
   const PanelIcon = panelMeta.Icon;
 
   useEffect(() => {
@@ -126,17 +126,17 @@ const EditorPanel = forwardRef(function EditorPanel(
   }));
 
   return (
-    <div ref={panelRef} data-etq-panel={variant} className="flex-1 flex flex-col min-w-0 rounded-[1.25rem] bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.04),0_16px_40px_-34px_rgba(15,23,42,.35)] overflow-hidden">
-      <div className="shrink-0 flex min-h-12 items-center justify-between px-3 py-2 border-b border-slate-100 bg-white md:min-h-0 md:px-4 md:py-3">
-        <div className="hidden min-w-0 items-center gap-2.5 md:flex">
-          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${panelMeta.tone}`}><PanelIcon className="h-4 w-4" /></span>
-          <div className="min-w-0"><span className="block truncate text-sm font-semibold text-slate-800">{title}</span><span className="block text-[10px] font-medium uppercase tracking-[.12em] text-slate-400">{panelMeta.label}</span></div>
+    <div ref={panelRef} data-etq-panel={variant} className="flex-1 flex flex-col min-w-0 rounded-[1.25rem] bg-white border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,.04),0_16px_40px_-34px_rgba(15,23,42,.35)] overflow-hidden dark:bg-[#1e1e1e] dark:border-white/10 dark:shadow-none">
+      <div className="shrink-0 flex min-h-9 items-center justify-between px-2.5 py-1 border-b border-slate-100 bg-white md:min-h-0 md:px-3 md:py-1.5 dark:border-white/10 dark:bg-[#1e1e1e]">
+        <div className="hidden min-w-0 items-center gap-1.5 md:flex">
+          <PanelIcon className={`h-3.5 w-3.5 shrink-0 ${panelMeta.iconTone}`} />
+          <span className="truncate text-xs font-semibold text-slate-700 dark:text-slate-200">{title}</span>
         </div>
-        <div className="flex w-full min-w-0 items-center gap-2 overflow-x-auto pb-0.5 md:w-auto md:overflow-visible md:pb-0">
+        <div className="flex w-full min-w-0 items-center gap-0.5 overflow-x-auto pb-0.5 md:w-auto md:overflow-visible md:pb-0">
           {searchable && (
             <button
               onClick={() => searchOpen ? closeSearch() : setSearchOpen(true)}
-              className={`flex h-10 w-10 items-center justify-center rounded-xl border transition-colors md:h-auto md:w-auto md:p-1.5 md:rounded-lg ${searchOpen ? "border-violet-200 bg-violet-50 text-violet-700" : "border-violet-100 bg-white/70 text-slate-400 hover:text-violet-600"}`}
+              className={`flex h-8 w-8 items-center justify-center transition-colors md:h-6 md:w-6 ${searchOpen ? "text-violet-700 dark:text-violet-300" : "text-slate-400 hover:text-violet-600 dark:text-slate-500 dark:hover:text-violet-300"}`}
               title="Tìm câu hoặc đoạn trong Bản Edit"
             >
               <Search className="h-3.5 w-3.5" />
@@ -147,7 +147,7 @@ const EditorPanel = forwardRef(function EditorPanel(
             <button
               data-etq-role="toggle-mode"
               onClick={onToggleMode}
-              className="flex min-h-10 items-center gap-1 rounded-xl border border-violet-100 bg-white/70 px-3 text-sm text-slate-600 transition-colors hover:bg-white hover:text-violet-600 md:inline-block md:min-h-0 md:rounded-lg md:px-2 md:py-1 md:text-xs"
+              className="flex min-h-8 items-center gap-1 px-2 text-sm text-slate-500 transition-colors hover:text-violet-600 md:inline-flex md:min-h-0 md:px-1.5 md:py-0.5 md:text-[11px] dark:text-slate-400 dark:hover:text-violet-300"
             >
               {mode === "view" ? <><Pencil className="h-3 w-3" /> Sửa</> : <><Eye className="h-3 w-3" /> Xem</>}
             </button>
@@ -155,7 +155,7 @@ const EditorPanel = forwardRef(function EditorPanel(
           {onHide && (
             <button
               onClick={onHide}
-              className="hidden p-1 rounded-lg bg-white/70 hover:bg-white text-slate-400 hover:text-red-500 transition-colors border border-violet-100 md:block"
+              className="hidden h-6 w-6 items-center justify-center text-slate-400 hover:text-red-500 transition-colors md:flex dark:text-slate-500 dark:hover:text-red-400"
               title={`Ẩn cột ${title} (bấm nút Cột trên toolbar để hiện lại)`}
             >
               <X className="w-3.5 h-3.5" />
@@ -164,8 +164,8 @@ const EditorPanel = forwardRef(function EditorPanel(
         </div>
       </div>
       {searchable && searchOpen && (
-        <div className="shrink-0 flex items-center gap-1.5 border-b border-violet-100 bg-violet-50/50 px-3 py-2">
-          <Search className="h-3.5 w-3.5 shrink-0 text-violet-500" />
+        <div className="shrink-0 flex items-center gap-1.5 border-b border-violet-100 bg-violet-50/50 px-3 py-2 dark:border-white/10 dark:bg-violet-500/5">
+          <Search className="h-3.5 w-3.5 shrink-0 text-violet-500 dark:text-violet-400" />
           <input
             autoFocus
             value={searchQuery}
@@ -178,18 +178,18 @@ const EditorPanel = forwardRef(function EditorPanel(
               if (event.key === "Escape") closeSearch();
             }}
             placeholder="Tìm câu hoặc đoạn bị lỗi..."
-            className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
+            className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400 dark:text-slate-200 dark:placeholder:text-slate-600"
           />
-          <span className="shrink-0 text-[11px] tabular-nums text-slate-500">
+          <span className="shrink-0 text-[11px] tabular-nums text-slate-500 dark:text-slate-500">
             {searchQuery ? (matches.length ? `${activeMatch + 1}/${matches.length}` : "0 kết quả") : ""}
           </span>
-          <button onClick={() => selectMatch(activeMatch - 1)} disabled={!matches.length} className="rounded p-1 text-slate-500 hover:bg-white hover:text-violet-700 disabled:opacity-30" title="Kết quả trước">
+          <button onClick={() => selectMatch(activeMatch - 1)} disabled={!matches.length} className="rounded p-1 text-slate-500 hover:bg-white hover:text-violet-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-violet-300" title="Kết quả trước">
             <ChevronUp className="h-3.5 w-3.5" />
           </button>
-          <button onClick={() => selectMatch(activeMatch + 1)} disabled={!matches.length} className="rounded p-1 text-slate-500 hover:bg-white hover:text-violet-700 disabled:opacity-30" title="Kết quả tiếp theo">
+          <button onClick={() => selectMatch(activeMatch + 1)} disabled={!matches.length} className="rounded p-1 text-slate-500 hover:bg-white hover:text-violet-700 disabled:opacity-30 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-violet-300" title="Kết quả tiếp theo">
             <ChevronDown className="h-3.5 w-3.5" />
           </button>
-          <button onClick={closeSearch} className="rounded p-1 text-slate-400 hover:bg-white hover:text-red-500" title="Đóng tìm kiếm">
+          <button onClick={closeSearch} className="rounded p-1 text-slate-400 hover:bg-white hover:text-red-500 dark:text-slate-500 dark:hover:bg-white/10 dark:hover:text-red-400" title="Đóng tìm kiếm">
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -200,9 +200,9 @@ const EditorPanel = forwardRef(function EditorPanel(
             ref={scrollRef}
             onScroll={onScroll}
             onCopy={handleRichCopy}
-            className="h-full overflow-y-auto cute-scrollbar p-4 pb-24 panel-scroll bg-slate-50/20 md:p-5"
+            className="h-full overflow-y-auto cute-scrollbar p-4 pb-24 panel-scroll bg-slate-50/20 md:p-5 dark:bg-transparent"
           >
-            <div data-etq-role="view-content" className="whitespace-pre-wrap text-base leading-8 text-slate-700 min-h-full md:text-[15px]">
+            <div data-etq-role="view-content" className="whitespace-pre-wrap text-base leading-8 text-slate-700 min-h-full md:text-[15px] dark:text-slate-300">
               {value ? (
                 flagForeignChars ? (
                   qualityIssues.length ? qualityHighlight : foreignCharsHighlight
@@ -210,12 +210,12 @@ const EditorPanel = forwardRef(function EditorPanel(
                   termsHighlight
                 )
               ) : (
-                <span className="text-slate-300 italic">{placeholder}</span>
+                <span className="text-slate-300 italic dark:text-slate-600">{placeholder}</span>
               )}
             </div>
           </div>
         ) : (
-          <div className="relative h-full w-full overflow-hidden bg-slate-50/20">
+          <div className="relative h-full w-full overflow-hidden bg-slate-50/20 dark:bg-transparent">
             {qualityIssues.length > 0 && (
               <pre
                 ref={qaOverlayRef}
@@ -234,7 +234,7 @@ const EditorPanel = forwardRef(function EditorPanel(
               }}
               value={value || ""}
               onChange={(e) => onChange?.(e.target.value)}
-              className="relative z-10 h-full w-full resize-none overflow-y-auto cute-scrollbar p-4 pb-24 bg-transparent text-base leading-8 text-slate-700 focus:outline-none placeholder:text-slate-300 font-body md:p-5 md:text-[15px]"
+              className="relative z-10 h-full w-full resize-none overflow-y-auto cute-scrollbar p-4 pb-24 bg-transparent text-base leading-8 text-slate-700 focus:outline-none placeholder:text-slate-300 font-body md:p-5 md:text-[15px] dark:text-slate-300 dark:placeholder:text-slate-600"
               placeholder={placeholder}
               spellCheck={false}
             />

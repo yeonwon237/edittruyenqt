@@ -114,8 +114,8 @@ export default function TranslationWorkflowDialog({
         </section>
 
         <section className="space-y-3 rounded-2xl border border-amber-100 bg-amber-50/40 p-4">
-          <div className="flex flex-wrap items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-sm font-bold text-white">2</span><div className="min-w-0 flex-1"><h3 className="font-semibold text-slate-800">Máy tạo QT hàng loạt</h3><p className="text-xs text-slate-500">Dùng Glossary đã lưu, không gọi AI; lưu ngay từng chương.</p></div>
-            {!qtRunning ? <Button onClick={() => onStartQt({ overwriteExisting: overwriteQt, from: fromChapter, to: toChapter })} disabled={busy || !totalChapters || fromChapter > toChapter} className="bg-amber-500 hover:bg-amber-600">Tạo QT cho {Math.max(0, Math.min(toChapter, totalChapters) - fromChapter + 1)} chương</Button> : <Button variant="outline" onClick={onStopQt} className="border-red-200 text-red-600"><OctagonX className="mr-1 h-4 w-4" />Dừng sau chương này</Button>}
+          <div className="flex flex-wrap items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-amber-500 text-sm font-bold text-white">2</span><div className="min-w-0 flex-1"><h3 className="font-semibold text-slate-800">Dịch QT hàng loạt bằng AI</h3><p className="text-xs text-slate-500">Dịch bằng model AI (khoá tên riêng theo Glossary đã lưu), lưu ngay từng chương.</p></div>
+            {!qtRunning ? <Button onClick={() => onStartQt({ overwriteExisting: overwriteQt, from: fromChapter, to: toChapter })} disabled={busy || !totalChapters || fromChapter > toChapter} className="bg-amber-500 hover:bg-amber-600">Dịch AI cho {Math.max(0, Math.min(toChapter, totalChapters) - fromChapter + 1)} chương</Button> : <Button variant="outline" onClick={onStopQt} className="border-red-200 text-red-600"><OctagonX className="mr-1 h-4 w-4" />Dừng sau chương này</Button>}
           </div>
           <div className="flex items-center gap-2 text-xs text-slate-600">
             <span>Từ chương</span>

@@ -5,9 +5,22 @@ module.exports = {
   theme: {
   	extend: {
   		borderRadius: {
-  			lg: 'var(--radius)',
-  			md: 'calc(var(--radius) - 2px)',
-  			sm: 'calc(var(--radius) - 4px)'
+  			// Flattened app-wide per explicit design direction (no rounded
+  			// frames — square/flat instead of the previous soft-SaaS look).
+  			// Overriding Tailwind's own xl/2xl/3xl/DEFAULT scale here (not
+  			// just the lg/md/sm --radius-linked ones) means every existing
+  			// `rounded-xl`/`rounded-2xl`/`rounded-3xl` class throughout the
+  			// codebase resolves to 0 without editing each file individually.
+  			// `rounded-full` is intentionally left alone — still needed for
+  			// genuinely circular things (avatars, spinners, dots, switches).
+  			none: '0px',
+  			DEFAULT: '0px',
+  			sm: '0px',
+  			md: '0px',
+  			lg: '0px',
+  			xl: '0px',
+  			'2xl': '0px',
+  			'3xl': '0px',
   		},
   		colors: {
   			// Every custom component in this app is colored with the raw

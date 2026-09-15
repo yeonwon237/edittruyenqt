@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Desktop (Tauri/macOS WKWebView) only — its top-level scroll view rubber-
+   bands/elastic-bounces on trackpad drag by default, which reads as jittery
+   scrolling for a "native app" feel that a regular browser tab doesn't have.
+   overscroll-behavior:none is WebKit's documented way to disable that bounce.
+   Scoped to the .desktop-app class DesktopLayout toggles on <html> so the
+   web build (which never adds that class) is completely unaffected. */
+html.desktop-app {
+  overscroll-behavior: none;
+}
+
 @layer base {
   :root {
     /* Accent color theme — default (violet). Overridden per data-theme
@@ -101,6 +111,45 @@
     --violet-800: 6 95 70;
     --violet-900: 6 78 59;
     --violet-950: 2 44 34;
+  }
+  [data-theme="amber"] {
+    --violet-50: 255 251 235;
+    --violet-100: 254 243 199;
+    --violet-200: 253 230 138;
+    --violet-300: 252 211 77;
+    --violet-400: 251 191 36;
+    --violet-500: 245 158 11;
+    --violet-600: 217 119 6;
+    --violet-700: 180 83 9;
+    --violet-800: 146 64 14;
+    --violet-900: 120 53 15;
+    --violet-950: 69 26 3;
+  }
+  [data-theme="rose"] {
+    --violet-50: 255 241 242;
+    --violet-100: 255 228 230;
+    --violet-200: 254 205 211;
+    --violet-300: 253 164 175;
+    --violet-400: 251 113 133;
+    --violet-500: 244 63 94;
+    --violet-600: 225 29 72;
+    --violet-700: 190 18 60;
+    --violet-800: 159 18 57;
+    --violet-900: 136 19 55;
+    --violet-950: 76 5 25;
+  }
+  [data-theme="teal"] {
+    --violet-50: 240 253 250;
+    --violet-100: 204 251 241;
+    --violet-200: 153 246 228;
+    --violet-300: 94 234 212;
+    --violet-400: 45 212 191;
+    --violet-500: 20 184 166;
+    --violet-600: 13 148 136;
+    --violet-700: 15 118 110;
+    --violet-800: 17 94 89;
+    --violet-900: 19 78 74;
+    --violet-950: 4 47 46;
   }
 
   .dark {

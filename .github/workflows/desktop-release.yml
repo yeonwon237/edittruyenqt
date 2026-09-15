@@ -1,0 +1,102 @@
+name: Desktop release (LilyNovel)
+
+# Builds the Tauri desktop app for macOS (Apple Silicon) and Windows (x64) —
+# see docs/desktop-packaging.md for the full pipeline this automates
+# (tools/nmt/prepare_models.py fetches/converts the CTranslate2 models,
+# PyInstaller freezes tools/nmt/server.py into a standalone sidecar binary,
+# then `tauri build` bundles everything into an installer per OS). Pushing a
+# `v*` tag publishes a GitHub Release with both installers attached;
+# workflow_dispatch runs just upload build artifacts for testing, no release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            rust_target: aarch64-apple-darwin
+            bin_suffix: ""
+          - platform: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            bin_suffix: ".exe"
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Install Python dependencies (nmt sidecar)
+        working-directory: tools/nmt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements-convert.txt
+          pip install pyinstaller
+
+      - name: Fetch/convert translation + pronoun-clf models
+        working-directory: tools/nmt
+        run: python prepare_models.py
+
+      - name: Freeze the sidecar with PyInstaller
+        working-directory: tools/nmt
+        run: pyinstaller --name nmt-server --onefile --noconfirm server.py
+
+      - name: Stage sidecar binary + model resources for Tauri
+        shell: bash
+        run: |
+          mkdir -p src-tauri/binaries src-tauri/resources
+          cp "tools/nmt/dist/nmt-server${{ matrix.bin_suffix }}" \
+             "src-tauri/binaries/nmt-server-${{ matrix.rust_target }}${{ matrix.bin_suffix }}"
+          cp -R tools/nmt/ct2_models src-tauri/resources/ct2_models
+          cp -R tools/nmt/pronoun_clf src-tauri/resources/pronoun_clf
+
+      # Tag push (v*): build via tauri-action, which also creates/updates a
+      # draft GitHub Release with the installers attached.
+      - name: Build + publish draft release
+        if: github.ref_type == 'tag'
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: LilyNovel ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false
+          args: --target ${{ matrix.rust_target }}
+
+      # Manual workflow_dispatch run: just build, upload as a workflow
+      # artifact — no release created, for testing the pipeline itself.
+      - name: Build (dry run)
+        if: github.ref_type != 'tag'
+        run: npx tauri build --target ${{ matrix.rust_target }}
+
+      - name: Upload build artifacts (dry run)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: lilynovel-${{ matrix.platform }}
+          path: |
+            src-tauri/target/${{ matrix.rust_target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.rust_target }}/release/bundle/**/*.msi
+            src-tauri/target/${{ matrix.rust_target }}/release/bundle/**/*.exe
+          if-no-files-found: warn

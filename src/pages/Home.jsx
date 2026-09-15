@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/AuthContext";
 import {
   BookOpen, Settings as SettingsIcon, LogOut, Volume2, Clapperboard,
-  Captions, ArrowUpRight, Sparkles, Bot, Layers3, ShieldCheck, Zap, Palette, Gamepad2, Wand2,
+  Captions, ArrowUpRight, Sparkles, Bot, Layers3, ShieldCheck, Zap, Palette, Gamepad2, Wand2, Monitor,
 } from "lucide-react";
 import AISettingsDialog from "@/components/workspace/AISettingsDialog";
 
@@ -15,6 +15,7 @@ const FEATURES = [
   { id: "cover", icon: Palette, title: "Làm bìa truyện", eyebrow: "Studio thiết kế", desc: "Tạo bìa truyện chuyên nghiệp từ ảnh của bạn với chữ nghệ thuật, bố cục linh hoạt và xuất ảnh chất lượng cao.", to: "/cover-designer", color: "rose", number: "05" },
   { id: "roleplay", icon: Gamepad2, title: "Roleplay Studio", eyebrow: "Xuyên sách", desc: "Biến những chương truyện đã edit thành mini-game có Hệ Thống, nhiệm vụ, lựa chọn và nhiều kết cục.", to: "/roleplay", color: "fuchsia", number: "06" },
   { id: "prompt", icon: Wand2, title: "Tạo Prompt Dịch", eyebrow: "Trước khi vào dự án", desc: "Chọn thể loại, bối cảnh, yêu cầu định dạng — nhận ngay 1 prompt dịch chuẩn để đem qua Gemini dùng, không cần tạo dự án trước.", to: "/prompt-generator", color: "teal", number: "07" },
+  { id: "download", icon: Monitor, title: "Tải app máy tính", eyebrow: "macOS / Windows", desc: "Bản desktop chạy AI dịch + QA xưng hô ngay trên máy, không cần mạng khi biên tập.", to: "/download", color: "slate", number: "08" },
 ];
 
 const TONES = {
@@ -25,6 +26,7 @@ const TONES = {
   rose: { icon: "bg-rose-600 text-white", glow: "from-rose-100/80", text: "text-rose-600" },
   fuchsia: { icon: "bg-fuchsia-600 text-white", glow: "from-fuchsia-100/80", text: "text-fuchsia-600" },
   teal: { icon: "bg-teal-600 text-white", glow: "from-teal-100/80", text: "text-teal-600" },
+  slate: { icon: "bg-slate-700 text-white", glow: "from-slate-200/80", text: "text-slate-600" },
 };
 
 export default function Home() {

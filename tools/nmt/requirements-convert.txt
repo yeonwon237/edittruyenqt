@@ -1,0 +1,6 @@
+# Dev-only deps to (re)run convert_ct2.py — not needed at app runtime.
+# Install torch separately first (CPU/CUDA wheels differ by platform):
+# https://pytorch.org/get-started/locally/
+transformers>=4.40.0
+safetensors>=0.4.0
+huggingface_hub>=0.23.0

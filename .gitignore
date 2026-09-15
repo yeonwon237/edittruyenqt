@@ -39,3 +39,19 @@ tools/mining/data
 tools/mining/out
 tools/nmt/.venv
 tools/nmt/model_cache
+# CTranslate2 model builds (394MB, fetched/converted — see convert_ct2.py)
+# and PyInstaller build output; CI (and local packaging) regenerates these,
+# not meant to live in git.
+tools/nmt/ct2_models
+tools/nmt/pronoun_clf
+tools/nmt/pronoun_clf_ref
+tools/nmt/build
+tools/nmt/dist
+tools/nmt/*.spec
+
+# Desktop packaging outputs — built locally or in CI (see
+# .github/workflows/desktop-release.yml), not source-controlled.
+src-tauri/binaries
+src-tauri/resources
+src-tauri/target
+src-tauri/gen

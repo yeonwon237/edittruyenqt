@@ -745,6 +745,18 @@ function evidenceAt(lookup, position) {
   return lookup.find((item) => position >= item.start && position <= item.end)?.evidence || null;
 }
 
+// speakerClfLookup carries the desktop-only AI speaker-classifier signal
+// (src/lib/speakerClf.js — DanVP/moxhimt-pronoun-clf via the Tauri sidecar).
+// Same shape/contract as qtLookup above and the same rule: supporting
+// evidence only, consulted at the exact same "role === unknown" tiebreak,
+// never used to upgrade confidence or auto-fix. Empty by default (web, or
+// desktop before the async classify pass has returned) — scanContextualAddress
+// behaves 100% as before when no entries are supplied.
+function speakerClfDetail(clfEvidence) {
+  if (!clfEvidence?.speaker) return "";
+  return ` AI đoán người nói: ${clfEvidence.speaker} (p=${clfEvidence.topProb.toFixed(2)}, chỉ mang tính tham khảo).`;
+}
+
 function qtEvidenceDetail(evidence) {
   if (!evidence) return "";
   const parts = [];
@@ -756,7 +768,7 @@ function qtEvidenceDetail(evidence) {
   return parts.length ? ` Bằng chứng QT: ${parts.join("; ")}.` : "";
 }
 
-function scanContextualAddress(text, rules, qtRaw = "", glossaryTerms = []) {
+function scanContextualAddress(text, rules, qtRaw = "", glossaryTerms = [], speakerClfLookup = []) {
   const validRules = (rules || []).filter(hasSpeakerSelfTarget);
   if (!validRules.length) return { issues: [], confirmedSpans: new Set() };
 
@@ -843,6 +855,14 @@ function scanContextualAddress(text, rules, qtRaw = "", glossaryTerms = []) {
           if (qtEvidence.selfMarkers?.length && !qtEvidence.secondPerson?.length) role = "self";
           else if (qtEvidence.secondPerson?.length && !qtEvidence.selfMarkers?.length) role = "target";
         }
+        // AI speaker classifier (desktop only, ~50% accuracy per its own
+        // author — a genuine PoC, not a reliable source). Deliberately NOT
+        // used to resolve role (unlike qtEvidence above): unlike the
+        // deterministic QT regex markers, this is a probabilistic guess and
+        // could turn an honest "unknown" into a confidently-wrong one. It
+        // only ever surfaces as an extra line of context in issue.detail —
+        // informational, never changes what role/replacement gets suggested.
+        const clfEvidence = evidenceAt(speakerClfLookup, start);
         if (rule) {
           const normFound = normalize(found);
           const matchesSelf = normFound === normalize(rule.self_word);
@@ -862,9 +882,9 @@ function scanContextualAddress(text, rules, qtRaw = "", glossaryTerms = []) {
             type: "pronoun", severity: "review", label: "Xưng hô cần xem lại",
             missingPronounRule: true, speaker, listener,
             value: found, replacement: "", suggestions: speakerWords, confidence,
-            detail: listener
+            detail: (listener
               ? `Đã nhận ra người nói là ${speaker}, người nghe là ${listener}, nhưng chưa có quy tắc cho cặp này nên chưa thể đề xuất cách sửa (độ tin cậy: ${confidence}).${qtEvidenceDetail(qtEvidence)}`
-              : `Đã nhận ra ${speaker} đang nói, nhưng chưa xác định được người nghe nên chưa chắc từ nào đúng ở đây (độ tin cậy: ${confidence}).${qtEvidenceDetail(qtEvidence)}`,
+              : `Đã nhận ra ${speaker} đang nói, nhưng chưa xác định được người nghe nên chưa chắc từ nào đúng ở đây (độ tin cậy: ${confidence}).${qtEvidenceDetail(qtEvidence)}`) + speakerClfDetail(clfEvidence),
             start, end,
           }));
           continue;
@@ -879,7 +899,7 @@ function scanContextualAddress(text, rules, qtRaw = "", glossaryTerms = []) {
           value: found, replacement: expected, suggestions: [...new Set([expected, ...speakerWords])], confidence,
           detail: (role === "self"
             ? `${speaker} nên tự xưng là "${expected}" khi nói với ${listenerLabel} (đang thấy "${found}").`
-            : `${speaker} nên gọi ${listenerLabel} là "${expected}" (đang thấy "${found}").`) + ` (độ tin cậy: ${confidence}).${qtEvidenceDetail(qtEvidence)}`,
+            : `${speaker} nên gọi ${listenerLabel} là "${expected}" (đang thấy "${found}").`) + ` (độ tin cậy: ${confidence}).${qtEvidenceDetail(qtEvidence)}${speakerClfDetail(clfEvidence)}`,
           start, end,
         }));
       }
@@ -1165,9 +1185,9 @@ function scanConfiguredWords(text, qaSettings) {
   return issues;
 }
 
-export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], narrativeRules = [], qaSettings = {}, qtRaw = "" } = {}) {
+export function runQualityCheck(text, { glossaryTerms = [], pronounRules = [], narrativeRules = [], qaSettings = {}, qtRaw = "", speakerClfLookup = [] } = {}) {
   const source = String(text || "");
-  const { issues: addressIssues } = scanContextualAddress(source, pronounRules, qtRaw, glossaryTerms);
+  const { issues: addressIssues } = scanContextualAddress(source, pronounRules, qtRaw, glossaryTerms, speakerClfLookup);
   const issues = [
     ...scanConfiguredWords(source, qaSettings),
     ...scanSpacing(source),

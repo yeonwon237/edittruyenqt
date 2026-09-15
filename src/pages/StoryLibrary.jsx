@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Project, Chapter, GlossaryTerm } from "@/api/entities";
+import { Project, Chapter, GlossaryTerm } from "@/api/dataClient";
 import { useToast } from "@/components/ui/use-toast";
 import {
   Dialog,
@@ -24,6 +24,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
 import { fetchAllPages } from "@/lib/paginate";
+import { useInSidebarLayout } from "@/lib/desktopSidebarContext";
 
 const EMOJIS = ["📚", "🌸", "⚔️", "👑", "💎", "🔥", "🌙", "❄️", "🌿", "🐉", "🦋", "🌹", "🔮", "⛩️", "🌉", "🐺"];
 const LANGUAGES = ["Trung", "Anh", "Nhật", "Hàn", "Việt"];
@@ -56,6 +57,7 @@ function gradientFor(emoji) {
 export default function StoryLibrary() {
   const navigate = useNavigate();
   const { toast } = useToast();
+  const inSidebarLayout = useInSidebarLayout();
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -121,7 +123,7 @@ export default function StoryLibrary() {
       await deleteInBatches(termIds, (id) => GlossaryTerm.delete(id));
       await Project.delete(deleteTarget.id);
       setProjects((prev) => prev.filter((p) => p.id !== deleteTarget.id));
-      toast({ title: `Đã xóa "${deleteTarget.title}" và toàn bộ dữ liệu liên quan 🗑️` });
+      toast({ title: `Đã xóa "${deleteTarget.title}" và toàn bộ dữ liệu liên quan` });
     } catch (e) {
       toast({ title: "Lỗi xóa dự án", description: e.message, variant: "destructive" });
     }
@@ -151,7 +153,7 @@ export default function StoryLibrary() {
         qt_raw: "",
         edited: "",
       });
-      toast({ title: "Đã tạo bộ truyện! ✨" });
+      toast({ title: "Đã tạo bộ truyện" });
       setShowCreate(false);
       navigate(`/workspace/${created.id}`);
     } catch (e) {
@@ -173,29 +175,32 @@ export default function StoryLibrary() {
   });
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50">
-      {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-violet-100 bg-white/80 backdrop-blur-xl">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex items-center gap-3">
-          <button
-            onClick={() => navigate("/")}
-            className="p-2 rounded-xl hover:bg-violet-50 text-slate-500 transition-colors shrink-0"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white shrink-0 shadow-md">
-            <BookOpen className="w-4.5 h-4.5" />
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-indigo-50 dark:bg-[#1e1e1e] dark:bg-none">
+      {/* Desktop app: AppSidebar already provides chrome (back nav, story
+          switcher) — this page's own header would duplicate it. */}
+      {!inSidebarLayout && (
+        <header className="sticky top-0 z-30 border-b border-violet-100 bg-white/80 backdrop-blur-xl dark:border-white/10 dark:bg-[#1e1e1e]/80">
+          <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3.5 flex items-center gap-3">
+            <button
+              onClick={() => navigate("/")}
+              className="p-2 rounded-xl hover:bg-violet-50 text-slate-500 transition-colors shrink-0 dark:text-slate-400 dark:hover:bg-white/5"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+            <div className="w-9 h-9 rounded-2xl bg-gradient-to-br from-violet-500 to-indigo-600 flex items-center justify-center text-white shrink-0 shadow-md">
+              <BookOpen className="w-4.5 h-4.5" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="text-base sm:text-lg font-bold text-slate-800 truncate dark:text-slate-100">
+                Edit Truyện
+              </h1>
+              <p className="text-xs text-slate-400 hidden sm:block dark:text-slate-500">
+                Quản lý bộ truyện & biên tập QT với AI
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <h1 className="text-base sm:text-lg font-bold text-slate-800 truncate">
-              Edit Truyện
-            </h1>
-            <p className="text-xs text-slate-400 hidden sm:block">
-              Quản lý bộ truyện & biên tập QT với AI
-            </p>
-          </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       <section className="mx-auto max-w-6xl px-4 pt-8 sm:px-6">
         <div className="relative overflow-hidden rounded-[1.75rem] bg-slate-950 px-6 py-7 text-white shadow-[0_24px_60px_-38px_rgba(15,23,42,.8)] sm:px-8 sm:py-9">
@@ -217,12 +222,12 @@ export default function StoryLibrary() {
       {/* Toolbar */}
       <section className="max-w-6xl mx-auto px-4 sm:px-6 pt-8 pb-5 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-300 dark:text-slate-500" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Tìm bộ truyện theo tên, mô tả..."
-            className="w-full pl-10 pr-3 py-2.5 text-sm rounded-2xl border border-violet-100 bg-white/80 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors"
+            className="w-full pl-10 pr-3 py-2.5 text-sm rounded-2xl border border-violet-100 bg-white/80 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:focus:border-violet-500/50 dark:focus:bg-white/10 dark:placeholder:text-slate-500"
           />
         </div>
         <button
@@ -250,7 +255,7 @@ export default function StoryLibrary() {
         ) : filtered.length === 0 && !search ? (
           <EmptyState onCreate={() => setShowCreate(true)} />
         ) : filtered.length === 0 ? (
-          <div className="text-center py-16 text-slate-400 text-sm">
+          <div className="text-center py-16 text-slate-400 text-sm dark:text-slate-500">
             Không tìm thấy bộ truyện phù hợp.
           </div>
         ) : (
@@ -299,7 +304,7 @@ export default function StoryLibrary() {
                     </h3>
                   </div>
                 </div>
-                <div className="mt-2 flex items-center justify-between gap-2 px-0.5 text-[11px] text-slate-400">
+                <div className="mt-2 flex items-center justify-between gap-2 px-0.5 text-[11px] text-slate-400 dark:text-slate-500">
                   <span className="inline-flex min-w-0 items-center gap-1">
                     <Clock className="h-3 w-3 shrink-0" />
                     <span className="truncate">
@@ -311,7 +316,7 @@ export default function StoryLibrary() {
                         : "—"}
                     </span>
                   </span>
-                  <span className="inline-flex shrink-0 items-center gap-0.5 font-medium text-violet-400 opacity-0 transition-all group-hover:gap-1.5 group-hover:text-violet-600 group-hover:opacity-100">
+                  <span className="inline-flex shrink-0 items-center gap-0.5 font-medium text-violet-400 opacity-0 transition-all group-hover:gap-1.5 group-hover:text-violet-600 group-hover:opacity-100 dark:text-violet-400 dark:group-hover:text-violet-300">
                     Mở <ArrowRight className="h-3 w-3" />
                   </span>
                 </div>
@@ -332,27 +337,27 @@ export default function StoryLibrary() {
 
       {/* Create dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent className="max-w-md rounded-2xl border-violet-100">
+        <DialogContent className="max-w-md rounded-2xl border-violet-100 dark:border-white/10">
           <DialogHeader>
-            <DialogTitle className="text-violet-700">
+            <DialogTitle className="text-violet-700 dark:text-violet-300">
               📚 Tạo bộ truyện mới
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <label className="text-xs font-medium text-slate-500 mb-1 block">
+              <label className="text-xs font-medium text-slate-500 mb-1 block dark:text-slate-400">
                 Tên bộ truyện
               </label>
               <input
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 placeholder="VD: Vũ Động Càn Khôn"
-                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:focus:border-violet-500/50 dark:focus:bg-white/10"
                 autoFocus
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-500 mb-1 block">
+              <label className="text-xs font-medium text-slate-500 mb-1 block dark:text-slate-400">
                 Mô tả
               </label>
               <textarea
@@ -362,11 +367,11 @@ export default function StoryLibrary() {
                 }
                 placeholder="Mô tả ngắn về bộ truyện..."
                 rows={2}
-                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors resize-none"
+                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 focus:bg-white transition-colors resize-none dark:border-white/10 dark:bg-white/5 dark:text-slate-200 dark:focus:border-violet-500/50 dark:focus:bg-white/10"
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-500 mb-1 block">
+              <label className="text-xs font-medium text-slate-500 mb-1 block dark:text-slate-400">
                 Ngôn ngữ gốc
               </label>
               <select
@@ -374,7 +379,7 @@ export default function StoryLibrary() {
                 onChange={(e) =>
                   setForm({ ...form, source_language: e.target.value })
                 }
-                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 transition-colors"
+                className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-slate-50/50 focus:outline-none focus:border-violet-400 transition-colors dark:border-white/10 dark:bg-white/5 dark:text-slate-200"
               >
                 {LANGUAGES.map((l) => (
                   <option key={l} value={l}>
@@ -384,7 +389,7 @@ export default function StoryLibrary() {
               </select>
             </div>
             <div>
-              <label className="text-xs font-medium text-slate-500 mb-1 block">
+              <label className="text-xs font-medium text-slate-500 mb-1 block dark:text-slate-400">
                 Biểu tượng
               </label>
               <div className="flex flex-wrap gap-2">
@@ -394,8 +399,8 @@ export default function StoryLibrary() {
                     onClick={() => setForm({ ...form, cover_emoji: emoji })}
                     className={`w-10 h-10 rounded-xl text-xl transition-all ${
                       form.cover_emoji === emoji
-                        ? "bg-violet-100 ring-2 ring-violet-400"
-                        : "bg-violet-50 hover:bg-violet-100"
+                        ? "bg-violet-100 ring-2 ring-violet-400 dark:bg-violet-500/20 dark:ring-violet-500/50"
+                        : "bg-violet-50 hover:bg-violet-100 dark:bg-white/5 dark:hover:bg-white/10"
                     }`}
                   >
                     {emoji}
@@ -425,13 +430,13 @@ export default function StoryLibrary() {
 function EmptyState({ onCreate }) {
   return (
     <div className="py-16 px-4 text-center">
-      <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-violet-100 to-indigo-100 flex items-center justify-center mb-4">
-        <BookOpen className="w-10 h-10 text-violet-500" />
+      <div className="w-20 h-20 mx-auto rounded-3xl bg-gradient-to-br from-violet-100 to-indigo-100 flex items-center justify-center mb-4 dark:from-violet-500/10 dark:to-indigo-500/10">
+        <BookOpen className="w-10 h-10 text-violet-500 dark:text-violet-400" />
       </div>
-      <h3 className="text-lg font-bold text-slate-700 mb-1">
+      <h3 className="text-lg font-bold text-slate-700 mb-1 dark:text-slate-200">
         Bắt đầu hành trình dịch thuật
       </h3>
-      <p className="text-slate-400 text-sm mb-5 max-w-md mx-auto">
+      <p className="text-slate-400 text-sm mb-5 max-w-md mx-auto dark:text-slate-500">
         Tạo bộ truyện đầu tiên để bắt đầu biên tập QT cùng AI — hỗ trợ từ điển,
         ma trận xưng hô và nhiều nhà cung cấp AI.
       </p>

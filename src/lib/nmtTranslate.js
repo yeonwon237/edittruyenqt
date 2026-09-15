@@ -1,17 +1,64 @@
-// AI translation engine (Văn bản gốc → QT thô) — runs entirely client-side via
-// transformers.js/ONNX Runtime Web (WASM), no server/API cost. Model weights
-// (~55-60MB, quantized) download once on first use and are cached by the
-// browser afterward. See tools/nmt/ for the offline evaluation that picked
-// this model and the "[N]" glossary-lock format (verified against "<N>",
-// which the model sometimes corrupts mid-generation — see test_glossary_lock.mjs).
-import { pipeline } from "@huggingface/transformers";
+// AI translation engine (Văn bản gốc → QT thô).
+// Web: runs entirely client-side via transformers.js/ONNX Runtime Web
+// (WASM), no server/API cost — model weights (~55-60MB, quantized) download
+// once and are cached by the browser. See tools/nmt/ for the offline
+// evaluation that picked this model and the "[N]" glossary-lock format
+// (verified against "<N>", which the model sometimes corrupts mid-generation
+// — see test_glossary_lock.mjs).
+// Desktop: runs CTranslate2 (int8) builds of the same model family — not
+// ONNX, and not a from-scratch quantization we invented: these are the
+// model authors' own official ct2-int8 exports (or, for the couple that
+// didn't publish one, our own conversion verified byte-identical to their
+// process — see tools/nmt/convert_ct2.py). No torch/transformers needed at
+// runtime, so the desktop app spawns the much lighter tools/nmt/server.py
+// as a Tauri sidecar and this file just calls it over localhost instead of
+// loading the WASM pipeline.
+import { isDesktopApp } from "@/lib/platform";
 
 const MODEL_ID = "DanVP/MoxhiMT-30-onnx";
+const SIDECAR_URL = "http://127.0.0.1:8787/translate";
+
+// Desktop only — all 8 translate Chinese source → Vietnamese (matches the
+// sidecar's MODEL_CONFIGS keys in tools/nmt/server.py). DanVP/vp2vi is
+// deliberately not here: it's Vietnamese→Vietnamese (polishes an existing QT
+// draft, not raw Chinese), a different pipeline stage than this button —
+// belongs with a future "beta/polish" feature, not this translate picker.
+export const NMT_MODELS = [
+  { id: "HachimiMT-60", label: "HachimiMT-60", desc: "Webnovel/xianxia, 57M — mặc định" },
+  { id: "HachimiMT-60-QT", label: "HachimiMT-60-QT", desc: "Như HachimiMT-60, văn phong QT (ta/ngươi/hắn/nàng)" },
+  { id: "HachimiMT-30", label: "HachimiMT-30", desc: "37M, nhẹ hơn" },
+  { id: "MoxhiMT-60", label: "MoxhiMT-60", desc: "Webnovel/xianxia, 57M" },
+  { id: "MoxhiMT-30", label: "MoxhiMT-30", desc: "Truyện hiện đại/cross-domain, 36.5M" },
+  { id: "MoxhiMT-30-QT", label: "MoxhiMT-30-QT", desc: "Như MoxhiMT-30, văn phong QT" },
+  { id: "HirashibaMT-Medium", label: "HirashibaMT-Medium", desc: "62M" },
+  { id: "HirashibaMT-Tiny", label: "HirashibaMT-Tiny", desc: "17M, siêu nhẹ" },
+];
+const NMT_MODEL_STORAGE_KEY = "etq_nmt_model_id";
+
+export function getSidecarModelId() {
+  try {
+    const saved = localStorage.getItem(NMT_MODEL_STORAGE_KEY);
+    if (saved && NMT_MODELS.some((m) => m.id === saved)) return saved;
+  } catch {
+    // localStorage unavailable — fall through to default
+  }
+  return NMT_MODELS[0].id;
+}
+
+export function setSidecarModelId(id) {
+  try {
+    localStorage.setItem(NMT_MODEL_STORAGE_KEY, id);
+  } catch {
+    // localStorage unavailable — selection just won't persist across reloads
+  }
+}
 
 let translatorPromise = null;
 function getTranslator() {
   if (!translatorPromise) {
-    translatorPromise = pipeline("translation", MODEL_ID, { dtype: "q8" });
+    translatorPromise = import("@huggingface/transformers").then(({ pipeline }) =>
+      pipeline("translation", MODEL_ID, { dtype: "q8" })
+    );
   }
   return translatorPromise;
 }
@@ -50,9 +97,6 @@ function unlockGlossary(text, placeholders) {
   });
   const leadName = placeholders[0];
   if (startedWithPlaceholder && leadName && out.startsWith(leadName)) {
-    // The model saw the placeholder as the first token and capitalized the
-    // word after it as if it were sentence-initial; undo that once the real
-    // (already multi-syllable-capitalized) name has taken its place.
     const rest = out.slice(leadName.length);
     const fixedRest = rest.replace(/^(\s+)([A-ZÀ-Ỹ])/, (m, space, c) => space + c.toLowerCase());
     out = leadName + fixedRest;
@@ -68,13 +112,42 @@ async function translateLine(translator, line, glossaryTerms) {
   return placeholders.length ? unlockGlossary(rawText, placeholders).trim() : rawText;
 }
 
+async function translateViaSidecar(text, glossaryTerms) {
+  const lines = text.split("\n");
+  const locks = lines.map((line) => (line.trim() ? lockGlossary(line, glossaryTerms) : { locked: line, placeholders: [] }));
+  const lockedText = locks.map((l) => l.locked).join("\n");
+
+  let response;
+  try {
+    response = await fetch(SIDECAR_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: lockedText, model_id: getSidecarModelId() }),
+    });
+  } catch {
+    throw new Error("Không kết nối được máy dịch nội bộ — nếu app vừa mở, model có thể đang tải lần đầu, đợi rồi thử lại.");
+  }
+  if (!response.ok) throw new Error(`Máy dịch nội bộ lỗi (${response.status})`);
+  const data = await response.json();
+  const translatedLines = String(data.text || "").split("\n");
+  return translatedLines
+    .map((line, idx) => (locks[idx]?.placeholders.length ? unlockGlossary(line, locks[idx].placeholders).trim() : line))
+    .join("\n");
+}
+
 export async function translateWithNmt(text, glossaryTerms = []) {
   const t0 = performance.now();
-  const translator = await getTranslator();
-  const lines = text.split("\n");
-  const translated = [];
-  for (const line of lines) {
-    translated.push(await translateLine(translator, line, glossaryTerms));
+  let translated;
+  if (isDesktopApp()) {
+    translated = await translateViaSidecar(text, glossaryTerms);
+  } else {
+    const translator = await getTranslator();
+    const lines = text.split("\n");
+    const out = [];
+    for (const line of lines) {
+      out.push(await translateLine(translator, line, glossaryTerms));
+    }
+    translated = out.join("\n");
   }
-  return { text: translated.join("\n"), ms: Math.round(performance.now() - t0) };
+  return { text: translated, ms: Math.round(performance.now() - t0) };
 }

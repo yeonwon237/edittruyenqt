@@ -7,6 +7,8 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import ScrollToTop from './components/ScrollToTop';
 import { lazy, Suspense } from 'react';
 import ProtectedRoute from '@/components/ProtectedRoute';
+import { isDesktopApp } from '@/lib/platform';
+import DesktopLayout from '@/components/desktop/DesktopLayout';
 
 // Each screen is downloaded only when it is opened. This keeps large editor,
 // document, audio and video dependencies out of the initial app download.
@@ -24,6 +26,7 @@ const CreateSubtitle = lazy(() => import('@/pages/CreateSubtitle'));
 const CoverDesigner = lazy(() => import('@/pages/CoverDesigner'));
 const RoleplayStudio = lazy(() => import('@/pages/RoleplayStudio'));
 const PromptGenerator = lazy(() => import('@/pages/PromptGenerator'));
+const Download = lazy(() => import('@/pages/Download'));
 
 const AppLoading = () => (
   <div className="fixed inset-0 flex flex-col items-center justify-center bg-background">
@@ -47,21 +50,34 @@ const AuthenticatedApp = () => {
     );
   }
 
-  // Render the main app
+  // The persistent AppSidebar layout (src/components/desktop/DesktopLayout.jsx)
+  // now wraps stories/workspace/settings on BOTH web and desktop — the user
+  // explicitly asked for the desktop redesign on web too. Desktop is still
+  // narrowed to just this editing feature set (Home + TTS/Video/Roleplay/...
+  // don't exist there); web keeps every other page, just outside this layout.
   return (
     <Routes>
       <Route element={<ProtectedRoute unauthenticatedElement={<Navigate to="/login" replace />} />}>
-        <Route path="/" element={<Home />} />
-        <Route path="/stories" element={<StoryLibrary />} />
-        <Route path="/workspace/:projectId" element={<Workspace />} />
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/text-to-speech" element={<TextToSpeech />} />
-        <Route path="/create-video" element={<CreateVideo />} />
-        <Route path="/create-subtitle" element={<CreateSubtitle />} />
-        <Route path="/cover-designer" element={<CoverDesigner />} />
-        <Route path="/roleplay" element={<RoleplayStudio />} />
-        <Route path="/roleplay/:projectId" element={<RoleplayStudio />} />
-        <Route path="/prompt-generator" element={<PromptGenerator />} />
+        <Route element={<DesktopLayout />}>
+          <Route path="/stories" element={<StoryLibrary />} />
+          <Route path="/workspace/:projectId" element={<Workspace />} />
+          <Route path="/settings" element={<Settings />} />
+        </Route>
+        {isDesktopApp() ? (
+          <Route path="/" element={<Navigate to="/stories" replace />} />
+        ) : (
+          <>
+            <Route path="/" element={<Home />} />
+            <Route path="/text-to-speech" element={<TextToSpeech />} />
+            <Route path="/create-video" element={<CreateVideo />} />
+            <Route path="/create-subtitle" element={<CreateSubtitle />} />
+            <Route path="/cover-designer" element={<CoverDesigner />} />
+            <Route path="/roleplay" element={<RoleplayStudio />} />
+            <Route path="/roleplay/:projectId" element={<RoleplayStudio />} />
+            <Route path="/prompt-generator" element={<PromptGenerator />} />
+            <Route path="/download" element={<Download />} />
+          </>
+        )}
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
