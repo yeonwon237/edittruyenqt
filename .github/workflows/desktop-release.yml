@@ -12,6 +12,12 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# The default GITHUB_TOKEN is read-only unless a workflow explicitly asks
+# for more — tauri-action needs write access to create/update the release
+# and upload the installers as assets to it.
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
