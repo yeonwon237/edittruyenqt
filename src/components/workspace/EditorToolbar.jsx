@@ -5,7 +5,6 @@ import {
   Plus,
   PanelLeft,
   Loader2,
-  Sparkles,
   Settings as SettingsIcon,
   Columns3,
   Check,
@@ -60,6 +59,7 @@ export default function EditorToolbar({
   activePresetName,
   onOpenImageTranslate,
   onRuleEdit,
+  ruleEditing,
   onOpenColumnMove,
   onOpenQtCleanup,
 }) {
@@ -110,7 +110,7 @@ export default function EditorToolbar({
               <button onClick={() => { onQuickAddGlossary(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Plus className="h-4 w-4 text-violet-600" /> Thêm từ bôi đen vào Glossary</button>
               <button onClick={() => { onBatchReplace(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Wand2 className="h-4 w-4 text-amber-600" /> Thay thế hàng loạt</button>
               <button onClick={() => { onPronounSwitcher(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Users className="h-4 w-4 text-purple-600" /> Đổi xưng hô</button>
-              <button onClick={() => { onRuleEdit(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Sparkles className="h-4 w-4 text-violet-600" /> Rule Edit</button>
+              <button onClick={() => { onRuleEdit(); setShowMore(false); }} disabled={ruleEditing} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50 disabled:opacity-40">{ruleEditing ? <Loader2 className="h-4 w-4 animate-spin text-violet-600" /> : <Bot className="h-4 w-4 text-violet-600" />} Dịch AI</button>
               <button onClick={() => { onOpenTranslationSettings(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Palette className="h-4 w-4 text-pink-600" /> Preset văn phong</button>
               <button onClick={() => { onOpenImageTranslate(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><ImagePlus className="h-4 w-4 text-sky-600" /> Dịch từ ảnh</button>
               <button onClick={() => { onOpenColumnMove(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><ArrowRightLeft className="h-4 w-4 text-indigo-600" /> Chuyển dữ liệu giữa các cột</button>
@@ -267,15 +267,21 @@ export default function EditorToolbar({
         <span className="hidden sm:inline">Tự dịch</span>
       </button>
 
-      {/* Rule Edit (src/lib/ruleEdit.js — zero AI, zero network, patterns
-          learned from the user's own real chapter pairs) */}
+      {/* AI translate (src/lib/nmtTranslate.js — MoxhiMT-30-onnx via
+          transformers.js, runs client-side in-browser, no server cost).
+          Văn bản gốc → QT thô, real NMT with project glossary names locked. */}
       <button
         onClick={onRuleEdit}
-        title="Edit QT thô → Bản Edit bằng rule (miễn phí, chạy tại chỗ, không dùng AI)"
-        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition-all shrink-0"
+        disabled={ruleEditing}
+        title="Tự dịch văn bản gốc → QT thô bằng model AI (chạy tại chỗ trong trình duyệt, tên riêng theo glossary)"
+        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
       >
-        <Sparkles className="w-3.5 h-3.5" />
-        <span className="hidden sm:inline">Rule Edit</span>
+        {ruleEditing ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          <Bot className="w-3.5 h-3.5" />
+        )}
+        <span className="hidden sm:inline">Dịch AI</span>
       </button>
 
       {/* Custom AI (Gemini / GPT / Claude) */}

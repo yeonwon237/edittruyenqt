@@ -52,6 +52,7 @@ import { countForeignChars } from "@/lib/highlight";
 import { applyQualitySuggestion, runQualityCheck } from "@/lib/qualityCheck";
 import { applyBetaSuggestion, betaCandidatePayload, runBetaCheck } from "@/lib/betaCheck";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
+import { translateWithNmt } from "@/lib/nmtTranslate";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
 import { applyRuleEdit } from "@/lib/ruleEdit";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
@@ -168,6 +169,7 @@ export default function Workspace() {
   const [pronounBootstrap, setPronounBootstrap] = useState(null);
   const [runningPronounBootstrap, setRunningPronounBootstrap] = useState(false);
   const [selfTranslating, setSelfTranslating] = useState(false);
+  const [aiTranslating, setAiTranslating] = useState(false);
   const [showSidebar, setShowSidebar] = useState(
     typeof window !== "undefined" ? window.innerWidth >= 768 : true
   );
@@ -2909,29 +2911,33 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
     setSelfTranslating(false);
   };
 
-  // Rule-based edit (src/lib/ruleEdit.js — zero AI, zero network, patterns
-  // derived from the user's own real QT-thô/Bản-Edit chapter pairs). Fills
-  // Cột 3 (Bản Edit) from Cột 2 (QT thô), same as Auto Edit/Custom AI but
-  // synchronous since there's no API call.
-  const handleRuleEdit = () => {
+  // AI translate (src/lib/nmtTranslate.js — MoxhiMT-30-onnx via transformers.js,
+  // runs client-side in-browser, no server/API cost). Alternative to the plain
+  // dictionary "Tự dịch": real NMT quality, with project glossary names locked
+  // before translation so it can't rename/mistranslate approved characters.
+  const handleAiTranslate = async () => {
     if (!currentChapter) {
       toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
       return;
     }
-    const chapterId = currentChapter.id;
-    const prevEdited = currentChapter.edited || "";
-    const sourceText = currentChapter.qt_raw || currentChapter.raw_original || "";
-    if (!sourceText.trim()) {
-      toast({ title: "Không có QT thô để edit!", variant: "destructive" });
+    const sourceText = currentChapter.raw_original || "";
+    if (!sourceText.trim() || !/[\p{Script=Han}]/u.test(sourceText)) {
+      toast({ title: "Chưa có Văn bản gốc để dịch!", variant: "destructive" });
       return;
     }
-    const finalText = applyHardRules(applyRuleEdit(sourceText));
-    setCurrentChapter((prev) =>
-      prev && prev.id === chapterId ? { ...prev, edited: finalText } : prev
-    );
-    setAiUndo({ chapterId, previous: prevEdited });
-    checkLineAlignment(sourceText, finalText);
-    toast({ title: "✨ Đã edit bằng rule (không AI)!", description: "Kiểm tra và chỉnh sửa thêm nhé" });
+    const chapterId = currentChapter.id;
+    setAiTranslating(true);
+    try {
+      const translationTerms = mergeHanVietVocabulary(glossaryTerms, hanVietVocabulary);
+      const { text, ms } = await translateWithNmt(sourceText, translationTerms);
+      setCurrentChapter((prev) =>
+        prev && prev.id === chapterId ? { ...prev, qt_raw: text } : prev
+      );
+      toast({ title: `🤖 Đã dịch bằng AI — ${ms}ms` });
+    } catch (e) {
+      toast({ title: "Lỗi dịch AI", description: e.message, variant: "destructive" });
+    }
+    setAiTranslating(false);
   };
 
   const parseImageResult = (raw) => {
@@ -4746,7 +4752,8 @@ ${compact}`;
         onSelfTranslate={handleSelfTranslate}
         selfTranslating={selfTranslating}
         selfTranslateSupported={supportsSelfTranslate(project?.source_language)}
-        onRuleEdit={handleRuleEdit}
+        onRuleEdit={handleAiTranslate}
+        ruleEditing={aiTranslating}
         onOpenTranslationSettings={() => setShowTranslationSettings(true)}
         activePresetName={activePreset?.name}
         onOpenImageTranslate={() => setShowImageTranslate(true)}

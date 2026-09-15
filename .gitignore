@@ -32,3 +32,10 @@ dist-ssr
 base44/.app.jsonc
 .vercel
 .env*
+
+# offline corpus-mining pipeline (large downloaded data, local venv, tokens)
+tools/mining/.venv
+tools/mining/data
+tools/mining/out
+tools/nmt/.venv
+tools/nmt/model_cache
