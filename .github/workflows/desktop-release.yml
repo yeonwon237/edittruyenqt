@@ -32,6 +32,13 @@ jobs:
             bin_suffix: ".exe"
 
     runs-on: ${{ matrix.platform }}
+    # The frontend build (`npm run build`, invoked by tauri.conf.json's
+    # beforeBuildCommand) needs these at build time to bake into the bundled
+    # JS — .env.local holding them is gitignored (never pushed), so CI reads
+    # the same values from repo secrets instead.
+    env:
+      VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
     steps:
       - uses: actions/checkout@v4
 
