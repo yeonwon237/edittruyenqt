@@ -13,7 +13,6 @@ import { isDesktopApp } from "@/lib/platform";
 import { supabase } from "@/api/supabaseClient";
 
 const SIDECAR_URL = "http://127.0.0.1:8787/translate";
-const LOCAL_HEALTH_URL = "http://127.0.0.1:8787/health";
 const WEB_PROXY_URL = "/api/lily-translation";
 const WEB_POLL_INTERVAL_MS = 500;
 const WEB_JOB_TIMEOUT_MS = 12 * 60 * 1000;
@@ -117,19 +116,6 @@ async function translateViaSidecar(text, glossaryTerms) {
     .join("\n");
 }
 
-async function localTranslatorAvailable() {
-  try {
-    const response = await fetch(LOCAL_HEALTH_URL, {
-      method: "GET",
-      cache: "no-store",
-      signal: AbortSignal.timeout(700),
-    });
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function webProxyRequest(body) {
@@ -180,13 +166,9 @@ export async function translateWithNmt(text, glossaryTerms = []) {
   if (isDesktopApp()) {
     translated = await translateViaSidecar(text, glossaryTerms);
   } else {
-    if (await localTranslatorAvailable()) {
-      try {
-        translated = await translateViaSidecar(text, glossaryTerms);
-      } catch {
-        translated = await translateViaWebApi(text, glossaryTerms);
-      }
-    } else {
+    try {
+      translated = await translateViaSidecar(text, glossaryTerms);
+    } catch {
       translated = await translateViaWebApi(text, glossaryTerms);
     }
   }
