@@ -14,7 +14,7 @@ import { supabase } from "@/api/supabaseClient";
 
 const SIDECAR_URL = "http://127.0.0.1:8787/translate";
 const WEB_PROXY_URL = "/api/lily-translation";
-const WEB_POLL_INTERVAL_MS = 1_200;
+const WEB_POLL_INTERVAL_MS = 500;
 const WEB_JOB_TIMEOUT_MS = 12 * 60 * 1000;
 
 // Desktop only — all 8 translate Chinese source → Vietnamese (matches the
