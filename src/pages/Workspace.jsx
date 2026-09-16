@@ -2946,10 +2946,9 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
     setSelfTranslating(false);
   };
 
-  // AI translate (src/lib/nmtTranslate.js — MoxhiMT-30-onnx via transformers.js,
-  // runs client-side in-browser, no server/API cost). Alternative to the plain
-  // dictionary "Tự dịch": real NMT quality, with project glossary names locked
-  // before translation so it can't rename/mistranslate approved characters.
+  // AI translate: web calls the private VPS through a same-origin proxy;
+  // desktop keeps its local CTranslate2 sidecar. Project glossary is sent to
+  // the selected engine so approved names remain locked.
   const handleAiTranslate = async () => {
     if (!currentChapter) {
       toast({ title: "Hãy chọn chương trước!", variant: "destructive" });

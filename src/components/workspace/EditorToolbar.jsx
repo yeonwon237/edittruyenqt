@@ -330,13 +330,12 @@ export default function EditorToolbar({
         <span className="hidden sm:inline">Tự dịch</span>
       </button>
 
-      {/* AI translate (src/lib/nmtTranslate.js — MoxhiMT-30-onnx via
-          transformers.js, runs client-side in-browser, no server cost).
-          Văn bản gốc → QT thô, real NMT with project glossary names locked. */}
+      {/* AI translate: web uses the private VPS API; desktop keeps its local
+          CTranslate2 sidecar. Both preserve project glossary names. */}
       <button
         onClick={onRuleEdit}
         disabled={ruleEditing}
-        title="Tự dịch văn bản gốc → QT thô bằng model AI (chạy tại chỗ trong trình duyệt, tên riêng theo glossary)"
+        title={desktop ? "Dịch văn bản gốc → QT thô bằng model AI trên máy" : "Dịch văn bản gốc → QT thô bằng model AI trên VPS"}
         className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold transition-all disabled:opacity-40 disabled:cursor-not-allowed shrink-0 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10"
       >
         {ruleEditing ? (
@@ -347,9 +346,8 @@ export default function EditorToolbar({
         <span className="hidden sm:inline">Dịch AI</span>
       </button>
 
-      {/* Model picker for the desktop NMT sidecar (tools/nmt/server.py) —
-          web always uses the single bundled WASM model, no picker needed. */}
-      {desktop && (
+      {/* The same model keys are available in the desktop sidecar and VPS. */}
+      {(
         <div ref={modelPickerRef} className="relative shrink-0">
           <button
             onClick={() => setShowModelPicker((v) => !v)}
