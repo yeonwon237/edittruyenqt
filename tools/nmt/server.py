@@ -1,13 +1,15 @@
 import os
 import sys
 import time
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
 import ctranslate2
 import sentencepiece as spm
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -72,12 +74,38 @@ MODEL_CONFIGS: dict[str, ModelConfig] = {
 DEFAULT_MODEL_KEY = "HachimiMT-60"
 
 app = FastAPI()
+ALLOWED_WEB_ORIGINS = {
+    "https://editor.lilyhub.top",
+    "https://edittruyenqt.vercel.app",
+    "https://edittruyenqt-lilyhub.vercel.app",
+    "tauri://localhost",
+    "http://tauri.localhost",
+    "https://tauri.localhost",
+}
+ALLOWED_ORIGIN_RE = re.compile(
+    r"^https://edittruyenqt(?:-[a-z0-9-]+)?-lilyhub\.vercel\.app$|"
+    r"^http://(?:localhost|127\.0\.0\.1)(?::\d+)?$"
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=sorted(ALLOWED_WEB_ORIGINS),
+    allow_origin_regex=ALLOWED_ORIGIN_RE.pattern,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_private_network=True,
 )
+
+
+@app.middleware("http")
+async def restrict_browser_origins(request: Request, call_next):
+    origin = request.headers.get("origin")
+    if origin and origin not in ALLOWED_WEB_ORIGINS and not ALLOWED_ORIGIN_RE.match(origin):
+        return JSONResponse({"detail": "Origin not allowed"}, status_code=403)
+    response = await call_next(request)
+    if request.headers.get("access-control-request-private-network") == "true":
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 class SentencePieceTokenizer:
