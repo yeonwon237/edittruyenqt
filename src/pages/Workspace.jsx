@@ -3881,11 +3881,7 @@ ${sourceText}`;
     batchQtStopRef.current = true;
   };
 
-  // Batch AI edit across every chapter in the project. Deliberately reuses
-  // buildEditPrompt/applyHardRules/runChunkedEdit verbatim (the
-  // same functions the single-chapter "Edit AI" button calls) so glossary,
-  // batch replace rules, contextual pronoun matrix and the active preset's
-  // văn phong all apply identically here — no separate/simplified prompt.
+  // Batch polish uses the same QT prompt as the single-chapter polish action.
   // Persists each chapter to the DB as soon as it's done (not batched at the
   // end) so a stopped/interrupted run never loses already-finished work, and
   // a chapter with existing Bản Edit content is skipped so re-running after
@@ -3904,7 +3900,8 @@ ${sourceText}`;
     }
     if (chapterList.length === 0 || selectedIds.length === 0) return;
 
-    const learningEnabled = isChapterLearningEnabled(project?.style_toggles);
+    // This action only polishes QT; it must not spend extra AI calls learning rules.
+    const learningEnabled = false;
 
     batchStopRef.current = false;
     setBatchErrors([]);
@@ -4031,8 +4028,7 @@ ${sourceText}`;
           setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
           continue;
         }
-        const mode = chapter.qt_raw?.trim() ? "polish" : "translate";
-        const sourceText = mode === "polish" ? chapter.qt_raw : chapter.raw_original || "";
+        const sourceText = chapter.qt_raw || "";
         if (!sourceText.trim()) {
           setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
           continue;
@@ -4048,14 +4044,14 @@ ${sourceText}`;
               currentTitle: `${meta.title} (đoạn ${chunkI}/${chunkTotal})`,
             })),
           {
-            mode,
+            mode: "polish",
             glossaryTerms: batchGlossaryTerms,
             pronounRules: batchPronounRules,
             narrativeRules: storyMemory.narrativeRules || [],
             previousSummary,
           }
         );
-        const finalText = applyHardRules(editedText, mode);
+        const finalText = applyHardRules(editedText, "polish");
 
         await Chapter.update(meta.id, { edited: finalText }, { returning: false });
         setEditedChapterIds((current) => new Set(current).add(meta.id));
@@ -4098,8 +4094,8 @@ ${sourceText}`;
     setBatchProgress((p) => ({ ...p, currentChapterId: null, currentTitle: "" }));
     toast({
       title: batchStopRef.current
-        ? "Đã dừng edit hàng loạt ⏸️"
-        : "Hoàn tất edit AI hàng loạt! ✨",
+        ? "Đã dừng làm mượt QT hàng loạt ⏸️"
+        : "Hoàn tất làm mượt QT hàng loạt! ✨",
     });
   };
 
@@ -4641,7 +4637,7 @@ ${compact}`;
                   <ListIcon className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Quản lý chương
                 </button>
                 <button onClick={() => { setShowBatchEdit(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-50">
-                  <Sparkles className="h-3.5 w-3.5 shrink-0" /> Edit AI hàng loạt
+                  <Sparkles className="h-3.5 w-3.5 shrink-0" /> Làm mượt QT hàng loạt
                 </button>
                 <button onClick={() => { setShowTranslationWorkflow(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-50">
                   <BookOpen className="h-3.5 w-3.5 shrink-0" /> Chuẩn bị & dịch toàn truyện
@@ -4682,7 +4678,7 @@ ${compact}`;
           <button
             onClick={() => setShowTranslationWorkflow(true)}
             className="hidden md:flex items-center gap-1.5 rounded-xl bg-cyan-600 px-3 py-2 text-xs font-bold text-white shadow-lg transition-colors hover:bg-cyan-500"
-            title="AI lập bộ quy ước → máy tạo QT → AI Edit hàng loạt"
+            title="AI lập bộ quy ước → máy tạo QT → làm mượt QT hàng loạt"
           >
             <BookOpen className="h-4 w-4" />
             <span className="hidden xl:inline">Dịch toàn truyện</span>
@@ -4690,10 +4686,10 @@ ${compact}`;
           <button
             onClick={() => setShowBatchEdit(true)}
             className="hidden md:flex items-center gap-1.5 rounded-xl bg-violet-500 px-3 py-2 text-xs font-bold text-white shadow-lg transition-colors hover:bg-violet-400"
-            title="Mở xưởng Edit AI hàng loạt"
+            title="Làm mượt QT hàng loạt vào Bản Edit"
           >
             <Sparkles className="h-4 w-4" />
-            <span className="hidden lg:inline">Edit hàng loạt</span>
+            <span className="hidden lg:inline">Làm mượt QT hàng loạt</span>
           </button>
           <button
             onClick={() => setShowChapterManager(true)}
@@ -5336,8 +5332,6 @@ ${compact}`;
         onOpenChange={setShowBatchEdit}
         chapters={chapterList}
         editedChapterIds={editedChapterIds}
-        storyMemory={project?.style_toggles?.story_memory || {}}
-        learningEnabled={aiChapterLearningEnabled}
         running={batchRunning}
         finished={batchFinished}
         progress={batchProgress}

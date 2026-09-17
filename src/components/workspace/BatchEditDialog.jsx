@@ -27,8 +27,6 @@ export default function BatchEditDialog({
   onOpenChange,
   chapters = [],
   editedChapterIds = new Set(),
-  storyMemory = {},
-  learningEnabled = true,
   running,
   finished,
   progress,
@@ -98,15 +96,15 @@ export default function BatchEditDialog({
       <DialogContent className="max-w-3xl max-h-[88vh] overflow-hidden rounded-2xl flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-violet-700 flex items-center gap-2">
-            <Sparkles className="w-5 h-5" /> Xưởng Edit AI hàng loạt
+            <Sparkles className="w-5 h-5" /> Làm mượt QT hàng loạt
           </DialogTitle>
           <DialogDescription>
-            Chọn chương rồi bấm Bắt đầu. Mỗi chương được lưu ngay khi hoàn tất; bạn có thể dừng
-            và lần sau tiếp tục các chương còn thiếu.
+            Dùng QT và prompt Làm mượt QT đã lưu để tạo Bản Edit. Chương thiếu QT được bỏ qua.
+            Mỗi chương được lưu ngay khi hoàn tất.
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-slate-400">Tổng số</p>
             <p className="text-lg font-bold text-slate-700">{ordered.length}</p>
@@ -118,17 +116,6 @@ export default function BatchEditDialog({
           <div className="rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-2">
             <p className="text-[11px] uppercase tracking-wide text-slate-400">Chưa edit</p>
             <p className="text-lg font-bold text-amber-700">{pendingIds.length}</p>
-          </div>
-          <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/60 px-3 py-2">
-            <p className="text-[11px] uppercase tracking-wide text-slate-400">AI đã học</p>
-            <p className="text-lg font-bold text-fuchsia-700">
-              {(storyMemory.learnedRuleCount || 0) +
-                (storyMemory.learnedTermCount || 0) +
-                (storyMemory.learnedNarrativeCount || 0)}
-            </p>
-            <p className="text-[10px] text-slate-400">
-              {(storyMemory.candidates || []).length} đề xuất cần thêm bằng chứng
-            </p>
           </div>
         </div>
 
@@ -166,15 +153,6 @@ export default function BatchEditDialog({
           <div className="flex gap-1.5">
             <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set(pendingIds))} disabled={running || pendingIds.length === 0}>
               Chọn chưa edit
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setSelectedIds(new Set(ordered.filter((chapter) => editedChapterIds.has(chapter.id)).map((chapter) => chapter.id)))}
-              disabled={running || !learningEnabled || ordered.length === pendingIds.length}
-              title={learningEnabled ? "Chọn các chương đã Edit để AI học dữ liệu" : "Bật AI tự học trong Ma trận xưng hô để dùng chức năng này"}
-            >
-              {learningEnabled ? "Chọn đã edit để học" : "Tự học đã tắt"}
             </Button>
             <Button size="sm" variant="outline" onClick={() => setSelectedIds(new Set(ordered.map((chapter) => chapter.id)))} disabled={running || ordered.length === 0}>
               Chọn tất cả
@@ -214,7 +192,7 @@ export default function BatchEditDialog({
                 <span className="w-9 shrink-0 text-right text-xs text-slate-400">{index + 1}</span>
                 <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{chapter.title || `Chương ${index + 1}`}</span>
                 {isCurrent ? (
-                  <span className="flex items-center gap-1 text-xs text-violet-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang edit</span>
+                  <span className="flex items-center gap-1 text-xs text-violet-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang làm mượt</span>
                 ) : hasError ? (
                   <span className="flex items-center gap-1 text-xs text-red-600"><AlertCircle className="h-3.5 w-3.5" /> Lỗi</span>
                 ) : isEdited ? (
@@ -237,17 +215,10 @@ export default function BatchEditDialog({
             className="mt-0.5 accent-violet-600"
           />
           <span>
-            <strong className="text-amber-800">Dịch lại chương đã có Bản Edit.</strong> Nếu tắt,
+            <strong className="text-amber-800">Ghi đè Bản Edit đã có.</strong> Nếu tắt,
             các chương đã hoàn thành trong vùng chọn sẽ được bỏ qua an toàn.
           </span>
         </label>
-
-        <p className={`rounded-xl border p-3 text-xs ${learningEnabled ? "border-violet-100 bg-violet-50/60 text-violet-800" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
-          <strong>{learningEnabled ? "AI tự học đang bật:" : "AI tự học đang tắt:"}</strong>{" "}
-          {learningEnabled
-            ? "mỗi chương được xử lý sẽ tự cập nhật tên riêng, cặp xưng hô có bằng chứng rõ và ngữ cảnh cho chương kế tiếp."
-            : "các chương vẫn được Edit bằng AI và dùng dữ liệu đã học, nhưng không ghi thêm dữ liệu học mới."}
-        </p>
 
         {errors.length > 0 && (
           <div className="rounded-xl border border-red-100 bg-red-50/60 p-3 max-h-24 overflow-y-auto">

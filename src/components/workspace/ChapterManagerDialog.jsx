@@ -179,7 +179,7 @@ export default function ChapterManagerDialog({
                       <Upload className="w-3.5 h-3.5" /> Nhập hàng loạt
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={onBatchEdit} disabled={chapters.length === 0}>
-                      <Sparkles className="w-3.5 h-3.5" /> Edit AI hàng loạt (nội dung)
+                      <Sparkles className="w-3.5 h-3.5" /> Làm mượt QT hàng loạt
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={onBatchTitleEdit} disabled={chapters.length === 0}>
                       <Languages className="w-3.5 h-3.5" /> Dịch tên chương bằng AI
