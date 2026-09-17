@@ -59,7 +59,7 @@ import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSideb
 import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
 import { applyRuleEdit } from "@/lib/ruleEdit";
-import { assertPronounsPreserved } from "@/lib/preservePronouns";
+import { assertPronounsPreserved, protectPronouns, restoreProtectedPronouns } from "@/lib/preservePronouns";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
@@ -2028,7 +2028,7 @@ QUY TẮC BẮT BUỘC:
 3. Sửa câu cưỡng ép, ngữ pháp lủng củng, lặp từ. Diễn đạt lại cho mượt mà nhưng giữ nguyên ý.
 4. Giữ nguyên các đoạn hội thoại trong ngoặc kép.
 5. KHÔNG thêm giải thích, ghi chú, hay tiêu đề. Chỉ xuất văn bản đã biên tập.
-6. ${preservePronouns ? "CHỈ LÀM MƯỢT: giữ nguyên từng từ xưng hô trong lời thoại và lời dẫn, kể cả khi có vẻ chưa hợp ngữ cảnh. Không tự sửa cách gọi của bất kỳ nhân vật nào." : "ĐẶC BIỆT: Tự động nhận diện NGƯỜI NÓI và NGƯỜI NGHE trong từng câu hội thoại (dựa tên nhân vật, bối cảnh đoạn thoại, sở hữu cách câu nói, ngôi kể). Chọn đúng MA TRẬN XƯNG HÔ phù hợp với cặp người nói ↔ người nghe của đoạn. Nếu câu thoại không quy định đặc biệt cho người nghe cụ thể, dùng quy tắc MẶC ĐỊNH của nhân vật nói. Tuyệt đối không viết sai cách xưng hô của nhân vật."}
+6. ${preservePronouns ? "CHỈ LÀM MƯỢT: các từ xưng hô đã được thay bằng ký hiệu ⟦XH1⟧, ⟦XH2⟧... Giữ NGUYÊN từng ký hiệu, đúng thứ tự và đúng dòng; không dịch, xóa, nhân đôi hoặc đổi vị trí ký hiệu. Chỉ làm mượt những chữ xung quanh." : "ĐẶC BIỆT: Tự động nhận diện NGƯỜI NÓI và NGƯỜI NGHE trong từng câu hội thoại (dựa tên nhân vật, bối cảnh đoạn thoại, sở hữu cách câu nói, ngôi kể). Chọn đúng MA TRẬN XƯNG HÔ phù hợp với cặp người nói ↔ người nghe của đoạn. Nếu câu thoại không quy định đặc biệt cho người nghe cụ thể, dùng quy tắc MẶC ĐỊNH của nhân vật nói. Tuyệt đối không viết sai cách xưng hô của nhân vật."}
 7. Đây có thể là một đoạn trích trong chương dài hơn — chỉ biên tập đúng phần văn bản được đưa, không thêm mở đầu/kết luận ngoài ý.
 8. BẮT BUỘC: Giữ nguyên chính xác số lần xuống dòng / số đoạn văn như văn bản đầu vào — mỗi dòng gốc tương ứng với đúng một dòng trong bản dịch, không gộp nhiều dòng thành một, không tách một dòng thành nhiều dòng. Nếu văn bản gốc có DÒNG TRỐNG (dòng rỗng) để ngăn cách giữa các đoạn, PHẢI giữ nguyên dòng trống đó ở đúng vị trí tương ứng trong bản dịch — không được xóa/gộp dòng trống lại, kể cả khi nó không chứa nội dung để dịch.
 ${extraRules.join("\n")}
@@ -2116,28 +2116,31 @@ ${sourceText}`;
   // limits) and stitches the results back together. Chapters usually fit in
   // a single chunk; this only kicks in for unusually long ones.
   const runChunkedEdit = async (sourceText, callFn, onProgress, context = {}) => {
-    const checkPronouns = (source, result) => {
-      if (context.mode === "polish") {
-        assertPronounsPreserved(
-          source, result,
-          context.pronounRules || project?.contextual_pronoun_rules || [],
-          context.narrativeRules || project?.style_toggles?.story_memory?.narrativeRules || [],
-          context.glossaryTerms || glossaryTerms
-        );
-      }
-      return result;
+    const rules = context.pronounRules || project?.contextual_pronoun_rules || [];
+    const narrativeRules = context.narrativeRules || project?.style_toggles?.story_memory?.narrativeRules || [];
+    const terms = context.glossaryTerms || glossaryTerms;
+    const editChunk = async (source) => {
+      if (context.mode === "translate") return callFn(buildChineseTranslatePrompt(source));
+      if (context.mode !== "polish") return callFn(buildEditPrompt(source, context));
+      const protectedInput = protectPronouns(source, rules, narrativeRules, terms);
+      const output = await callFn(buildEditPrompt(protectedInput.text, context));
+      const restored = restoreProtectedPronouns(output, protectedInput.tokens);
+      assertPronounsPreserved(source, restored, rules, narrativeRules, terms);
+      return restored;
     };
     const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
     if (chunks.length <= 1) {
-      return checkPronouns(sourceText, await callFn(context.mode === "translate" ? buildChineseTranslatePrompt(sourceText) : buildEditPrompt(sourceText, context)));
+      return editChunk(sourceText);
     }
     const results = [];
     for (let i = 0; i < chunks.length; i++) {
       onProgress?.(i + 1, chunks.length);
       // eslint-disable-next-line no-await-in-loop
-      results.push(checkPronouns(chunks[i], await callFn(context.mode === "translate" ? buildChineseTranslatePrompt(chunks[i]) : buildEditPrompt(chunks[i], context))));
+      results.push(await editChunk(chunks[i]));
     }
-    return checkPronouns(sourceText, results.join("\n\n"));
+    const result = results.join("\n\n");
+    if (context.mode === "polish") assertPronounsPreserved(sourceText, result, rules, narrativeRules, terms);
+    return result;
   };
 
   const learnSingleChapter = async (chapter, editedText) => {
