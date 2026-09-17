@@ -46,7 +46,7 @@ test('creates a VPS job without exposing the upstream API key', async () => {
   assert.equal(upstream.options.headers.Authorization, `Bearer ${env.LILY_TRANSLATION_API_KEY}`);
   const payload = JSON.parse(upstream.options.body);
   assert.equal(payload.model_key, 'HachimiMT-60');
-  assert.equal(payload.beam_size, 2);
+  assert.equal(payload.beam_size, 1);
   assert.equal(payload.batch_size, 32);
   assert.deepEqual(payload.glossary_rows[0], { source_term: '张三', translation: 'Trương Tam', category: 'Tên người' });
 });
