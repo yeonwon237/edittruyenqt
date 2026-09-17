@@ -58,7 +58,7 @@ import { isDesktopApp } from "@/lib/platform";
 import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSidebarContext";
 import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
-import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt } from "@/lib/editPrompts";
+import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt, composeTranslationPrompt } from "@/lib/editPrompts";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
@@ -1995,7 +1995,8 @@ export default function Workspace() {
   const buildChineseTranslatePrompt = (sourceText, context = {}) => {
     const terms = context.glossaryTerms || glossaryTerms;
     const glossaryText = terms.map((term) => `- ${term.source_term} → ${term.translation}`).join("\n");
-    return composeEditPrompt(project?.style_toggles?.translate_prompt?.trim() || DEFAULT_TRANSLATE_PROMPT, sourceText, glossaryText);
+    const pronounMatrixText = buildPronounMatrixPrompt(context.pronounRules || project?.contextual_pronoun_rules || []);
+    return composeTranslationPrompt(project?.style_toggles?.translate_prompt?.trim() || DEFAULT_TRANSLATE_PROMPT, sourceText, glossaryText, pronounMatrixText);
   };
   // Runs one call per chunk (sequentially, to stay within provider rate
   // limits) and stitches the results back together. Chapters usually fit in

@@ -502,7 +502,7 @@ export default function TranslationSettingsDialog({
 
             <div className="rounded-xl border border-violet-100 p-3 space-y-3">
               <p className="text-xs font-semibold text-slate-700">Prompt dùng khi bấm AI</p>
-              <p className="text-[11px] text-slate-500">Ứng dụng gửi đúng prompt của chế độ bạn chọn cùng văn bản đầu vào. Có thể đặt <code>{"{{TEXT}}"}</code> ở vị trí muốn chèn văn bản; <code>{"{{GLOSSARY}}"}</code> để chèn Glossary.</p>
+              <p className="text-[11px] text-slate-500">Có thể đặt <code>{"{{TEXT}}"}</code>, <code>{"{{GLOSSARY}}"}</code> và <code>{"{{PRONOUN_MATRIX}}"}</code> ở vị trí muốn chèn dữ liệu. Khi Dịch Trung–Việt, Glossary và ma trận xưng hô vẫn được gửi kèm nếu prompt không có chỗ chèn riêng.</p>
               <label className="block text-xs font-medium text-violet-700">Làm mượt QT</label>
               <textarea value={polishPrompt} onChange={(e) => setPolishPrompt(e.target.value)} rows={7} className="w-full resize-y rounded-lg border border-violet-100 bg-white px-2.5 py-2 text-xs leading-relaxed" />
               <label className="block text-xs font-medium text-violet-700">Dịch Trung–Việt</label>

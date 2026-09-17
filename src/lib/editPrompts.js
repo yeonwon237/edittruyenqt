@@ -11,11 +11,26 @@ YÊU CẦU BẮT BUỘC: giữ nguyên xưng hô gốc, KHÔNG được tự ý 
 export const DEFAULT_TRANSLATE_PROMPT = `Bạn là dịch giả tiểu thuyết Trung - Việt. Dịch toàn bộ văn bản tiếng Trung dưới đây sang tiếng Việt tự nhiên, đúng nghĩa và đúng sắc thái. Giữ tên riêng, thuật ngữ theo Glossary nếu có. Giữ nguyên các dòng ngắt đoạn và lời thoại. Chỉ trả về bản dịch, không giải thích.
 
 GLOSSARY:
-{{GLOSSARY}}`;
+{{GLOSSARY}}
+
+MA TRẬN XƯNG HÔ:
+{{PRONOUN_MATRIX}}`;
 
 export function composeEditPrompt(template, sourceText, glossaryText = "") {
   const prompt = String(template || "").trim().replaceAll("{{GLOSSARY}}", glossaryText || "(trống)");
   return prompt.includes("{{TEXT}}")
     ? prompt.replaceAll("{{TEXT}}", sourceText)
     : `${prompt}\n\nVĂN BẢN CẦN XỬ LÝ:\n${sourceText}`;
+}
+
+export function composeTranslationPrompt(template, sourceText, glossaryText = "", pronounMatrixText = "") {
+  const source = String(template || "").trim();
+  let prompt = source
+    .replaceAll("{{GLOSSARY}}", glossaryText || "(trống)")
+    .replaceAll("{{PRONOUN_MATRIX}}", pronounMatrixText || "(trống)");
+  if (!source.includes("{{GLOSSARY}}")) prompt += `\n\nGLOSSARY:\n${glossaryText || "(trống)"}`;
+  if (!source.includes("{{PRONOUN_MATRIX}}")) prompt += `\n\nMA TRẬN XƯNG HÔ:\n${pronounMatrixText || "(trống)"}`;
+  return prompt.includes("{{TEXT}}")
+    ? prompt.replaceAll("{{TEXT}}", sourceText)
+    : `${prompt}\n\nVĂN BẢN CẦN DỊCH:\n${sourceText}`;
 }
