@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import { Plus, Trash2, Save, Sparkles, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT } from "@/lib/editPrompts";
 
 export const GENRE_OPTIONS = [
   "Tiên hiệp", "Huyền huyễn", "Đô thị", "Cổ trang", "Ngôn tình", "Bách hợp",
@@ -57,6 +58,8 @@ export default function TranslationSettingsDialog({
   const [selectedId, setSelectedId] = useState(activePresetId || "");
   const [form, setForm] = useState(EMPTY_FORM);
   const [toggles, setToggles] = useState(styleToggles || {});
+  const [polishPrompt, setPolishPrompt] = useState(DEFAULT_POLISH_PROMPT);
+  const [translatePrompt, setTranslatePrompt] = useState(DEFAULT_TRANSLATE_PROMPT);
   const [saving, setSaving] = useState(false);
   const [suggesting, setSuggesting] = useState(false);
   const [suggestion, setSuggestion] = useState(null);
@@ -70,6 +73,8 @@ export default function TranslationSettingsDialog({
     setSelectedId(initialId);
     const preset = (presets || []).find((p) => p.id === initialId);
     setForm(formFromPreset(preset));
+    setPolishPrompt(styleToggles?.polish_prompt || preset?.prompt_instructions || DEFAULT_POLISH_PROMPT);
+    setTranslatePrompt(styleToggles?.translate_prompt || DEFAULT_TRANSLATE_PROMPT);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
@@ -189,7 +194,18 @@ export default function TranslationSettingsDialog({
   const handleToggle = (key) => {
     const next = { ...toggles, [key]: !toggles[key] };
     setToggles(next);
-    onUpdateStyleToggles(next);
+    onUpdateStyleToggles(next).catch((error) => toast({ title: "Không lưu được cài đặt", description: error.message, variant: "destructive" }));
+  };
+
+  const handleSaveModePrompts = async () => {
+    const next = { ...toggles, polish_prompt: polishPrompt.trim(), translate_prompt: translatePrompt.trim() };
+    try {
+      await onUpdateStyleToggles(next);
+      setToggles(next);
+      toast({ title: "Đã lưu prompt cho hai chế độ AI" });
+    } catch (error) {
+      toast({ title: "Không lưu được prompt", description: error.message, variant: "destructive" });
+    }
   };
 
   return (
@@ -199,8 +215,8 @@ export default function TranslationSettingsDialog({
           <DialogHeader>
             <DialogTitle className="text-violet-700">🎭 Cài đặt dịch thuật</DialogTitle>
             <DialogDescription>
-              Preset quy định văn phong chung cho bộ truyện. Khi chạy AI, chọn riêng Làm mượt QT
-              hoặc Dịch Trung–Việt trên thanh công cụ; không cần mô tả tác vụ trong preset.
+              Hai prompt ở cuối cửa sổ quyết định nội dung gửi AI khi bấm Làm mượt QT hoặc Dịch Trung–Việt.
+              Preset văn phong vẫn dùng cho các luồng biên tập khác.
             </DialogDescription>
           </DialogHeader>
 
@@ -413,7 +429,7 @@ export default function TranslationSettingsDialog({
                 </div>
                 <div>
                   <label className="text-xs font-medium text-violet-700">
-                    Văn phong chung (chèn vào prompt AI của từng chế độ) *
+                    Văn phong preset (dùng khi chưa lưu prompt Làm mượt QT riêng) *
                   </label>
                   <textarea
                     value={form.prompt_instructions}
@@ -482,6 +498,16 @@ export default function TranslationSettingsDialog({
                   )}
                 </div>
               </div>
+            </div>
+
+            <div className="rounded-xl border border-violet-100 p-3 space-y-3">
+              <p className="text-xs font-semibold text-slate-700">Prompt dùng khi bấm AI</p>
+              <p className="text-[11px] text-slate-500">Ứng dụng gửi đúng prompt của chế độ bạn chọn cùng văn bản đầu vào. Có thể đặt <code>{"{{TEXT}}"}</code> ở vị trí muốn chèn văn bản; <code>{"{{GLOSSARY}}"}</code> để chèn Glossary.</p>
+              <label className="block text-xs font-medium text-violet-700">Làm mượt QT</label>
+              <textarea value={polishPrompt} onChange={(e) => setPolishPrompt(e.target.value)} rows={7} className="w-full resize-y rounded-lg border border-violet-100 bg-white px-2.5 py-2 text-xs leading-relaxed" />
+              <label className="block text-xs font-medium text-violet-700">Dịch Trung–Việt</label>
+              <textarea value={translatePrompt} onChange={(e) => setTranslatePrompt(e.target.value)} rows={5} className="w-full resize-y rounded-lg border border-violet-100 bg-white px-2.5 py-2 text-xs leading-relaxed" />
+              <Button size="sm" onClick={handleSaveModePrompts} disabled={!polishPrompt.trim() || !translatePrompt.trim()}><Save className="mr-1.5 h-3.5 w-3.5" />Lưu prompt</Button>
             </div>
 
             <div className="rounded-xl border border-violet-100 p-3 space-y-2">

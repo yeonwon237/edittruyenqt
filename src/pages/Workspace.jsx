@@ -58,8 +58,7 @@ import { isDesktopApp } from "@/lib/platform";
 import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSidebarContext";
 import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
-import { applyRuleEdit } from "@/lib/ruleEdit";
-import { protectPronouns, restoreProtectedPronouns } from "@/lib/preservePronouns";
+import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt } from "@/lib/editPrompts";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
@@ -959,14 +958,14 @@ export default function Workspace() {
   };
 
   const handleUpdateStyleToggles = (toggles) => {
-    handleUpdateProject({
+    return handleUpdateProject({
       style_toggles: {
         ...toggles,
         ...(project?.style_toggles?.workflow_progress
           ? { workflow_progress: project.style_toggles.workflow_progress }
           : {}),
       },
-    }).catch(() => {});
+    });
   };
 
   // Batch replace (word-boundary aware, optional). `fields` lets callers
@@ -1960,108 +1959,15 @@ export default function Workspace() {
   },[currentChapter?.edited,project?.style_toggles?.beta_settings]);
 
   const buildEditPrompt = (sourceText, context = {}) => {
-    const preservePronouns = context.mode === "polish";
-    const activeGlossaryTerms = context.glossaryTerms || glossaryTerms;
-    const activePronounRules = context.pronounRules || project?.contextual_pronoun_rules || [];
-    const activeNarrativeRules = context.narrativeRules ||
-      project?.style_toggles?.story_memory?.narrativeRules || [];
-    const characterProfiles = project?.style_toggles?.story_memory?.characterProfiles || [];
-    const glossaryText = activeGlossaryTerms
-      .filter((t) => !preservePronouns || t.category !== "Xưng hô")
-      .map((t) => `- "${t.source_term}" → "${t.translation}"${t.category === "Xưng hô" ? " (mặc định QT; điều chỉnh theo ma trận xưng hô và người nói/người nghe)" : " (giữ đúng bản Việt này kể cả khi đầu vào đã là QT)"}`)
-      .join("\n");
-    const batchRulesText = (preservePronouns ? [] : project?.batch_rules || [])
-      .filter((r) => r.find)
-      .map((r) => `- Thay "${r.find}" bằng "${r.replace}"`)
-      .join("\n");
-    const pronounMatrixText = buildPronounMatrixPrompt(
-      activePronounRules
-    );
-    const narrativePronounText = activeNarrativeRules
-      .filter((rule) => rule.character?.trim() && rule.pronoun?.trim())
-      .map((rule) => `- Khi lời dẫn nhắc đến "${rule.character.trim()}": bắt buộc dùng đại từ "${rule.pronoun.trim()}"${rule.note ? ` (${rule.note})` : ""}`)
-      .join("\n");
-    const characterProfileText = characterProfiles
-      .filter((character) => character.name?.trim())
-      .map((character) => `- ${character.name.trim()}: giới tính ${character.gender || "không rõ"}; thân phận ${character.identity || "chưa rõ"}${character.evidence ? ` (căn cứ: ${character.evidence})` : ""}`)
-      .join("\n");
-
-    const toggles = project?.style_toggles || {};
-    const extraRules = [];
-    if (toggles.protect_plot) {
-      extraRules.push(
-        "9. BẢO VỆ CỐT TRUYỆN: TUYỆT ĐỐI không tự ý thêm, bớt, bịa đặt chi tiết/tình tiết không có trong văn bản gốc."
-      );
-    }
-    if (toggles.declunkify_qt) {
-      extraRules.push(
-        "10. Chủ động đảo ngữ, diễn đạt thoát ý hoàn toàn các cụm dịch sát nghĩa đen kiểu Convert — không dịch máy móc từng chữ."
-      );
-    }
-
-    const genreEraLines = [];
-    if (activePreset?.genres?.length) genreEraLines.push(`Thể loại: ${activePreset.genres.join(", ")}`);
-    if (activePreset?.setting_era?.trim()) genreEraLines.push(`Bối cảnh/thời đại: ${activePreset.setting_era.trim()}`);
-    const genreEraText = genreEraLines.join("\n");
-
-    const characterNotesText = (preservePronouns ? [] : activePreset?.character_notes || [])
-      .filter((n) => n.character?.trim() && n.note?.trim())
-      .map((n) => `- ${n.character.trim()}: ${n.note.trim()}`)
-      .join("\n");
-
-    const presetBlock =
-      activePreset?.prompt_instructions || genreEraText || characterNotesText
-        ? `\nVĂN PHONG / THỂ LOẠI RIÊNG CHO BỘ TRUYỆN NÀY (${activePreset?.name || ""}):
-${genreEraText ? `${genreEraText}\n` : ""}${activePreset?.prompt_instructions || ""}
-${
-  characterNotesText
-    ? `\nGHI CHÚ NHÂN VẬT ĐẶC BIỆT (quy tắc xưng hô/hành xử đổi theo tình huống — BẮT BUỘC áp dụng đúng khi văn cảnh phù hợp, không được bỏ qua):\n${characterNotesText}\n`
-    : ""
-}`
-        : "";
-
-    return `Bạn là trợ lý biên tập truyện dịch chuyên nghiệp, chuyên edit truyện Convert/QT. Hãy biên tập văn bản QT thô sau đây thành văn phong tiếng Việt mượt mà, tự nhiên, thoát ý, giữ đúng cảm xúc và ý nghĩa gốc.
-
-QUY TẮC BẮT BUỘC:
-1. Giữ đúng tên riêng và thuật ngữ đã duyệt trong Glossary, kể cả khi QT đã chuyển sang bản Việt. ${preservePronouns ? "Giữ nguyên mọi từ xưng hô và đại từ đúng như QT; không suy luận lại vai nói/nghe, không thay đại từ theo Glossary hay quy tắc nhân vật." : "Riêng mục Xưng hô là mặc định QT: ưu tiên ma trận người nói/người nghe và quy tắc lời dẫn, không ép một đại từ cho mọi nhân vật."} QT có thể đọc sai hoặc tách tên; không tự bịa thêm ý để làm câu có vẻ hợp lý.
-2. ${preservePronouns ? "Không áp dụng quy tắc thay thế từ ngữ có thể đổi xưng hô." : "Áp dụng các quy tắc thay thế nếu có."}
-3. Sửa câu cưỡng ép, ngữ pháp lủng củng, lặp từ. Diễn đạt lại cho mượt mà nhưng giữ nguyên ý.
-4. Giữ nguyên các đoạn hội thoại trong ngoặc kép.
-5. KHÔNG thêm giải thích, ghi chú, hay tiêu đề. Chỉ xuất văn bản đã biên tập.
-6. ${preservePronouns ? "CHỈ LÀM MƯỢT: các từ xưng hô đã được thay bằng ký hiệu ⟦XH1⟧, ⟦XH2⟧... Giữ NGUYÊN từng ký hiệu, đúng thứ tự và đúng dòng; không dịch, xóa, nhân đôi hoặc đổi vị trí ký hiệu. Chỉ làm mượt những chữ xung quanh." : "ĐẶC BIỆT: Tự động nhận diện NGƯỜI NÓI và NGƯỜI NGHE trong từng câu hội thoại (dựa tên nhân vật, bối cảnh đoạn thoại, sở hữu cách câu nói, ngôi kể). Chọn đúng MA TRẬN XƯNG HÔ phù hợp với cặp người nói ↔ người nghe của đoạn. Nếu câu thoại không quy định đặc biệt cho người nghe cụ thể, dùng quy tắc MẶC ĐỊNH của nhân vật nói. Tuyệt đối không viết sai cách xưng hô của nhân vật."}
-7. Đây có thể là một đoạn trích trong chương dài hơn — chỉ biên tập đúng phần văn bản được đưa, không thêm mở đầu/kết luận ngoài ý.
-8. BẮT BUỘC: Giữ nguyên chính xác số lần xuống dòng / số đoạn văn như văn bản đầu vào — mỗi dòng gốc tương ứng với đúng một dòng trong bản dịch, không gộp nhiều dòng thành một, không tách một dòng thành nhiều dòng. Nếu văn bản gốc có DÒNG TRỐNG (dòng rỗng) để ngăn cách giữa các đoạn, PHẢI giữ nguyên dòng trống đó ở đúng vị trí tương ứng trong bản dịch — không được xóa/gộp dòng trống lại, kể cả khi nó không chứa nội dung để dịch.
-${extraRules.join("\n")}
-${presetBlock}
-GLOSSARY (KHÓA TÊN / THUẬT NGỮ):
-${glossaryText || "(trống)"}
-
-QUY TẮC THAY THẾ:
-${batchRulesText || "(không có)"}
-
-${preservePronouns ? "" : `MA TRẬN XƯNG HÔ THEO NGỮ CẢNH (AI tự nhận diện người nói ↔ người nghe, áp dụng chính xác đại từ):
-${pronounMatrixText || "(không có quy tắc cụ thể — dùng ngữ cảm tự nhiên theo văn bản gốc)"}
-
-NGÔI LỜI DẪN / ĐẠI TỪ NGÔI THỨ BA (BẮT BUỘC TUÂN THỦ, không áp dụng vào lời thoại):
-${narrativePronounText || "(chưa có quy tắc riêng)"}
-
-HỒ SƠ NHÂN VẬT ĐÃ DUYỆT (dùng để hiểu giới tính, thân phận và chọn xưng hô; không bịa thêm dữ kiện):
-${characterProfileText || "(chưa có hồ sơ riêng)"}`}
-
-${context.previousSummary ? `TÓM TẮT CHƯƠNG TRƯỚC (chỉ dùng để giữ mạch truyện, không được chép vào đầu ra):
-${context.previousSummary}` : ""}
-
-VĂN BẢN CẦN BIÊN TẬP:
-${sourceText}
-
-Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt hoàn chỉnh:`;
+    const terms = context.glossaryTerms || glossaryTerms;
+    const glossaryText = terms.map((term) => `- ${term.source_term} → ${term.translation}`).join("\n");
+    return composeEditPrompt(project?.style_toggles?.polish_prompt?.trim() || activePreset?.prompt_instructions?.trim() || DEFAULT_POLISH_PROMPT, sourceText, glossaryText);
   };
-
   // Post-processing applied after every AI edit result, in code (not
   // dependent on the AI actually following the prompt): preset forbidden
   // words and the "strip trailing ạ" toggle.
   const applyHardRules = (text, mode = "edit") => {
-    if (mode === "polish") return text;
+    if (mode === "polish" || mode === "translate") return text;
     let result = text;
     const forbidden = (activePreset?.forbidden_words || []).filter((r) => r.find);
     if (forbidden.length) {
@@ -2086,54 +1992,22 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
     }
   };
 
-  const buildChineseTranslatePrompt = (sourceText) => {
-    const namesAndTerms = glossaryTerms
-      .filter((term) => term.source_term?.trim() && term.translation?.trim())
-      .map((term) => `- ${term.source_term.trim()} → ${term.translation.trim()}`)
-      .join("\n");
-    return `Bạn là dịch giả tiểu thuyết Trung–Việt. Dịch nguyên văn tiếng Trung dưới đây sang tiếng Việt tự nhiên, đúng nghĩa, đúng sắc thái. Đây là tác vụ DỊCH từ tiếng Trung, không phải làm mượt bản QT.
-
-YÊU CẦU:
-1. Không thêm, bớt tình tiết. Giữ tên riêng và thuật ngữ theo Glossary.
-2. Chọn xưng hô phù hợp ngữ cảnh và các quy tắc đã duyệt nếu có.
-3. Giữ nguyên số dòng và vị trí dòng trống. Chỉ trả về bản dịch tiếng Việt, không giải thích.
-4. Nếu preset có câu yêu cầu giữ nguyên xưng hô QT, bỏ qua câu đó trong lần chạy này vì đầu vào là nguyên văn tiếng Trung.
-
-VĂN PHONG RIÊNG:
-${activePreset?.prompt_instructions || "Dịch tự nhiên, rõ nghĩa."}
-
-GLOSSARY:
-${namesAndTerms || "(trống)"}
-
-MA TRẬN XƯNG HÔ:
-${buildPronounMatrixPrompt(project?.contextual_pronoun_rules || []) || "(không có)"}
-
-VĂN BẢN TIẾNG TRUNG:
-${sourceText}`;
+  const buildChineseTranslatePrompt = (sourceText, context = {}) => {
+    const terms = context.glossaryTerms || glossaryTerms;
+    const glossaryText = terms.map((term) => `- ${term.source_term} → ${term.translation}`).join("\n");
+    return composeEditPrompt(project?.style_toggles?.translate_prompt?.trim() || DEFAULT_TRANSLATE_PROMPT, sourceText, glossaryText);
   };
-
   // Runs one call per chunk (sequentially, to stay within provider rate
   // limits) and stitches the results back together. Chapters usually fit in
   // a single chunk; this only kicks in for unusually long ones.
   const runChunkedEdit = async (sourceText, callFn, onProgress, context = {}) => {
-    const rules = context.pronounRules || project?.contextual_pronoun_rules || [];
-    const narrativeRules = context.narrativeRules || project?.style_toggles?.story_memory?.narrativeRules || [];
-    const terms = context.glossaryTerms || glossaryTerms;
-    let needsPronounReview = false;
     const editChunk = async (source) => {
-      if (context.mode === "translate") return callFn(buildChineseTranslatePrompt(source));
-      if (context.mode !== "polish") return callFn(buildEditPrompt(source, context));
-      const protectedInput = protectPronouns(source, rules, narrativeRules, terms);
-      const output = await callFn(buildEditPrompt(protectedInput.text, context));
-      const restored = restoreProtectedPronouns(output, protectedInput.tokens);
-      if (!restored.complete) needsPronounReview = true;
-      return restored.text;
+      if (context.mode === "translate") return callFn(buildChineseTranslatePrompt(source, context));
+      return callFn(buildEditPrompt(source, context));
     };
     const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
     if (chunks.length <= 1) {
-      const result = await editChunk(sourceText);
-      if (needsPronounReview) context.onPronounReview?.();
-      return result;
+      return editChunk(sourceText);
     }
     const results = [];
     for (let i = 0; i < chunks.length; i++) {
@@ -2141,7 +2015,6 @@ ${sourceText}`;
       // eslint-disable-next-line no-await-in-loop
       results.push(await editChunk(chunks[i]));
     }
-    if (needsPronounReview) context.onPronounReview?.();
     return results.join("\n\n");
   };
 
@@ -2255,13 +2128,12 @@ ${sourceText}`;
     }
     setGeminiEditing(true);
     try {
-      let needsPronounReview = false;
       const editedText = await runChunkedEdit(
         sourceText,
         (prompt) => callLLM(prompt),
         (i, total) =>
           total > 1 && toast({ title: `Đang xử lý đoạn ${i}/${total}...` }),
-        { mode, onPronounReview: () => { needsPronounReview = true; } }
+        { mode }
       );
       const finalText = applyHardRules(editedText, mode);
       setCurrentChapter((prev) =>
@@ -2291,10 +2163,8 @@ ${sourceText}`;
       const providerLabel =
         ({ gemini: "Gemini", openai: "GPT", claude: "Claude", stali:"STALI" }[provider] || "AI");
       toast({
-        title: needsPronounReview ? "Đã giữ bản làm mượt · cần xem lại xưng hô" : `${providerLabel} đã edit xong! ✨`,
-        description: needsPronounReview
-          ? "AI đã thay đổi một số vị trí bảo vệ. Bản Edit vẫn được lưu để bạn kiểm tra, không cần trả thêm lượt AI."
-          : "Kiểm tra và chỉnh thêm nhé",
+        title: `${providerLabel} đã edit xong! ✨`,
+        description: "Kiểm tra và chỉnh thêm nhé",
       });
     } catch (e) {
       toast({ title: "Lỗi AI", description: e.message, variant: "destructive" });
@@ -4011,7 +3881,7 @@ ${sourceText}`;
   };
 
   // Batch AI edit across every chapter in the project. Deliberately reuses
-  // buildEditPrompt/applyRuleEdit/applyHardRules/runChunkedEdit verbatim (the
+  // buildEditPrompt/applyHardRules/runChunkedEdit verbatim (the
   // same functions the single-chapter "Edit AI" button calls) so glossary,
   // batch replace rules, contextual pronoun matrix and the active preset's
   // văn phong all apply identically here — no separate/simplified prompt.
@@ -4160,7 +4030,8 @@ ${sourceText}`;
           setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
           continue;
         }
-        const sourceText = applyRuleEdit(chapter.qt_raw || chapter.raw_original || "");
+        const mode = chapter.qt_raw?.trim() ? "polish" : "translate";
+        const sourceText = mode === "polish" ? chapter.qt_raw : chapter.raw_original || "";
         if (!sourceText.trim()) {
           setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
           continue;
@@ -4176,13 +4047,14 @@ ${sourceText}`;
               currentTitle: `${meta.title} (đoạn ${chunkI}/${chunkTotal})`,
             })),
           {
+            mode,
             glossaryTerms: batchGlossaryTerms,
             pronounRules: batchPronounRules,
             narrativeRules: storyMemory.narrativeRules || [],
             previousSummary,
           }
         );
-        const finalText = applyHardRules(editedText);
+        const finalText = applyHardRules(editedText, mode);
 
         await Chapter.update(meta.id, { edited: finalText }, { returning: false });
         setEditedChapterIds((current) => new Set(current).add(meta.id));
