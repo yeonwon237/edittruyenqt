@@ -595,14 +595,6 @@ function scanGlossaryRules(text, terms, pronounRules) {
 // ordinary words, not just glossary names.
 const GLUED_WORD_REGEX = /\p{Ll}\p{Lu}/gu;
 
-// Same missing-space bug, at a different boundary: a closing dialogue quote
-// glued straight onto the sentence that follows it ('"Hửm?"Kỷ Khê hơi mở to'
-// instead of '"Hửm?" Kỷ Khê hơi mở to'). GLUED_WORD_REGEX can't see this —
-// the character right before the letter is a quote mark, not a lowercase
-// letter — so it needs its own check anchored on the same quote pairs
-// quoteAt/scanContextualAddress already use elsewhere in this file.
-const QUOTE_PAIR_REGEX = /[“"]([^”"]+)[”"]/gu;
-
 // Same missing-space bug again, now at ordinary clause/sentence punctuation:
 // a comma or period (or ! ?) glued straight onto the next word ("rồi,Nàng"
 // / "đi.Nàng" instead of "rồi, Nàng" / "đi. Nàng"). Excludes a mark that's
@@ -621,22 +613,6 @@ function scanSpacing(text) {
     start: match.index, end: match.index + match[0].length,
   }));
 
-  const quoteIssues = [];
-  for (const match of text.matchAll(QUOTE_PAIR_REGEX)) {
-    const closeQuoteEnd = match.index + match[0].length;
-    const next = text[closeQuoteEnd];
-    if (next && /\p{L}/u.test(next)) {
-      const closeQuoteStart = closeQuoteEnd - 1;
-      quoteIssues.push(makeIssue(text, {
-        type: "spacing", severity: "high", label: "Thiếu khoảng trắng",
-        value: text.slice(closeQuoteStart, closeQuoteEnd + 1),
-        replacement: `${text[closeQuoteStart]} ${next}`,
-        detail: `Thiếu khoảng trắng sau dấu ngoặc kép đóng, trước "${next}...".`,
-        start: closeQuoteStart, end: closeQuoteEnd + 1,
-      }));
-    }
-  }
-
   const punctIssues = [];
   for (const match of text.matchAll(PUNCT_GLUE_REGEX)) {
     const pos = match.index;
@@ -651,7 +627,7 @@ function scanSpacing(text) {
     }));
   }
 
-  return [...wordIssues, ...quoteIssues, ...punctIssues];
+  return [...wordIssues, ...punctIssues];
 }
 
 function scanCjk(text, terms) {

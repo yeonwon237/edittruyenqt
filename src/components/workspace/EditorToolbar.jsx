@@ -140,7 +140,7 @@ export default function EditorToolbar({
           {showMore && (
             <div className="absolute bottom-full right-0 mb-3 max-h-[min(65dvh,520px)] w-[min(22rem,calc(100vw-16px))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-2xl">
               <p className="px-3 pb-2 pt-1 text-xs font-bold uppercase tracking-wider text-slate-400">Công cụ biên tập</p>
-              <button onClick={() => { onQuickAddGlossary(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Plus className="h-4 w-4 text-violet-600" /> Thêm từ bôi đen vào Glossary</button>
+              <button onClick={() => { onQuickAddGlossary(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Plus className="h-4 w-4 text-violet-600" /> Thêm vào Glossary</button>
               <button onClick={() => { onBatchReplace(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Wand2 className="h-4 w-4 text-amber-600" /> Thay thế hàng loạt</button>
               <button onClick={() => { onPronounSwitcher(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Users className="h-4 w-4 text-purple-600" /> Đổi xưng hô</button>
               <button onClick={() => { onRuleEdit(); setShowMore(false); }} disabled={ruleEditing} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50 disabled:opacity-40">{ruleEditing ? <Loader2 className="h-4 w-4 animate-spin text-violet-600" /> : <Bot className="h-4 w-4 text-violet-600" />} Dịch AI</button>
@@ -203,9 +203,9 @@ export default function EditorToolbar({
                 setShowMore(false);
               }}
               className="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg hover:bg-violet-50 text-xs text-slate-700 transition-colors dark:text-slate-200 dark:hover:bg-white/5"
-              title="Thêm từ bôi đen vào từ điển"
+              title="Thêm thuật ngữ vào Glossary, có thể nhập thủ công"
             >
-              <Plus className="w-3.5 h-3.5 text-violet-600 shrink-0 dark:text-violet-300" /> Glossary — thêm từ bôi đen
+              <Plus className="w-3.5 h-3.5 text-violet-600 shrink-0 dark:text-violet-300" /> Glossary — thêm thuật ngữ
             </button>
             <button
               onClick={() => {

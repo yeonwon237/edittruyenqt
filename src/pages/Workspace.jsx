@@ -818,18 +818,10 @@ export default function Workspace() {
     });
   };
 
-  // Quick add to glossary from selection
+  // Open Glossary with the selected text when available, otherwise leave it blank.
   const handleQuickAddGlossary = () => {
     const sel = window.getSelection();
-    const text = sel?.toString().trim();
-    if (!text) {
-      toast({
-        title: "Hãy bôi đen từ cần thêm! ✏️",
-        variant: "destructive",
-      });
-      return;
-    }
-    setPrefillTerm(text);
+    setPrefillTerm(sel?.toString().trim() || "");
     setEditingTerm(null);
     setShowGlossaryForm(true);
   };
