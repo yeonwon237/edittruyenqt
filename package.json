@@ -12,7 +12,6 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test:sync": "node --test tests/lilybeta-sync.test.js",
-    "test:translation-api": "node --test tests/lily-translation.test.js",
     "test:chapter-stats": "node --test tests/chapter-edit-stats.test.js",
     "test:pronoun-inventory": "node --test tests/pronoun-inventory.test.js",
     "test:pronoun-discovery": "node --test tests/pronoun-discovery.test.js",

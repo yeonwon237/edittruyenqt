@@ -1,7 +1,7 @@
 // AI translation engine (Văn bản gốc → QT thô).
-// Web: calls the private Lily Translation API through a same-origin Vercel
-// function. The VPS Bearer key never reaches browser JavaScript.
-// Desktop: runs CTranslate2 (int8) builds of the same model family — not
+// Web and desktop both use the local CTranslate2 service on this computer.
+// The desktop app starts it automatically; web users must have it running.
+// The models are CTranslate2 (int8) builds of the same model family — not
 // ONNX, and not a from-scratch quantization we invented: these are the
 // model authors' own official ct2-int8 exports (or, for the couple that
 // didn't publish one, our own conversion verified byte-identical to their
@@ -9,15 +9,9 @@
 // runtime, so the desktop app spawns the much lighter tools/nmt/server.py
 // as a Tauri sidecar and this file just calls it over localhost instead of
 // loading the WASM pipeline.
-import { isDesktopApp } from "@/lib/platform";
-import { supabase } from "@/api/supabaseClient";
-
 const SIDECAR_URL = "http://127.0.0.1:8787/translate";
-const WEB_PROXY_URL = "/api/lily-translation";
-const WEB_POLL_INTERVAL_MS = 500;
-const WEB_JOB_TIMEOUT_MS = 12 * 60 * 1000;
 
-// Desktop only — all 8 translate Chinese source → Vietnamese (matches the
+// All 8 translate Chinese source → Vietnamese (matches the
 // sidecar's MODEL_CONFIGS keys in tools/nmt/server.py). DanVP/vp2vi is
 // deliberately not here: it's Vietnamese→Vietnamese (polishes an existing QT
 // draft, not raw Chinese), a different pipeline stage than this button —
@@ -106,9 +100,12 @@ async function translateViaSidecar(text, glossaryTerms) {
       body: JSON.stringify({ text: lockedText, model_id: getSidecarModelId() }),
     });
   } catch {
-    throw new Error("Không kết nối được máy dịch nội bộ — nếu app vừa mở, model có thể đang tải lần đầu, đợi rồi thử lại.");
+    throw new Error("Không kết nối được model trên máy (127.0.0.1:8787). Hãy mở ứng dụng/dịch vụ dịch local rồi thử lại.");
   }
-  if (!response.ok) throw new Error(`Máy dịch nội bộ lỗi (${response.status})`);
+  if (!response.ok) {
+    const detail = await response.json().catch(() => null);
+    throw new Error(detail?.detail || `Máy dịch nội bộ lỗi (${response.status})`);
+  }
   const data = await response.json();
   const translatedLines = String(data.text || "").split("\n");
   return translatedLines
@@ -116,61 +113,8 @@ async function translateViaSidecar(text, glossaryTerms) {
     .join("\n");
 }
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function webProxyRequest(body) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error("Vui lòng đăng nhập lại để dùng dịch AI VPS.");
-  let response;
-  try {
-    response = await fetch(WEB_PROXY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
-      body: JSON.stringify(body),
-    });
-  } catch {
-    throw new Error("Không kết nối được dịch AI VPS. Vui lòng kiểm tra mạng và thử lại.");
-  }
-  const data = await response.json().catch(() => null);
-  if (!data) throw new Error("API dịch chưa sẵn sàng hoặc trả dữ liệu không hợp lệ.");
-  if (!response.ok) throw Object.assign(new Error(data.error || `Dịch AI VPS lỗi (${response.status})`), { status: response.status, code: data.code });
-  return data;
-}
-
-async function translateViaWebApi(text, glossaryTerms) {
-  const created = await webProxyRequest({
-    action: "create",
-    source: text,
-    model_key: getSidecarModelId(),
-    glossary_rows: glossaryTerms,
-  });
-  if (!created.job_token) throw new Error("API dịch không trả mã tác vụ.");
-  const deadline = Date.now() + WEB_JOB_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    await wait(WEB_POLL_INTERVAL_MS);
-    const job = await webProxyRequest({ action: "status", job_token: created.job_token });
-    if (job.status === "completed") {
-      const textResult = String(job.result?.result_text || "");
-      if (!textResult.trim()) throw new Error("Model hoàn tất nhưng không trả bản dịch.");
-      return textResult;
-    }
-    if (job.status === "error") throw new Error(job.error || "Model dịch thất bại.");
-    if (!['queued', 'running'].includes(job.status)) throw new Error("Trạng thái tác vụ dịch không hợp lệ.");
-  }
-  throw new Error("Tác vụ dịch quá thời gian chờ 12 phút. Kết quả trên VPS không bị hủy.");
-}
-
 export async function translateWithNmt(text, glossaryTerms = []) {
   const t0 = performance.now();
-  let translated;
-  if (isDesktopApp()) {
-    translated = await translateViaSidecar(text, glossaryTerms);
-  } else {
-    try {
-      translated = await translateViaSidecar(text, glossaryTerms);
-    } catch {
-      translated = await translateViaWebApi(text, glossaryTerms);
-    }
-  }
-  return { text: translated, ms: Math.round(performance.now() - t0) };
+  const translated = await translateViaSidecar(text, glossaryTerms);
+  return { text: translated, ms: Math.round(performance.now() - t0), engine: "local" };
 }

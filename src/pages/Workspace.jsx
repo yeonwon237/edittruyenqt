@@ -2921,7 +2921,7 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
       setCurrentChapter((prev) =>
         prev && prev.id === chapterId ? { ...prev, qt_raw: text } : prev
       );
-      toast({ title: `🤖 Đã dịch bằng AI — ${ms}ms` });
+      toast({ title: `🤖 Đã dịch bằng model trên máy — ${ms}ms` });
     } catch (e) {
       toast({ title: "Lỗi dịch AI", description: e.message, variant: "destructive" });
     }
