@@ -9,6 +9,7 @@
 // runtime, so the desktop app spawns the much lighter tools/nmt/server.py
 // as a Tauri sidecar and this file just calls it over localhost instead of
 // loading the WASM pipeline.
+import { assertChineseSourceReadable } from "@/lib/chineseSourceCheck";
 const SIDECAR_URL = "http://127.0.0.1:8787/translate";
 
 // All 8 translate Chinese source → Vietnamese (matches the
@@ -114,6 +115,7 @@ async function translateViaSidecar(text, glossaryTerms) {
 }
 
 export async function translateWithNmt(text, glossaryTerms = []) {
+  assertChineseSourceReadable(text);
   const t0 = performance.now();
   const translated = await translateViaSidecar(text, glossaryTerms);
   return { text: translated, ms: Math.round(performance.now() - t0), engine: "local" };
