@@ -14,13 +14,21 @@ export function highlightTerms(text, terms, onTermClick) {
   if (valid.length === 0) return text;
 
   const sorted = [...valid].sort((a, b) => b.source_term.length - a.source_term.length);
-  const pattern = sorted.map((t) => escapeRegex(t.source_term)).join("|");
-  const regex = new RegExp(`(${pattern})`, "gi");
+  // Vietnamese glossary entries must occupy whole words: "chị" must not
+  // light up inside "chịu", nor "em" inside "xem". Chinese entries may
+  // legitimately appear inside an unspaced run of Han characters.
+  const pattern = sorted.map((term) => {
+    const source = term.source_term.trim();
+    const left = /^[\p{Script=Latin}\p{N}]/u.test(source) ? "(?<![\\p{L}\\p{N}])" : "";
+    const right = /[\p{Script=Latin}\p{N}]$/u.test(source) ? "(?![\\p{L}\\p{N}])" : "";
+    return `${left}${escapeRegex(source)}${right}`;
+  }).join("|");
+  const regex = new RegExp(`(${pattern})`, "giu");
   const parts = text.split(regex);
 
   return parts.map((part, i) => {
     const matched = sorted.find(
-      (t) => t.source_term.toLowerCase() === part.toLowerCase()
+      (t) => t.source_term.trim().toLocaleLowerCase("vi") === part.toLocaleLowerCase("vi")
     );
     if (matched) {
       return React.createElement(
