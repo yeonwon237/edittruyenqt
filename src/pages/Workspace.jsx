@@ -202,10 +202,12 @@ export default function Workspace() {
   const [clearTarget, setClearTarget] = useState(null); // { field, label } | null
   const [showContextualPronoun, setShowContextualPronoun] = useState(false);
   const [showQualityCheck, setShowQualityCheck] = useState(false);
+  const [qualityTarget, setQualityTarget] = useState("edited");
   const [showStoryQa, setShowStoryQa] = useState(false);
   const [storyQaRunning, setStoryQaRunning] = useState(false);
   const [storyQaReport, setStoryQaReport] = useState(null);
   const [qualityIssues, setQualityIssues] = useState([]);
+  const [qtQualityIssues, setQtQualityIssues] = useState([]);
   const qualityScannedChapterRef = useRef(null);
   const [qualityUndo, setQualityUndo] = useState(null);
   const [showBetaCheck, setShowBetaCheck] = useState(false);
@@ -1151,6 +1153,11 @@ export default function Workspace() {
     qaSettings: project?.style_toggles?.qa_settings || {},
     qtRaw: currentChapter?.qt_raw || "",
   });
+  const qtQualityOptions = () => ({ ...qualityOptions(), qtRaw: "" });
+  const scanQtQuality = (text) => text.trim()
+    ? runQualityCheck(text, qtQualityOptions())
+    : [];
+  const storyQaTarget = storyQaReport?.target === "qt_raw" ? "qt_raw" : "edited";
 
   const handleSaveQaSettings = async (qaSettings) => {
     await handleUpdateProject({ style_toggles:{ ...(project?.style_toggles || {}), qa_settings:qaSettings } });
@@ -1175,7 +1182,8 @@ export default function Workspace() {
       });
       const chapterResults = report.chapters.filter((c) => !touched.has(c.id));
       touched.forEach((chapter) => {
-        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, { ...baseOptions, qtRaw: chapter.qt_raw || "" }) : [];
+        const source = chapter[storyQaTarget] || "";
+        const rawIssues = source.trim() ? runQualityCheck(source, { ...baseOptions, qtRaw: storyQaTarget === "edited" ? chapter.qt_raw || "" : "" }) : [];
         const issues = qaSettings.hidePronounNarrative ? rawIssues.filter((i) => i.type !== "pronoun" && i.type !== "narrative") : rawIssues;
         issues.forEach((issue) => {
           const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct", issue.confidence || ""].join("\u0001");
@@ -1213,7 +1221,7 @@ export default function Workspace() {
     });
   };
 
-  const handleScanStoryQa = async (qaSettings) => {
+  const handleScanStoryQa = async (qaSettings, target = "edited") => {
     setStoryQaRunning(true);
     try {
       if (currentChapter) await flushSave(currentChapter, true);
@@ -1221,7 +1229,8 @@ export default function Workspace() {
       const options = { glossaryTerms, pronounRules:project?.contextual_pronoun_rules || [], narrativeRules: project?.style_toggles?.story_memory?.narrativeRules || [], qaSettings };
       const issueGroups = new Map();
       const results = chapters.map((chapter) => {
-        const rawIssues = String(chapter.edited || "").trim() ? runQualityCheck(chapter.edited, { ...options, qtRaw: chapter.qt_raw || "" }) : [];
+        const source = chapter[target] || "";
+        const rawIssues = source.trim() ? runQualityCheck(source, { ...options, qtRaw: target === "edited" ? chapter.qt_raw || "" : "" }) : [];
         const issues = qaSettings.hidePronounNarrative ? rawIssues.filter((i) => i.type !== "pronoun" && i.type !== "narrative") : rawIssues;
         issues.forEach((issue) => {
           const key = [issue.type, issue.label, issue.value, issue.replacement || "", issue.contextual ? "context" : "direct", issue.confidence || ""].join("\u0001");
@@ -1235,10 +1244,10 @@ export default function Workspace() {
         return { id:chapter.id, title:chapter.title, chapter_order:chapter.chapter_order, count:issues.length, summary:groups.slice(0,3).join(" · ") };
       }).filter((chapter) => chapter.count > 0);
       const groups = [...issueGroups.values()].map((group) => ({ ...group, chapterCount:group.chapterIds.size, chapterIds:[...group.chapterIds] })).sort((a,b)=>b.count-a.count || a.label.localeCompare(b.label));
-      const report = { scannedAt:new Date().toISOString(), chapters:results, groups, issueCount:results.reduce((sum,chapter)=>sum+chapter.count,0) };
+      const report = { target, scannedAt:new Date().toISOString(), chapters:results, groups, issueCount:results.reduce((sum,chapter)=>sum+chapter.count,0) };
       setStoryQaReport(report);
       localStorage.setItem(`etq-story-qa:${projectId}`, JSON.stringify(report));
-      toast({ title:`Đã quét QA ${chapters.length} chương`, description:`Còn ${report.issueCount} lỗi/nghi vấn trong ${results.length} chương.` });
+      toast({ title:`Đã quét QA ${target === "qt_raw" ? "QT thô" : "Bản Edit"} · ${chapters.length} chương`, description:`Còn ${report.issueCount} lỗi/nghi vấn trong ${results.length} chương.` });
     } catch (error) {
       toast({ title:"Không quét được QA toàn truyện", description:error.message, variant:"destructive" });
     } finally { setStoryQaRunning(false); }
@@ -1254,11 +1263,11 @@ export default function Workspace() {
       if (currentChapter) await flushSave(currentChapter, true);
       const ids = [...new Set(locations.map((item) => item.chapterId))];
       const chapters = await Chapter.getMany(ids);
-      setBatchReplaceUndo({ target:"edited", rows:chapters.map(chapterUpsertRow) });
+      setBatchReplaceUndo({ target:storyQaTarget, rows:chapters.map(chapterUpsertRow) });
       const changedRows = chapters.map((chapter) => {
         const positions = locations.filter((item) => item.chapterId === chapter.id).sort((a,b)=>b.start-a.start);
-        const edited = positions.reduce((text,item) => text.slice(item.start,item.end) === item.value ? text.slice(0,item.start)+next+text.slice(item.end) : text, chapter.edited || "");
-        return chapterUpsertRow({ ...chapter, edited });
+        const changed = positions.reduce((text,item) => text.slice(item.start,item.end) === item.value ? text.slice(0,item.start)+next+text.slice(item.end) : text, chapter[storyQaTarget] || "");
+        return chapterUpsertRow({ ...chapter, [storyQaTarget]: changed });
       });
       let updated=[];
       for(let index=0;index<changedRows.length;index+=200){updated=updated.concat(await Chapter.bulkUpsert(changedRows.slice(index,index+200)));}
@@ -1328,14 +1337,14 @@ export default function Workspace() {
       });
       const ids = [...byChapter.keys()];
       const chapters = await Chapter.getMany(ids);
-      setBatchReplaceUndo({ target: "edited", rows: chapters.map(chapterUpsertRow) });
+      setBatchReplaceUndo({ target: storyQaTarget, rows: chapters.map(chapterUpsertRow) });
       const changedRows = chapters.map((chapter) => {
         const positions = (byChapter.get(chapter.id) || []).sort((a, b) => b.start - a.start);
-        const edited = positions.reduce(
+        const changed = positions.reduce(
           (text, item) => (text.slice(item.start, item.end) === item.value ? text.slice(0, item.start) + item.replacement + text.slice(item.end) : text),
-          chapter.edited || ""
+          chapter[storyQaTarget] || ""
         );
-        return chapterUpsertRow({ ...chapter, edited });
+        return chapterUpsertRow({ ...chapter, [storyQaTarget]: changed });
       });
       let updated = [];
       for (let index = 0; index < changedRows.length; index += 200) {
@@ -1379,14 +1388,14 @@ export default function Workspace() {
       });
       const ids = [...byChapter.keys()];
       const chapters = await Chapter.getMany(ids);
-      setBatchReplaceUndo({ target: "edited", rows: chapters.map(chapterUpsertRow) });
+      setBatchReplaceUndo({ target: storyQaTarget, rows: chapters.map(chapterUpsertRow) });
       const changedRows = chapters.map((chapter) => {
         const positions = (byChapter.get(chapter.id) || []).sort((a, b) => b.start - a.start);
-        const edited = positions.reduce(
+        const changed = positions.reduce(
           (text, item) => (text.slice(item.start, item.end) === item.value ? text.slice(0, item.start) + item.replacement + text.slice(item.end) : text),
-          chapter.edited || ""
+          chapter[storyQaTarget] || ""
         );
-        return chapterUpsertRow({ ...chapter, edited });
+        return chapterUpsertRow({ ...chapter, [storyQaTarget]: changed });
       });
       let updated = [];
       for (let index = 0; index < changedRows.length; index += 200) {
@@ -1438,7 +1447,7 @@ export default function Workspace() {
 
   useEffect(() => {
     if (!storyQaReport || !currentChapter?.id || qualityScannedChapterRef.current !== currentChapter.id) return;
-    const issues = qualityIssues;
+    const issues = storyQaTarget === "qt_raw" ? qtQualityIssues : qualityIssues;
     const summary = [...new Set(issues.map((issue) => issue.label))].slice(0,3).join(" · ");
     const old = storyQaReport.chapters.find((chapter) => chapter.id === currentChapter.id);
     if ((old?.count || 0) === issues.length && (old?.summary || "") === summary) return;
@@ -1450,7 +1459,7 @@ export default function Workspace() {
     setStoryQaReport(next);
     localStorage.setItem(`etq-story-qa:${projectId}`, JSON.stringify(next));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [qualityIssues, currentChapter?.id]);
+  }, [qualityIssues, qtQualityIssues, currentChapter?.id, storyQaTarget]);
 
   // Keep the QA badge live even when the dialog has never been opened. A
   // short debounce avoids rescanning on every keystroke while the user types.
@@ -1464,6 +1473,23 @@ export default function Workspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentChapter?.edited, glossaryTerms, project?.contextual_pronoun_rules]);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setQtQualityIssues(scanQtQuality(currentChapter?.qt_raw || "")), 350);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentChapter?.qt_raw, glossaryTerms, project?.contextual_pronoun_rules, project?.style_toggles]);
+
+  const handleOpenQtQualityCheck = () => {
+    const text = currentChapter?.qt_raw || "";
+    if (!text.trim()) {
+      toast({ title: "QT thô đang trống", description: "Chưa có nội dung để kiểm tra QA." });
+      return;
+    }
+    setQtQualityIssues(scanQtQuality(text));
+    setQualityTarget("qt_raw");
+    setShowQualityCheck(true);
+  };
+
   const handleOpenQualityCheck = () => {
     const text = currentChapter?.edited || "";
     if (!text.trim()) {
@@ -1471,6 +1497,7 @@ export default function Workspace() {
       return;
     }
     setQualityIssues(runQualityCheck(text, qualityOptions()));
+    setQualityTarget("edited");
     setShowQualityCheck(true);
     qualityScannedChapterRef.current = currentChapter?.id || null;
     // Desktop only: progressively enrich with the AI speaker-classifier
@@ -1497,19 +1524,21 @@ export default function Workspace() {
   const handleApplyQualitySuggestion = (issueList, replacement) => {
     if (!currentChapter) return;
     try {
-      const previous = currentChapter.edited || "";
+      const previous = currentChapter[qualityTarget] || "";
       const applicable = (Array.isArray(issueList) ? issueList : [issueList])
         .filter((issue) => previous.slice(issue.start, issue.end) === issue.value)
         .sort((a, b) => b.start - a.start);
       if (!applicable.length) throw new Error("Các vị trí đề xuất đã thay đổi. Hãy quét QA lại.");
       const next = applicable.reduce((text, issue) => applyQualitySuggestion(text, issue, String(replacement || "")), previous);
-      setQualityUndo({ chapterId: currentChapter.id, previous });
-      setCurrentChapter({ ...currentChapter, edited: next });
-      setQualityIssues(runQualityCheck(next, qualityOptions()));
+      setQualityUndo({ chapterId: currentChapter.id, target: qualityTarget, previous });
+      setCurrentChapter({ ...currentChapter, [qualityTarget]: next });
+      if (qualityTarget === "qt_raw") setQtQualityIssues(scanQtQuality(next));
+      else setQualityIssues(runQualityCheck(next, qualityOptions()));
       toast({ title: `Đã áp dụng ${applicable.length} vị trí QA`, description: "Có thể hoàn tác ngay trong cửa sổ QA." });
     } catch (error) {
       toast({ title: "Không thể áp dụng", description: error.message, variant: "destructive" });
-      setQualityIssues(runQualityCheck(currentChapter.edited || "", qualityOptions()));
+      if (qualityTarget === "qt_raw") setQtQualityIssues(scanQtQuality(currentChapter.qt_raw || ""));
+      else setQualityIssues(runQualityCheck(currentChapter.edited || "", qualityOptions()));
     }
   };
 
@@ -1525,8 +1554,8 @@ export default function Workspace() {
 
   const handleApplyAllSafeQuality = () => {
     if (!currentChapter) return;
-    const previous = currentChapter.edited || "";
-    const safeIssues = qualityIssues.filter(isSafeQualityIssue);
+    const previous = currentChapter[qualityTarget] || "";
+    const safeIssues = (qualityTarget === "qt_raw" ? qtQualityIssues : qualityIssues).filter(isSafeQualityIssue);
     if (!safeIssues.length) {
       toast({ title: "Không có lỗi an toàn nào để sửa tự động" });
       return;
@@ -1540,10 +1569,11 @@ export default function Workspace() {
         (text, issue) => applyQualitySuggestion(text, issue, String(issue.replacement)),
         previous
       );
-      setQualityUndo({ chapterId: currentChapter.id, previous });
-      setCurrentChapter({ ...currentChapter, edited: next });
-      const remaining = runQualityCheck(next, qualityOptions());
-      setQualityIssues(remaining);
+      setQualityUndo({ chapterId: currentChapter.id, target: qualityTarget, previous });
+      setCurrentChapter({ ...currentChapter, [qualityTarget]: next });
+      const remaining = qualityTarget === "qt_raw" ? scanQtQuality(next) : runQualityCheck(next, qualityOptions());
+      if (qualityTarget === "qt_raw") setQtQualityIssues(remaining);
+      else setQualityIssues(remaining);
       toast({
         title: `Đã sửa ${applicable.length} lỗi an toàn`,
         description: remaining.length
@@ -1552,7 +1582,8 @@ export default function Workspace() {
       });
     } catch (error) {
       toast({ title: "Không thể sửa tự động", description: error.message, variant: "destructive" });
-      setQualityIssues(runQualityCheck(currentChapter.edited || "", qualityOptions()));
+      if (qualityTarget === "qt_raw") setQtQualityIssues(scanQtQuality(currentChapter.qt_raw || ""));
+      else setQualityIssues(runQualityCheck(currentChapter.edited || "", qualityOptions()));
     }
   };
 
@@ -1580,20 +1611,22 @@ export default function Workspace() {
   };
 
   const handleUndoQualitySuggestion = () => {
-    if (!currentChapter || qualityUndo?.chapterId !== currentChapter.id) return;
+    if (!currentChapter || qualityUndo?.chapterId !== currentChapter.id || qualityUndo.target !== qualityTarget) return;
     const previous = qualityUndo.previous;
-    setCurrentChapter({ ...currentChapter, edited: previous });
-    setQualityIssues(runQualityCheck(previous, qualityOptions()));
+    setCurrentChapter({ ...currentChapter, [qualityTarget]: previous });
+    if (qualityTarget === "qt_raw") setQtQualityIssues(scanQtQuality(previous));
+    else setQualityIssues(runQualityCheck(previous, qualityOptions()));
     setQualityUndo(null);
     toast({ title: "Đã hoàn tác thay đổi QA" });
   };
 
   const handleLocateQualityIssue = (issue) => {
     setShowQualityCheck(false);
-    setMobileActiveCol("edited");
-    setPanel3Mode("edit");
+    setMobileActiveCol(qualityTarget === "qt_raw" ? "qt" : "edited");
+    if (qualityTarget === "qt_raw") setPanel2Mode("edit");
+    else setPanel3Mode("edit");
     window.setTimeout(() => {
-      const textarea = document.querySelector("[data-etq-panel='final'] [data-etq-role='edit-content']");
+      const textarea = document.querySelector(`[data-etq-panel='${qualityTarget === "qt_raw" ? "draft" : "final"}'] [data-etq-role='edit-content']`);
       if (!(textarea instanceof HTMLTextAreaElement)) return;
       textarea.focus();
       textarea.setSelectionRange(issue.start, issue.end);
@@ -5006,9 +5039,21 @@ ${compact}`;
                       }
                       terms={glossaryTerms}
                       onTermClick={handleTermClick}
+                      qualityIssues={qtQualityIssues}
+                      onIssueClick={handleOpenQtQualityCheck}
                       onScroll={() => handlePanelScroll(1)}
                       placeholder="Dán văn bản QT/Convert thô vào đây, hoặc bấm 'Tự dịch' ở trên..."
-                      extra={renderColumnActions("qt_raw", "QT thô", currentChapter.qt_raw)}
+                      extra={<>
+                        <button
+                          onClick={handleOpenQtQualityCheck}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-xs ${qtQualityIssues.length ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}
+                          title="Kiểm tra đầy đủ QA cho QT thô trước khi làm mượt"
+                        >
+                          <ShieldCheck className="h-3.5 w-3.5" />
+                          {qtQualityIssues.length ? `QA · ${qtQualityIssues.length}` : "QA sạch"}
+                        </button>
+                        {renderColumnActions("qt_raw", "QT thô", currentChapter.qt_raw)}
+                      </>}
                       onHide={() => handleToggleColumn("qt")}
                     />
                   </div>
@@ -5234,12 +5279,13 @@ ${compact}`;
       <QualityCheckDialog
         open={showQualityCheck}
         onOpenChange={setShowQualityCheck}
-        issues={qualityIssues}
+        title={qualityTarget === "qt_raw" ? "QA QT thô" : "QA bản Edit"}
+        issues={qualityTarget === "qt_raw" ? qtQualityIssues : qualityIssues}
         onApply={handleApplyQualitySuggestion}
         onLocate={handleLocateQualityIssue}
         onTranslate={handleTranslateQualityIssue}
         onUndo={handleUndoQualitySuggestion}
-        canUndo={qualityUndo?.chapterId === currentChapter?.id}
+        canUndo={qualityUndo?.chapterId === currentChapter?.id && qualityUndo.target === qualityTarget}
         onApplyAllSafe={handleApplyAllSafeQuality}
         onAddPronounRule={async (rule) => {
           const currentRules = project?.contextual_pronoun_rules || [];
@@ -5335,9 +5381,9 @@ ${compact}`;
         onBulkReplace={handleStoryQaBulkReplace}
         onIgnoreGroup={handleStoryQaIgnore}
         onUndoBulkReplace={handleUndoBatchRules}
-        canUndoBulkReplace={Boolean(batchReplaceUndo?.rows?.length)}
+        canUndoBulkReplace={Boolean(batchReplaceUndo?.rows?.length && batchReplaceUndo.target === storyQaTarget)}
         qaWorkflow={{ pending:chapterList.filter(ch=>editedChapterIds.has(ch.id)&&qaStatusOf(ch)!=="done"), stale:chapterList.filter(ch=>qaStatusOf(ch)==="stale") }}
-        onOpenChapter={(id) => { switchChapter(id); setShowStoryQa(false); }}
+        onOpenChapter={(id) => { switchChapter(id); setMobileActiveCol(storyQaTarget === "qt_raw" ? "qt" : "edited"); setShowStoryQa(false); }}
         onApplyAllSafe={handleStoryQaApplyAllSafe}
         onApplyAllPronoun={handleStoryQaApplyAllPronoun}
         onTranslate={handleTranslateStoryQaGroup}

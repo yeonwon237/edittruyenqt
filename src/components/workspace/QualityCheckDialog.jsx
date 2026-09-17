@@ -18,7 +18,7 @@ const isSafeIssue = (issue) =>
   String(issue.replacement || "").trim() &&
   issue.replacement !== issue.value;
 
-export default function QualityCheckDialog({ open, onOpenChange, issues, onApply, onLocate, onTranslate, onUndo, canUndo, onApplyAllSafe, onAddPronounRule }) {
+export default function QualityCheckDialog({ open, onOpenChange, title = "QA bản Edit", issues, onApply, onLocate, onTranslate, onUndo, canUndo, onApplyAllSafe, onAddPronounRule }) {
   const [filter, setFilter] = useState("all");
   const [replacements, setReplacements] = useState({});
   const [ignored, setIgnored] = useState(new Set());
@@ -144,7 +144,7 @@ export default function QualityCheckDialog({ open, onOpenChange, issues, onApply
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-slate-100">
           <div className="flex items-start justify-between gap-4 pr-7">
             <div>
-              <DialogTitle className="flex items-center gap-2 text-slate-800"><SearchCheck className="h-5 w-5 text-violet-600" /> QA bản Edit</DialogTitle>
+              <DialogTitle className="flex items-center gap-2 text-slate-800"><SearchCheck className="h-5 w-5 text-violet-600" /> {title}</DialogTitle>
               <DialogDescription className="mt-1">Chỉ đưa ra đề xuất. Văn bản không thay đổi cho đến khi bạn bấm Áp dụng.</DialogDescription>
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
