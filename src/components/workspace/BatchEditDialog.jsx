@@ -26,6 +26,7 @@ export default function BatchEditDialog({
   open,
   onOpenChange,
   chapters = [],
+  mode = "polish",
   editedChapterIds = new Set(),
   running,
   finished,
@@ -65,6 +66,7 @@ export default function BatchEditDialog({
   const selectedCount = selectedIds.size;
   const allVisibleSelected = visible.length > 0 && visible.every((chapter) => selectedIds.has(chapter.id));
   const pct = progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+  const isTranslate = mode === "translate";
 
   const toggleChapter = (id) => {
     if (running) return;
@@ -96,10 +98,12 @@ export default function BatchEditDialog({
       <DialogContent className="max-w-3xl max-h-[88vh] overflow-hidden rounded-2xl flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-violet-700 flex items-center gap-2">
-            <Sparkles className="w-5 h-5" /> Làm mượt QT hàng loạt
+            <Sparkles className="w-5 h-5" /> {isTranslate ? "Dịch Trung–Việt hàng loạt" : "Làm mượt QT hàng loạt"}
           </DialogTitle>
           <DialogDescription>
-            Dùng QT và prompt Làm mượt QT đã lưu để tạo Bản Edit. Chương thiếu QT được bỏ qua.
+            {isTranslate
+              ? "Dùng bản gốc tiếng Trung, prompt Dịch Trung–Việt đã lưu, Glossary và Ma trận xưng hô để tạo Bản Edit. Chương thiếu bản gốc được bỏ qua."
+              : "Dùng QT và prompt Làm mượt QT đã lưu để tạo Bản Edit. Chương thiếu QT được bỏ qua."}
             Mỗi chương được lưu ngay khi hoàn tất.
           </DialogDescription>
         </DialogHeader>
@@ -192,7 +196,7 @@ export default function BatchEditDialog({
                 <span className="w-9 shrink-0 text-right text-xs text-slate-400">{index + 1}</span>
                 <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{chapter.title || `Chương ${index + 1}`}</span>
                 {isCurrent ? (
-                  <span className="flex items-center gap-1 text-xs text-violet-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Đang làm mượt</span>
+                  <span className="flex items-center gap-1 text-xs text-violet-600"><Loader2 className="h-3.5 w-3.5 animate-spin" /> {isTranslate ? "Đang dịch" : "Đang làm mượt"}</span>
                 ) : hasError ? (
                   <span className="flex items-center gap-1 text-xs text-red-600"><AlertCircle className="h-3.5 w-3.5" /> Lỗi</span>
                 ) : isEdited ? (
@@ -242,7 +246,7 @@ export default function BatchEditDialog({
             <>
               <Button variant="ghost" onClick={() => handleClose(false)}>Đóng</Button>
               <Button
-                onClick={() => onStart([...selectedIds], { overwriteExisting })}
+                onClick={() => onStart([...selectedIds], { overwriteExisting, mode })}
                 disabled={selectedCount === 0}
                 className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
               >

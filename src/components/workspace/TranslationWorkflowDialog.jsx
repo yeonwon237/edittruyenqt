@@ -149,6 +149,10 @@ export default function TranslationWorkflowDialog({
           <div className="flex flex-wrap items-center gap-2"><span className="flex h-7 w-7 items-center justify-center rounded-full bg-violet-600 text-sm font-bold text-white">3</span><div className="min-w-0 flex-1"><h3 className="font-semibold text-slate-800">Làm mượt QT hàng loạt</h3><p className="text-xs text-slate-500">AI dùng QT và prompt Làm mượt QT đã lưu để tạo Bản Edit; chương thiếu QT được bỏ qua.</p></div><Button onClick={onOpenBatchEdit} disabled={busy} className="bg-violet-600 hover:bg-violet-700"><Sparkles className="mr-1.5 h-4 w-4" />Mở Làm mượt QT</Button></div>
         </section>
 
+        <section className="rounded-2xl border border-cyan-100 bg-cyan-50/40 p-4">
+          <div className="flex flex-wrap items-center gap-2"><div className="min-w-0 flex-1"><h3 className="font-semibold text-slate-800">Dịch Trung–Việt hàng loạt</h3><p className="text-xs text-slate-500">Dịch trực tiếp bản gốc tiếng Trung vào Bản Edit bằng prompt dịch đã lưu, Glossary và Ma trận xưng hô.</p></div><Button onClick={() => onOpenBatchEdit("translate")} disabled={busy} className="bg-cyan-600 hover:bg-cyan-700"><Sparkles className="mr-1.5 h-4 w-4" />Mở Dịch Trung–Việt</Button></div>
+        </section>
+
         <DialogFooter><Button variant="ghost" disabled={busy} onClick={() => onOpenChange(false)}>{qtFinished && !qtErrors.length ? <CheckCircle2 className="mr-1 h-4 w-4 text-emerald-600" /> : null}Đóng</Button></DialogFooter>
       </DialogContent>
     </Dialog>

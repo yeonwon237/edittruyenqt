@@ -292,6 +292,11 @@ export default function Workspace() {
   const [exportingEdited, setExportingEdited] = useState(false);
   const [exportingSelected, setExportingSelected] = useState(false);
   const [showBatchEdit, setShowBatchEdit] = useState(false);
+  const [batchEditMode, setBatchEditMode] = useState("polish");
+  const openBatchEdit = (mode = "polish") => {
+    setBatchEditMode(mode);
+    setShowBatchEdit(true);
+  };
   const [showTranslationWorkflow, setShowTranslationWorkflow] = useState(false);
   const [translationBootstrapRunning, setTranslationBootstrapRunning] = useState(false);
   const [translationBootstrapSaving, setTranslationBootstrapSaving] = useState(false);
@@ -3888,7 +3893,7 @@ ${sourceText}`;
   // a stop or a rate-limit error only processes what's left.
   const handleStartBatchEdit = async (
     selectedIds = [],
-    { overwriteExisting = false } = {}
+    { overwriteExisting = false, mode = "polish" } = {}
   ) => {
     if (!hasCustomAI()) {
       toast({
@@ -4028,8 +4033,12 @@ ${sourceText}`;
           setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
           continue;
         }
-        const sourceText = chapter.qt_raw || "";
+        const sourceText = mode === "translate" ? chapter.raw_original || "" : chapter.qt_raw || "";
         if (!sourceText.trim()) {
+          setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
+          continue;
+        }
+        if (mode === "translate" && !/[\p{Script=Han}]/u.test(sourceText)) {
           setBatchProgress((p) => ({ ...p, done: p.done + 1, skipped: p.skipped + 1 }));
           continue;
         }
@@ -4044,14 +4053,14 @@ ${sourceText}`;
               currentTitle: `${meta.title} (đoạn ${chunkI}/${chunkTotal})`,
             })),
           {
-            mode: "polish",
+            mode,
             glossaryTerms: batchGlossaryTerms,
             pronounRules: batchPronounRules,
             narrativeRules: storyMemory.narrativeRules || [],
             previousSummary,
           }
         );
-        const finalText = applyHardRules(editedText, "polish");
+        const finalText = applyHardRules(editedText, mode);
 
         await Chapter.update(meta.id, { edited: finalText }, { returning: false });
         setEditedChapterIds((current) => new Set(current).add(meta.id));
@@ -4094,8 +4103,8 @@ ${sourceText}`;
     setBatchProgress((p) => ({ ...p, currentChapterId: null, currentTitle: "" }));
     toast({
       title: batchStopRef.current
-        ? "Đã dừng làm mượt QT hàng loạt ⏸️"
-        : "Hoàn tất làm mượt QT hàng loạt! ✨",
+        ? "Đã dừng xử lý hàng loạt ⏸️"
+        : mode === "translate" ? "Hoàn tất dịch Trung–Việt hàng loạt! ✨" : "Hoàn tất làm mượt QT hàng loạt! ✨",
     });
   };
 
@@ -4636,7 +4645,7 @@ ${compact}`;
                 <button onClick={() => { setShowChapterManager(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
                   <ListIcon className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Quản lý chương
                 </button>
-                <button onClick={() => { setShowBatchEdit(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-50">
+                <button onClick={() => { openBatchEdit("polish"); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-50">
                   <Sparkles className="h-3.5 w-3.5 shrink-0" /> Làm mượt QT hàng loạt
                 </button>
                 <button onClick={() => { setShowTranslationWorkflow(true); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-cyan-700 transition-colors hover:bg-cyan-50">
@@ -4684,7 +4693,7 @@ ${compact}`;
             <span className="hidden xl:inline">Dịch toàn truyện</span>
           </button>
           <button
-            onClick={() => setShowBatchEdit(true)}
+            onClick={() => openBatchEdit("polish")}
             className="hidden md:flex items-center gap-1.5 rounded-xl bg-violet-500 px-3 py-2 text-xs font-bold text-white shadow-lg transition-colors hover:bg-violet-400"
             title="Làm mượt QT hàng loạt vào Bản Edit"
           >
@@ -5279,7 +5288,7 @@ ${compact}`;
         exportingEdited={exportingEdited}
         onExportSelected={handleExportSelectedChapters}
         exportingSelected={exportingSelected}
-        onBatchEdit={() => setShowBatchEdit(true)}
+        onBatchEdit={() => openBatchEdit("polish")}
         onBatchTitleEdit={() => setShowBatchTitleEdit(true)}
         qaIssuesByChapter={Object.fromEntries((storyQaReport?.chapters || []).map((chapter) => [chapter.id, chapter.count]))}
         betaIssuesByChapter={Object.fromEntries((storyBetaReport?.chapters || []).map(chapter=>[chapter.id,chapter.count]))}
@@ -5330,6 +5339,7 @@ ${compact}`;
       <BatchEditDialog
         open={showBatchEdit}
         onOpenChange={setShowBatchEdit}
+        mode={batchEditMode}
         chapters={chapterList}
         editedChapterIds={editedChapterIds}
         running={batchRunning}
@@ -5355,7 +5365,7 @@ ${compact}`;
         qtErrors={batchQtErrors}
         onStartQt={handleStartBatchQt}
         onStopQt={handleStopBatchQt}
-        onOpenBatchEdit={() => { setShowTranslationWorkflow(false); setShowBatchEdit(true); }}
+        onOpenBatchEdit={(mode) => { setShowTranslationWorkflow(false); openBatchEdit(mode); }}
       />
       <BatchBetaAiDialog
         open={showBatchBetaAi}
