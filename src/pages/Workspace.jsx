@@ -59,7 +59,7 @@ import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSideb
 import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
 import { applyRuleEdit } from "@/lib/ruleEdit";
-import { assertPronounsPreserved, protectPronouns, restoreProtectedPronouns } from "@/lib/preservePronouns";
+import { protectPronouns, restoreProtectedPronouns } from "@/lib/preservePronouns";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
@@ -2119,18 +2119,21 @@ ${sourceText}`;
     const rules = context.pronounRules || project?.contextual_pronoun_rules || [];
     const narrativeRules = context.narrativeRules || project?.style_toggles?.story_memory?.narrativeRules || [];
     const terms = context.glossaryTerms || glossaryTerms;
+    let needsPronounReview = false;
     const editChunk = async (source) => {
       if (context.mode === "translate") return callFn(buildChineseTranslatePrompt(source));
       if (context.mode !== "polish") return callFn(buildEditPrompt(source, context));
       const protectedInput = protectPronouns(source, rules, narrativeRules, terms);
       const output = await callFn(buildEditPrompt(protectedInput.text, context));
       const restored = restoreProtectedPronouns(output, protectedInput.tokens);
-      assertPronounsPreserved(source, restored, rules, narrativeRules, terms);
-      return restored;
+      if (!restored.complete) needsPronounReview = true;
+      return restored.text;
     };
     const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
     if (chunks.length <= 1) {
-      return editChunk(sourceText);
+      const result = await editChunk(sourceText);
+      if (needsPronounReview) context.onPronounReview?.();
+      return result;
     }
     const results = [];
     for (let i = 0; i < chunks.length; i++) {
@@ -2138,9 +2141,8 @@ ${sourceText}`;
       // eslint-disable-next-line no-await-in-loop
       results.push(await editChunk(chunks[i]));
     }
-    const result = results.join("\n\n");
-    if (context.mode === "polish") assertPronounsPreserved(sourceText, result, rules, narrativeRules, terms);
-    return result;
+    if (needsPronounReview) context.onPronounReview?.();
+    return results.join("\n\n");
   };
 
   const learnSingleChapter = async (chapter, editedText) => {
@@ -2253,12 +2255,13 @@ ${sourceText}`;
     }
     setGeminiEditing(true);
     try {
+      let needsPronounReview = false;
       const editedText = await runChunkedEdit(
         sourceText,
         (prompt) => callLLM(prompt),
         (i, total) =>
           total > 1 && toast({ title: `Đang xử lý đoạn ${i}/${total}...` }),
-        { mode }
+        { mode, onPronounReview: () => { needsPronounReview = true; } }
       );
       const finalText = applyHardRules(editedText, mode);
       setCurrentChapter((prev) =>
@@ -2288,8 +2291,10 @@ ${sourceText}`;
       const providerLabel =
         ({ gemini: "Gemini", openai: "GPT", claude: "Claude", stali:"STALI" }[provider] || "AI");
       toast({
-        title: `${providerLabel} đã edit xong! ✨`,
-        description: "Kiểm tra và chỉnh thêm nhé",
+        title: needsPronounReview ? "Đã giữ bản làm mượt · cần xem lại xưng hô" : `${providerLabel} đã edit xong! ✨`,
+        description: needsPronounReview
+          ? "AI đã thay đổi một số vị trí bảo vệ. Bản Edit vẫn được lưu để bạn kiểm tra, không cần trả thêm lượt AI."
+          : "Kiểm tra và chỉnh thêm nhé",
       });
     } catch (e) {
       toast({ title: "Lỗi AI", description: e.message, variant: "destructive" });

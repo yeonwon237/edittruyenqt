@@ -18,13 +18,6 @@ function pronounRegex(rules = [], narrativeRules = [], glossaryTerms = []) {
   return new RegExp(`(?<![\\p{L}\\p{N}_])(?:${alternatives})(?![\\p{L}\\p{N}_])`, "giu");
 }
 
-export function pronounSequence(text, rules = [], narrativeRules = [], glossaryTerms = []) {
-  const regex = pronounRegex(rules, narrativeRules, glossaryTerms);
-  return String(text || "").split("\n").map((line) =>
-    [...line.matchAll(regex)].map((match) => match[0].normalize("NFC").toLocaleLowerCase("vi"))
-  );
-}
-
 export function protectPronouns(text, rules = [], narrativeRules = [], glossaryTerms = []) {
   const tokens = [];
   const protectedText = String(text || "").replace(pronounRegex(rules, narrativeRules, glossaryTerms), (word) => {
@@ -37,19 +30,13 @@ export function protectPronouns(text, rules = [], narrativeRules = [], glossaryT
 
 export function restoreProtectedPronouns(result, tokens) {
   const markers = [...String(result || "").matchAll(/⟦XH\d+⟧/g)].map((match) => match[0]);
-  if (markers.length !== tokens.length || markers.some((marker, index) => marker !== tokens[index].marker)) {
-    throw new Error("AI đã làm mất hoặc đảo vị trí từ xưng hô được bảo vệ. Bản Edit chưa được ghi; hãy thử lại.");
-  }
+  const complete = markers.length === tokens.length && markers.every((marker, index) => marker === tokens[index].marker);
+  const byMarker = new Map(tokens.map((token) => [token.marker, token.word]));
   let index = 0;
-  return String(result || "").replace(/⟦XH\d+⟧/g, () => tokens[index++].word);
-}
-
-export function assertPronounsPreserved(source, result, rules = [], narrativeRules = [], glossaryTerms = []) {
-  const before = pronounSequence(source, rules, narrativeRules, glossaryTerms);
-  const after = pronounSequence(result, rules, narrativeRules, glossaryTerms);
-  if (before.length !== after.length || before.some((line, index) =>
-    line.length !== after[index].length || line.some((word, position) => word !== after[index][position])
-  )) {
-    throw new Error("AI đã đổi xưng hô hoặc số dòng. Bản Edit chưa được ghi; hãy kiểm tra QT và thử lại.");
-  }
+  const text = String(result || "").replace(/⟦XH\d+⟧/g, (marker) => {
+    const word = markers.length === tokens.length ? tokens[index]?.word : byMarker.get(marker);
+    index += 1;
+    return word || marker;
+  });
+  return { text, complete };
 }
