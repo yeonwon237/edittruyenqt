@@ -59,6 +59,7 @@ import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSideb
 import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
 import { applyRuleEdit } from "@/lib/ruleEdit";
+import { assertPronounsPreserved } from "@/lib/preservePronouns";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
@@ -1959,15 +1960,17 @@ export default function Workspace() {
   },[currentChapter?.edited,project?.style_toggles?.beta_settings]);
 
   const buildEditPrompt = (sourceText, context = {}) => {
+    const preservePronouns = context.mode === "polish";
     const activeGlossaryTerms = context.glossaryTerms || glossaryTerms;
     const activePronounRules = context.pronounRules || project?.contextual_pronoun_rules || [];
     const activeNarrativeRules = context.narrativeRules ||
       project?.style_toggles?.story_memory?.narrativeRules || [];
     const characterProfiles = project?.style_toggles?.story_memory?.characterProfiles || [];
     const glossaryText = activeGlossaryTerms
+      .filter((t) => !preservePronouns || t.category !== "Xưng hô")
       .map((t) => `- "${t.source_term}" → "${t.translation}"${t.category === "Xưng hô" ? " (mặc định QT; điều chỉnh theo ma trận xưng hô và người nói/người nghe)" : " (giữ đúng bản Việt này kể cả khi đầu vào đã là QT)"}`)
       .join("\n");
-    const batchRulesText = (project?.batch_rules || [])
+    const batchRulesText = (preservePronouns ? [] : project?.batch_rules || [])
       .filter((r) => r.find)
       .map((r) => `- Thay "${r.find}" bằng "${r.replace}"`)
       .join("\n");
@@ -2001,7 +2004,7 @@ export default function Workspace() {
     if (activePreset?.setting_era?.trim()) genreEraLines.push(`Bối cảnh/thời đại: ${activePreset.setting_era.trim()}`);
     const genreEraText = genreEraLines.join("\n");
 
-    const characterNotesText = (activePreset?.character_notes || [])
+    const characterNotesText = (preservePronouns ? [] : activePreset?.character_notes || [])
       .filter((n) => n.character?.trim() && n.note?.trim())
       .map((n) => `- ${n.character.trim()}: ${n.note.trim()}`)
       .join("\n");
@@ -2020,30 +2023,30 @@ ${
     return `Bạn là trợ lý biên tập truyện dịch chuyên nghiệp, chuyên edit truyện Convert/QT. Hãy biên tập văn bản QT thô sau đây thành văn phong tiếng Việt mượt mà, tự nhiên, thoát ý, giữ đúng cảm xúc và ý nghĩa gốc.
 
 QUY TẮC BẮT BUỘC:
-1. Giữ đúng tên riêng và thuật ngữ đã duyệt trong Glossary, kể cả khi QT đã chuyển sang bản Việt. Riêng mục Xưng hô là mặc định QT: ưu tiên ma trận người nói/người nghe và quy tắc lời dẫn, không ép một đại từ cho mọi nhân vật. QT có thể đọc sai hoặc tách tên; không tự bịa thêm ý để làm câu có vẻ hợp lý.
-2. Áp dụng các quy tắc thay thế nếu có.
+1. Giữ đúng tên riêng và thuật ngữ đã duyệt trong Glossary, kể cả khi QT đã chuyển sang bản Việt. ${preservePronouns ? "Giữ nguyên mọi từ xưng hô và đại từ đúng như QT; không suy luận lại vai nói/nghe, không thay đại từ theo Glossary hay quy tắc nhân vật." : "Riêng mục Xưng hô là mặc định QT: ưu tiên ma trận người nói/người nghe và quy tắc lời dẫn, không ép một đại từ cho mọi nhân vật."} QT có thể đọc sai hoặc tách tên; không tự bịa thêm ý để làm câu có vẻ hợp lý.
+2. ${preservePronouns ? "Không áp dụng quy tắc thay thế từ ngữ có thể đổi xưng hô." : "Áp dụng các quy tắc thay thế nếu có."}
 3. Sửa câu cưỡng ép, ngữ pháp lủng củng, lặp từ. Diễn đạt lại cho mượt mà nhưng giữ nguyên ý.
 4. Giữ nguyên các đoạn hội thoại trong ngoặc kép.
 5. KHÔNG thêm giải thích, ghi chú, hay tiêu đề. Chỉ xuất văn bản đã biên tập.
-6. ĐẶC BIỆT: Tự động nhận diện NGƯỜI NÓI và NGƯỜI NGHE trong từng câu hội thoại (dựa tên nhân vật, bối cảnh đoạn thoại, sở hữu cách câu nói, ngôi kể). Chọn đúng MA TRẬN XƯNG HÔ phù hợp với cặp người nói ↔ người nghe của đoạn. Nếu câu thoại không quy định đặc biệt cho người nghe cụ thể, dùng quy tắc MẶC ĐỊNH của nhân vật nói. Tuyệt đối không viết sai cách xưng hô của nhân vật.
+6. ${preservePronouns ? "CHỈ LÀM MƯỢT: giữ nguyên từng từ xưng hô trong lời thoại và lời dẫn, kể cả khi có vẻ chưa hợp ngữ cảnh. Không tự sửa cách gọi của bất kỳ nhân vật nào." : "ĐẶC BIỆT: Tự động nhận diện NGƯỜI NÓI và NGƯỜI NGHE trong từng câu hội thoại (dựa tên nhân vật, bối cảnh đoạn thoại, sở hữu cách câu nói, ngôi kể). Chọn đúng MA TRẬN XƯNG HÔ phù hợp với cặp người nói ↔ người nghe của đoạn. Nếu câu thoại không quy định đặc biệt cho người nghe cụ thể, dùng quy tắc MẶC ĐỊNH của nhân vật nói. Tuyệt đối không viết sai cách xưng hô của nhân vật."}
 7. Đây có thể là một đoạn trích trong chương dài hơn — chỉ biên tập đúng phần văn bản được đưa, không thêm mở đầu/kết luận ngoài ý.
 8. BẮT BUỘC: Giữ nguyên chính xác số lần xuống dòng / số đoạn văn như văn bản đầu vào — mỗi dòng gốc tương ứng với đúng một dòng trong bản dịch, không gộp nhiều dòng thành một, không tách một dòng thành nhiều dòng. Nếu văn bản gốc có DÒNG TRỐNG (dòng rỗng) để ngăn cách giữa các đoạn, PHẢI giữ nguyên dòng trống đó ở đúng vị trí tương ứng trong bản dịch — không được xóa/gộp dòng trống lại, kể cả khi nó không chứa nội dung để dịch.
 ${extraRules.join("\n")}
 ${presetBlock}
-GLOSSARY (KHÓA TÊN / THUẬT NGỮ; XƯNG HÔ THEO NGỮ CẢNH):
+GLOSSARY (KHÓA TÊN / THUẬT NGỮ):
 ${glossaryText || "(trống)"}
 
 QUY TẮC THAY THẾ:
 ${batchRulesText || "(không có)"}
 
-MA TRẬN XƯNG HÔ THEO NGỮ CẢNH (AI tự nhận diện người nói ↔ người nghe, áp dụng chính xác đại từ):
+${preservePronouns ? "" : `MA TRẬN XƯNG HÔ THEO NGỮ CẢNH (AI tự nhận diện người nói ↔ người nghe, áp dụng chính xác đại từ):
 ${pronounMatrixText || "(không có quy tắc cụ thể — dùng ngữ cảm tự nhiên theo văn bản gốc)"}
 
 NGÔI LỜI DẪN / ĐẠI TỪ NGÔI THỨ BA (BẮT BUỘC TUÂN THỦ, không áp dụng vào lời thoại):
 ${narrativePronounText || "(chưa có quy tắc riêng)"}
 
 HỒ SƠ NHÂN VẬT ĐÃ DUYỆT (dùng để hiểu giới tính, thân phận và chọn xưng hô; không bịa thêm dữ kiện):
-${characterProfileText || "(chưa có hồ sơ riêng)"}
+${characterProfileText || "(chưa có hồ sơ riêng)"}`}
 
 ${context.previousSummary ? `TÓM TẮT CHƯƠNG TRƯỚC (chỉ dùng để giữ mạch truyện, không được chép vào đầu ra):
 ${context.previousSummary}` : ""}
@@ -2057,7 +2060,8 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
   // Post-processing applied after every AI edit result, in code (not
   // dependent on the AI actually following the prompt): preset forbidden
   // words and the "strip trailing ạ" toggle.
-  const applyHardRules = (text) => {
+  const applyHardRules = (text, mode = "edit") => {
+    if (mode === "polish") return text;
     let result = text;
     const forbidden = (activePreset?.forbidden_words || []).filter((r) => r.find);
     if (forbidden.length) {
@@ -2071,32 +2075,69 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
 
   // Rough line-count check — a heads-up, not a hard guarantee (LLMs don't
   // perfectly preserve line counts even when explicitly instructed).
-  const checkLineAlignment = (sourceText, resultText) => {
+  const checkLineAlignment = (sourceText, resultText, sourceLabel = "QT thô") => {
     const srcLines = sourceText.split("\n").length;
     const outLines = resultText.split("\n").length;
     if (srcLines !== outLines) {
       toast({
-        title: "⚠️ Số dòng bản Edit không khớp QT thô",
-        description: `QT thô có ${srcLines} dòng, bản Edit có ${outLines} dòng — kiểm tra lại cấu trúc đoạn.`,
+        title: `⚠️ Số dòng bản Edit không khớp ${sourceLabel}`,
+        description: `${sourceLabel} có ${srcLines} dòng, bản Edit có ${outLines} dòng — kiểm tra lại cấu trúc đoạn.`,
       });
     }
+  };
+
+  const buildChineseTranslatePrompt = (sourceText) => {
+    const namesAndTerms = glossaryTerms
+      .filter((term) => term.source_term?.trim() && term.translation?.trim())
+      .map((term) => `- ${term.source_term.trim()} → ${term.translation.trim()}`)
+      .join("\n");
+    return `Bạn là dịch giả tiểu thuyết Trung–Việt. Dịch nguyên văn tiếng Trung dưới đây sang tiếng Việt tự nhiên, đúng nghĩa, đúng sắc thái. Đây là tác vụ DỊCH từ tiếng Trung, không phải làm mượt bản QT.
+
+YÊU CẦU:
+1. Không thêm, bớt tình tiết. Giữ tên riêng và thuật ngữ theo Glossary.
+2. Chọn xưng hô phù hợp ngữ cảnh và các quy tắc đã duyệt nếu có.
+3. Giữ nguyên số dòng và vị trí dòng trống. Chỉ trả về bản dịch tiếng Việt, không giải thích.
+4. Nếu preset có câu yêu cầu giữ nguyên xưng hô QT, bỏ qua câu đó trong lần chạy này vì đầu vào là nguyên văn tiếng Trung.
+
+VĂN PHONG RIÊNG:
+${activePreset?.prompt_instructions || "Dịch tự nhiên, rõ nghĩa."}
+
+GLOSSARY:
+${namesAndTerms || "(trống)"}
+
+MA TRẬN XƯNG HÔ:
+${buildPronounMatrixPrompt(project?.contextual_pronoun_rules || []) || "(không có)"}
+
+VĂN BẢN TIẾNG TRUNG:
+${sourceText}`;
   };
 
   // Runs one call per chunk (sequentially, to stay within provider rate
   // limits) and stitches the results back together. Chapters usually fit in
   // a single chunk; this only kicks in for unusually long ones.
   const runChunkedEdit = async (sourceText, callFn, onProgress, context = {}) => {
+    const checkPronouns = (source, result) => {
+      if (context.mode === "polish") {
+        assertPronounsPreserved(
+          source, result,
+          context.pronounRules || project?.contextual_pronoun_rules || [],
+          context.narrativeRules || project?.style_toggles?.story_memory?.narrativeRules || [],
+          context.glossaryTerms || glossaryTerms
+        );
+      }
+      return result;
+    };
     const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
     if (chunks.length <= 1) {
-      return await callFn(buildEditPrompt(sourceText, context));
+      return checkPronouns(sourceText, await callFn(context.mode === "translate" ? buildChineseTranslatePrompt(sourceText) : buildEditPrompt(sourceText, context)));
     }
     const results = [];
     for (let i = 0; i < chunks.length; i++) {
       onProgress?.(i + 1, chunks.length);
       // eslint-disable-next-line no-await-in-loop
-      results.push(await callFn(buildEditPrompt(chunks[i], context)));
+      results.push(checkPronouns(chunks[i], await callFn(context.mode === "translate" ? buildChineseTranslatePrompt(chunks[i]) : buildEditPrompt(chunks[i], context))));
     }
-    return results.join("\n\n");
+    return checkPronouns(sourceText, results.join("\n\n"));
   };
 
   const learnSingleChapter = async (chapter, editedText) => {
@@ -2180,17 +2221,20 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
   };
 
   // Custom AI edit (Gemini / GPT / Claude, user's own key)
-  const doCustomEdit = async () => {
+  const doCustomEdit = async (mode = "polish") => {
     if (!currentChapter) {
       toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
       return;
     }
     const chapterId = currentChapter.id;
     const prevEdited = currentChapter.edited || "";
-    // Same free rule pre-pass as Auto Edit — see comment there.
-    const sourceText = applyRuleEdit(currentChapter.qt_raw || currentChapter.raw_original || "");
+    const sourceText = mode === "translate" ? currentChapter.raw_original || "" : currentChapter.qt_raw || "";
     if (!sourceText.trim()) {
-      toast({ title: "Không có văn bản để edit!", variant: "destructive" });
+      toast({ title: mode === "translate" ? "Chưa có văn bản gốc tiếng Trung!" : "Chưa có QT thô để làm mượt!", variant: "destructive" });
+      return;
+    }
+    if (mode === "translate" && !/[\p{Script=Han}]/u.test(sourceText)) {
+      toast({ title: "Văn bản gốc cần có chữ Trung để dịch", variant: "destructive" });
       return;
     }
     const provider = getProvider();
@@ -2210,14 +2254,15 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
         sourceText,
         (prompt) => callLLM(prompt),
         (i, total) =>
-          total > 1 && toast({ title: `Đang xử lý đoạn ${i}/${total}...` })
+          total > 1 && toast({ title: `Đang xử lý đoạn ${i}/${total}...` }),
+        { mode }
       );
-      const finalText = applyHardRules(editedText);
+      const finalText = applyHardRules(editedText, mode);
       setCurrentChapter((prev) =>
         prev && prev.id === chapterId ? { ...prev, edited: finalText } : prev
       );
       setAiUndo({ chapterId, previous: prevEdited });
-      checkLineAlignment(sourceText, finalText);
+      checkLineAlignment(sourceText, finalText, mode === "translate" ? "Bản gốc" : "QT thô");
       if (aiChapterLearningEnabled) {
         try {
           const learned = await learnSingleChapter(currentChapter, finalText);
@@ -2258,7 +2303,7 @@ Hãy biên tập lại toàn bộ văn bản trên thành bản tiếng Việt h
       runner();
     }
   };
-  const handleGeminiEdit = () => runAiEdit(doCustomEdit);
+  const handleGeminiEdit = (mode = "polish") => runAiEdit(() => doCustomEdit(mode));
 
   const handleUndoAiEdit = () => {
     if (!aiUndo || !currentChapter || aiUndo.chapterId !== currentChapter.id) return;

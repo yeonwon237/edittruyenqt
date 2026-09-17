@@ -199,8 +199,8 @@ export default function TranslationSettingsDialog({
           <DialogHeader>
             <DialogTitle className="text-violet-700">🎭 Cài đặt dịch thuật</DialogTitle>
             <DialogDescription>
-              Preset quy định văn phong/nguyên tắc riêng cho bộ truyện này — được gộp vào prompt AI
-              mỗi khi bấm Auto Edit / AI. Công tắc bên dưới áp dụng chung, không phụ thuộc preset.
+              Preset quy định văn phong chung cho bộ truyện. Khi chạy AI, chọn riêng Làm mượt QT
+              hoặc Dịch Trung–Việt trên thanh công cụ; không cần mô tả tác vụ trong preset.
             </DialogDescription>
           </DialogHeader>
 
@@ -413,7 +413,7 @@ export default function TranslationSettingsDialog({
                 </div>
                 <div>
                   <label className="text-xs font-medium text-violet-700">
-                    Văn phong / nguyên tắc dịch (chèn thẳng vào prompt AI) *
+                    Văn phong chung (chèn vào prompt AI của từng chế độ) *
                   </label>
                   <textarea
                     value={form.prompt_instructions}

@@ -130,8 +130,8 @@ export default function EditorToolbar({
         <button type="button" onClick={onSelfTranslate} disabled={!selfTranslateSupported || selfTranslating} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold text-slate-600 active:bg-violet-50 active:text-violet-700 disabled:opacity-35">
           {selfTranslating ? <Loader2 className="h-5 w-5 animate-spin" /> : <Languages className="h-5 w-5" />}<span>Tự dịch</span>
         </button>
-        <button type="button" onClick={hasCustomAI ? onCustomEdit : onOpenAISettings} disabled={customAIEditing} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl bg-violet-600 text-[11px] font-bold text-white shadow-sm active:bg-violet-700 disabled:opacity-50">
-          {customAIEditing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Bot className="h-5 w-5" />}<span>{hasCustomAI ? provider.label : "Thiết lập AI"}</span>
+        <button type="button" onClick={hasCustomAI ? () => onCustomEdit("polish") : onOpenAISettings} disabled={customAIEditing} className="flex min-h-12 flex-col items-center justify-center gap-0.5 rounded-xl bg-violet-600 text-[11px] font-bold text-white shadow-sm active:bg-violet-700 disabled:opacity-50">
+          {customAIEditing ? <Loader2 className="h-5 w-5 animate-spin" /> : <Bot className="h-5 w-5" />}<span>{hasCustomAI ? "Làm mượt" : "Thiết lập AI"}</span>
         </button>
         <div ref={mobileMoreRef} className="relative">
           <button type="button" onClick={() => setShowMore((value) => !value)} className="flex min-h-12 w-full flex-col items-center justify-center gap-0.5 rounded-xl text-[11px] font-semibold text-slate-600 active:bg-violet-50 active:text-violet-700" aria-expanded={showMore}>
@@ -144,6 +144,7 @@ export default function EditorToolbar({
               <button onClick={() => { onBatchReplace(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Wand2 className="h-4 w-4 text-amber-600" /> Thay thế hàng loạt</button>
               <button onClick={() => { onPronounSwitcher(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Users className="h-4 w-4 text-purple-600" /> Đổi xưng hô</button>
               <button onClick={() => { onRuleEdit(); setShowMore(false); }} disabled={ruleEditing} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50 disabled:opacity-40">{ruleEditing ? <Loader2 className="h-4 w-4 animate-spin text-violet-600" /> : <Bot className="h-4 w-4 text-violet-600" />} Dịch AI</button>
+              {hasCustomAI && <button onClick={() => { onCustomEdit("translate"); setShowMore(false); }} disabled={customAIEditing} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50 disabled:opacity-40"><Languages className="h-4 w-4 text-violet-600" /> Dịch Trung–Việt bằng {provider.label}</button>}
               <button onClick={() => { onOpenTranslationSettings(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><Palette className="h-4 w-4 text-pink-600" /> Preset văn phong</button>
               <button onClick={() => { onOpenImageTranslate(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><ImagePlus className="h-4 w-4 text-sky-600" /> Dịch từ ảnh</button>
               <button onClick={() => { onOpenColumnMove(); setShowMore(false); }} className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-slate-700 active:bg-violet-50"><ArrowRightLeft className="h-4 w-4 text-indigo-600" /> Chuyển dữ liệu giữa các cột</button>
@@ -382,9 +383,9 @@ export default function EditorToolbar({
       {hasCustomAI ? (
         <div className="flex items-center gap-1 shrink-0">
           <button
-            onClick={onCustomEdit}
+            onClick={() => onCustomEdit("polish")}
             disabled={customAIEditing}
-            title={`Edit bằng ${provider.label}`}
+            title={`Làm mượt QT, giữ nguyên xưng hô bằng ${provider.label}`}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r ${provider.gradFrom} ${provider.gradTo} hover:opacity-90 text-white text-xs font-semibold shadow-sm transition-all disabled:opacity-50`}
           >
             {customAIEditing ? (
@@ -392,7 +393,15 @@ export default function EditorToolbar({
             ) : (
               <Bot className="h-3.5 w-3.5" />
             )}
-            {provider.label}
+            Làm mượt QT
+          </button>
+          <button
+            onClick={() => onCustomEdit("translate")}
+            disabled={customAIEditing}
+            title={`Dịch văn bản gốc tiếng Trung sang Bản Edit bằng ${provider.label}`}
+            className="rounded-xl border border-violet-200 px-2.5 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50 disabled:opacity-50 dark:border-white/20 dark:text-violet-300"
+          >
+            Dịch Trung–Việt
           </button>
           <button
             onClick={onOpenAISettings}
