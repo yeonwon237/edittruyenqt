@@ -104,6 +104,7 @@ export function createLilyTranslationHandler({ env = process.env, fetchImpl = fe
           model_key: modelKey,
           backend: 'ct2',
           beam_size: 2,
+          batch_size: 32,
           chunk_mode: 'câu',
           normalize_mode: 'auto',
           honorific_kinship: true,
