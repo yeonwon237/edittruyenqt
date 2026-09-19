@@ -73,6 +73,22 @@ export function buildPronounMatrixPrompt(rules) {
   return blocks.join("\n\n");
 }
 
+// Build the "Ngôi Lời Dẫn" block: per-character third-person pronoun used
+// in narration (outside direct dialogue), from project.style_toggles
+// .story_memory.narrativeRules. Kept separate from buildPronounMatrixPrompt
+// (dialogue self/target words) since it's a different axis of xưng hô —
+// concatenate both into the {{PRONOUN_MATRIX}} slot at the call site.
+export function buildNarrativeRulesPrompt(rules) {
+  const valid = (Array.isArray(rules) ? rules : []).filter(
+    (r) => r && typeof r.character === "string" && r.character.trim() && typeof r.pronoun === "string" && r.pronoun.trim()
+  );
+  if (!valid.length) return "";
+  const lines = valid.map(
+    (r) => `   • "${r.character.trim()}": gọi là "${r.pronoun.trim()}"${r.note?.trim() ? ` (ghi chú: ${r.note.trim()})` : ""}`
+  );
+  return `NGÔI LỜI DẪN (đại từ ngôi thứ ba dùng trong câu văn tường thuật/dẫn truyện, NGOÀI lời thoại trực tiếp — PHẢI dùng đúng và nhất quán cho từng nhân vật xuyên suốt, không đổi giữa các đoạn):\n${lines.join("\n")}`;
+}
+
 // A short human-readable summary used in the dialog list view.
 export function ruleSummary(rule) {
   if (!rule) return "";

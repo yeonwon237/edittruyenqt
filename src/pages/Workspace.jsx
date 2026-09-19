@@ -46,7 +46,7 @@ import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBa
 import ImageTranslateDialog from "@/components/workspace/ImageTranslateDialog";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
 import AISettingsDialog from "@/components/workspace/AISettingsDialog";
-import { buildPronounMatrixPrompt } from "@/lib/pronounMatrix";
+import { buildPronounMatrixPrompt, buildNarrativeRulesPrompt } from "@/lib/pronounMatrix";
 import { diffTextChanges } from "@/lib/textDiff";
 import { countForeignChars } from "@/lib/highlight";
 import { applyQualitySuggestion, runQualityCheck } from "@/lib/qualityCheck";
@@ -2000,7 +2000,10 @@ export default function Workspace() {
   const buildChineseTranslatePrompt = (sourceText, context = {}) => {
     const terms = context.glossaryTerms || glossaryTerms;
     const glossaryText = terms.map((term) => `- ${term.source_term} → ${term.translation}`).join("\n");
-    const pronounMatrixText = buildPronounMatrixPrompt(context.pronounRules || project?.contextual_pronoun_rules || []);
+    const dialogueMatrixText = buildPronounMatrixPrompt(context.pronounRules || project?.contextual_pronoun_rules || []);
+    const narrativeRules = context.narrativeRules || project?.style_toggles?.story_memory?.narrativeRules || [];
+    const narrativeMatrixText = buildNarrativeRulesPrompt(narrativeRules);
+    const pronounMatrixText = [dialogueMatrixText, narrativeMatrixText].filter(Boolean).join("\n\n");
     return composeTranslationPrompt(project?.style_toggles?.translate_prompt?.trim() || DEFAULT_TRANSLATE_PROMPT, sourceText, glossaryText, pronounMatrixText);
   };
   // Runs one call per chunk (sequentially, to stay within provider rate
