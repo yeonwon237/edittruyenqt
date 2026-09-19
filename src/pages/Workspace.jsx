@@ -53,7 +53,7 @@ import { applyQualitySuggestion, runQualityCheck } from "@/lib/qualityCheck";
 import { buildSpeakerClfLookup } from "@/lib/speakerClf";
 import { applyBetaSuggestion, betaCandidatePayload, runBetaCheck } from "@/lib/betaCheck";
 import { translateHanViet, supportsSelfTranslate } from "@/lib/hanviet";
-import { translateWithNmt } from "@/lib/nmtTranslate";
+import { translateWithNmt, NMT_MODELS, getSidecarModelId } from "@/lib/nmtTranslate";
 import { isDesktopApp } from "@/lib/platform";
 import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSidebarContext";
 import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
@@ -2911,8 +2911,13 @@ Trả DUY NHẤT một JSON array (không markdown, không giải thích gì th�
       toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
       return;
     }
-    const sourceText = currentChapter.raw_original || "";
-    if (!sourceText.trim() || !/[\p{Script=Han}]/u.test(sourceText)) {
+    const isViToVi = NMT_MODELS.find((m) => m.id === getSidecarModelId())?.direction === "vi-vi";
+    const sourceText = isViToVi ? currentChapter.qt_raw || "" : currentChapter.raw_original || "";
+    if (!sourceText.trim()) {
+      toast({ title: isViToVi ? "Chưa có QT thô để làm mượt!" : "Chưa có Văn bản gốc để dịch!", variant: "destructive" });
+      return;
+    }
+    if (!isViToVi && !/[\p{Script=Han}]/u.test(sourceText)) {
       toast({ title: "Chưa có Văn bản gốc để dịch!", variant: "destructive" });
       return;
     }
