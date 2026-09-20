@@ -250,7 +250,13 @@ async function callGeminiRaw(apiKey, prompt, image, model, maxTokens = 8192) {
     body: JSON.stringify({
       contents: [{ parts }],
       safetySettings: GEMINI_SAFETY_SETTINGS,
-      generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
+      // Gemini 2.5+/3 models "think" before answering by default, and those
+      // thinking tokens are billed against maxOutputTokens — so a call that
+      // used to fit now silently loses part of its budget to invisible
+      // reasoning and comes back MAX_TOKENS-truncated on the same input that
+      // worked before. Translation/edit here needs the literal text carried
+      // across, not extended reasoning, so switch thinking off.
+      generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens, thinkingConfig: { thinkingBudget: 0 } },
     }),
   });
   if (!res.ok) {
