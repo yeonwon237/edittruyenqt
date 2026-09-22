@@ -41,6 +41,7 @@ import {
   exportChaptersTxt,
   exportChaptersDocx,
   exportChaptersPdf,
+  exportChapterDataset,
 } from "@/lib/exportUtils";
 import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBase64 } from "@/lib/llm";
 import ImageTranslateDialog from "@/components/workspace/ImageTranslateDialog";
@@ -291,6 +292,7 @@ export default function Workspace() {
   const [exportingChapters, setExportingChapters] = useState(false);
   const [exportingEdited, setExportingEdited] = useState(false);
   const [exportingSelected, setExportingSelected] = useState(false);
+  const [exportingDataset, setExportingDataset] = useState(false);
   const [showBatchEdit, setShowBatchEdit] = useState(false);
   const [batchEditMode, setBatchEditMode] = useState("polish");
   const openBatchEdit = (mode = "polish") => {
@@ -3712,6 +3714,45 @@ ${sourceText}`;
     setExportingSelected(false);
   };
 
+  const handleExportDataset = async (chapterIds, source = "raw", format = "csv") => {
+    if (!chapterIds?.length) return;
+    setExportingDataset(true);
+    try {
+      if (currentChapter && chapterIds.includes(currentChapter.id)) await flushSave(currentChapter, true);
+      const requestedIds = new Set(chapterIds);
+      const fetched = await Chapter.getMany([...requestedIds]);
+      const picked = fetched.filter((chapter) => requestedIds.has(chapter.id) && chapter.project_id === projectId);
+      if (picked.length !== requestedIds.size) {
+        throw new Error("Một số chương không còn tồn tại hoặc không thuộc truyện đang mở. Hãy mở lại Quản lý chương rồi chọn lại.");
+      }
+      picked.sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+      const sourceLabel = source === "qt" ? "QT" : "TrungRaw";
+      const count = exportChapterDataset(
+        picked,
+        source,
+        format,
+        `${project?.title || "Chuong"}_Dataset_${sourceLabel}_Edit`
+      );
+      const skipped = picked.length - count;
+      if (!count) {
+        toast({
+          title: "Không có cặp dữ liệu hoàn chỉnh",
+          description: `Các chương đã chọn cần có cả ${source === "qt" ? "QT" : "Trung raw"} và Bản edit.`,
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({
+        title: `Đã xuất ${count} cặp dữ liệu ${sourceLabel} → Edit`,
+        description: skipped ? `Đã bỏ qua ${skipped} chương thiếu một trong hai cột.` : undefined,
+      });
+    } catch (e) {
+      toast({ title: "Lỗi xuất dataset", description: e.message, variant: "destructive" });
+    } finally {
+      setExportingDataset(false);
+    }
+  };
+
   const handleAnalyzeTranslationWorkflow = async (sampleSizeOrRange = 5) => {
     if (!hasCustomAI()) {
       toast({ title: "Cần cấu hình AI trước", description: "Bấm nút AI trên thanh công cụ để nhập API key.", variant: "destructive" });
@@ -5296,6 +5337,8 @@ ${compact}`;
         exportingEdited={exportingEdited}
         onExportSelected={handleExportSelectedChapters}
         exportingSelected={exportingSelected}
+        onExportDataset={handleExportDataset}
+        exportingDataset={exportingDataset}
         onBatchEdit={() => openBatchEdit("polish")}
         onBatchTitleEdit={() => setShowBatchTitleEdit(true)}
         qaIssuesByChapter={Object.fromEntries((storyQaReport?.chapters || []).map((chapter) => [chapter.id, chapter.count]))}

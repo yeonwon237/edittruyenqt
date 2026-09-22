@@ -1,4 +1,4 @@
-import { escapeCsvField } from "./csvUtils";
+import { escapeCsvField } from "./csvUtils.js";
 
 const CHUONG_KEYWORD = String.fromCharCode(0x43, 0x68, 0x01b0, 0x01a1, 0x6e, 0x67); // "Chương"
 
@@ -53,6 +53,51 @@ export function exportChaptersCsv(chapters, filename) {
   const csv = rows.map((r) => r.map((v) => escapeCsvField(v)).join(",")).join("\n");
   const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
   downloadBlob(blob, `${filename}.csv`);
+}
+
+// Training dataset export. One record intentionally represents one chapter:
+// paragraph/sentence alignment cannot be inferred safely after a human edit
+// has merged, split, added or removed passages.
+export function buildChapterDataset(chapters, source = "raw") {
+  const sourceField = source === "qt" ? "qt_raw" : "raw_original";
+  const seenChapterIds = new Set();
+  return chapters
+    .map((chapter, index) => {
+      const input = String(chapter[sourceField] || "");
+      const output = String(chapter.edited || "");
+      return {
+        project_id: chapter.project_id || "",
+        chapter_id: chapter.id || "",
+        pair_id: `${chapter.id || `order-${chapter.chapter_order ?? index}`}:${source === "qt" ? "qt" : "zh_raw"}`,
+        chapter_order: chapter.chapter_order ?? index,
+        title: chapter.title || "",
+        source_type: source === "qt" ? "qt" : "zh_raw",
+        // Preserve the stored text byte-for-byte at the JavaScript string
+        // level. trim() is used only below to detect empty fields.
+        input,
+        output,
+      };
+    })
+    .filter((row) => {
+      if (!row.input.trim() || !row.output.trim() || seenChapterIds.has(row.chapter_id)) return false;
+      seenChapterIds.add(row.chapter_id);
+      return true;
+    });
+}
+
+export function exportChapterDataset(chapters, source, format, filename) {
+  const rows = buildChapterDataset(chapters, source);
+  if (format === "jsonl") {
+    const jsonl = rows.map((row) => JSON.stringify(row)).join("\n");
+    downloadBlob(new Blob([jsonl], { type: "application/x-ndjson;charset=utf-8" }), `${filename}.jsonl`);
+  } else {
+    const headers = ["project_id", "chapter_id", "pair_id", "chapter_order", "title", "source_type", "input", "output"];
+    const csv = [headers, ...rows.map((row) => headers.map((key) => row[key]))]
+      .map((row) => row.map((value) => escapeCsvField(value)).join(","))
+      .join("\n");
+    downloadBlob(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }), `${filename}.csv`);
+  }
+  return rows.length;
 }
 
 // Plain-text bulk export — chapters joined with a "Chương N: Title" heading

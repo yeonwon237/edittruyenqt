@@ -63,6 +63,34 @@ function ExportMenuButton({ label, busyLabel, busy, disabled, onPick, buttonClas
   );
 }
 
+function DatasetMenuButton({ busy, disabled, onPick }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="outline" disabled={disabled || busy} className="w-full border-sky-200 bg-white text-sky-700 hover:bg-sky-50 rounded-xl h-8 px-2.5 text-xs">
+          <Download className="w-3.5 h-3.5 mr-1" /> {busy ? "Đang tạo..." : "Dataset AI"}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Trung raw → Edit</DropdownMenuSubTrigger>
+          <DropdownMenuPortal><DropdownMenuSubContent>
+            <DropdownMenuItem onClick={() => onPick("raw", "csv")}>CSV</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("raw", "jsonl")}>JSONL</DropdownMenuItem>
+          </DropdownMenuSubContent></DropdownMenuPortal>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>QT → Edit</DropdownMenuSubTrigger>
+          <DropdownMenuPortal><DropdownMenuSubContent>
+            <DropdownMenuItem onClick={() => onPick("qt", "csv")}>CSV</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("qt", "jsonl")}>JSONL</DropdownMenuItem>
+          </DropdownMenuSubContent></DropdownMenuPortal>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 export default function ChapterManagerDialog({
   open,
   onOpenChange,
@@ -82,6 +110,8 @@ export default function ChapterManagerDialog({
   exportingEdited,
   onExportSelected,
   exportingSelected,
+  onExportDataset,
+  exportingDataset,
   onBatchEdit,
   onBatchTitleEdit,
   qaIssuesByChapter = {},
@@ -256,7 +286,7 @@ export default function ChapterManagerDialog({
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <ExportMenuButton
                     label="Xuất đã chọn"
                     busyLabel="Đang xuất..."
@@ -264,6 +294,11 @@ export default function ChapterManagerDialog({
                     disabled={selectedIds.size === 0}
                     onPick={(format) => onExportSelected([...selectedIds], format)}
                     buttonClassName="w-full bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl h-8 px-2.5 text-xs"
+                  />
+                  <DatasetMenuButton
+                    busy={exportingDataset}
+                    disabled={selectedIds.size === 0}
+                    onPick={(source, format) => onExportDataset([...selectedIds], source, format)}
                   />
                   <Button
                     size="sm"
