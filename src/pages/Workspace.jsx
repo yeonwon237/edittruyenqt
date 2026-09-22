@@ -3465,9 +3465,57 @@ ${sourceText}`;
     }
   };
 
-  // Bulk-import & auto-split pasted text into multiple new chapters.
-  const handleImportChapters = async (parsedChapters, targetColumn) => {
+  // Bulk-import can either create chapters or fill one column of the current
+  // chapter list by position (raw file first, edited/QT file second).
+  const handleImportChapters = async (parsedChapters, targetColumn, importAction = "create") => {
     try {
+      if (importAction === "update") {
+        const ordered = [...chapterList].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+        if (parsedChapters.length !== ordered.length) {
+          toast({
+            title: "Số chương không khớp",
+            description: `File có ${parsedChapters.length} chương, dự án có ${ordered.length} chương. Không cập nhật để tránh ghép nhầm.`,
+            variant: "destructive",
+          });
+          return false;
+        }
+        if (currentChapter) await flushSave(currentChapter, true);
+        let fullRows = [];
+        for (let i = 0; i < ordered.length; i += 200) {
+          // Keep cloud query URLs bounded for novels with hundreds/thousands of chapters.
+          // eslint-disable-next-line no-await-in-loop
+          fullRows = fullRows.concat(await Chapter.getMany(ordered.slice(i, i + 200).map((chapter) => chapter.id)));
+        }
+        const byId = new Map(fullRows.map((chapter) => [chapter.id, chapter]));
+        if (byId.size !== ordered.length) throw new Error("Không tải đủ chương hiện có. Hãy tải lại trang rồi thử lại.");
+        const changedRows = [];
+        let occupied = 0;
+        ordered.forEach((meta, index) => {
+          const chapter = byId.get(meta.id);
+          if (String(chapter[targetColumn] || "").trim()) {
+            occupied += 1;
+            return;
+          }
+          changedRows.push({ ...chapter, [targetColumn]: parsedChapters[index].content || "" });
+        });
+        let updated = [];
+        for (let i = 0; i < changedRows.length; i += 200) {
+          // eslint-disable-next-line no-await-in-loop
+          updated = updated.concat(await Chapter.bulkUpsert(changedRows.slice(i, i + 200)));
+        }
+        updated.forEach((chapter) => {
+          chapterCacheRef.current.set(chapter.id, chapter);
+          lastSavedRef.current.set(chapter.id, snapshotOf(chapter));
+        });
+        const active = updated.find((chapter) => chapter.id === currentChapter?.id);
+        if (active) setCurrentChapter(active);
+        if (targetColumn === "edited") await loadEditedChapterIds();
+        toast({
+          title: `Đã điền ${updated.length} chương vào ${targetColumn === "raw_original" ? "Văn bản gốc" : targetColumn === "qt_raw" ? "QT thô" : "Bản Edit"}`,
+          description: occupied ? `Đã bỏ qua ${occupied} chương vì cột đích đã có dữ liệu.` : "Ghép theo đúng thứ tự chương hiện có.",
+        });
+        return true;
+      }
       const baseOrder =
         chapterList.reduce((m, c) => Math.max(m, c.chapter_order ?? 0), -1) + 1;
       const toCreate = parsedChapters.map((c, i) => ({
@@ -3498,8 +3546,10 @@ ${sourceText}`;
         lastSavedRef.current.set(c.id, snapshotOf(c));
       });
       toast({ title: `Đã nhập ${created.length} chương! 📥` });
+      return true;
     } catch (e) {
       toast({ title: "Lỗi nhập chương", description: e.message, variant: "destructive" });
+      return false;
     }
   };
 
@@ -5386,6 +5436,7 @@ ${compact}`;
         open={showImportChapters}
         onOpenChange={setShowImportChapters}
         onImport={handleImportChapters}
+        existingChapterCount={chapterList.length}
       />
       <BatchEditDialog
         open={showBatchEdit}

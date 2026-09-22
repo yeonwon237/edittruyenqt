@@ -25,13 +25,14 @@ import {
 } from "@/lib/documentImport";
 import { useToast } from "@/components/ui/use-toast";
 
-export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
+export default function ImportChaptersDialog({ open, onOpenChange, onImport, existingChapterCount = 0 }) {
   const { toast } = useToast();
   const [mode, setMode] = useState("paste"); // "paste" | "file"
   const [text, setText] = useState("");
   const [presetKey, setPresetKey] = useState("vi");
   const [customPattern, setCustomPattern] = useState("");
   const [targetColumn, setTargetColumn] = useState("raw_original");
+  const [importAction, setImportAction] = useState("create");
   const [importing, setImporting] = useState(false);
   const [fileParsed, setFileParsed] = useState([]);
   const [fileName, setFileName] = useState("");
@@ -80,6 +81,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
       setPresetKey("vi");
       setCustomPattern("");
       setTargetColumn("raw_original");
+      setImportAction("create");
       setFileParsed([]);
       setFileName("");
       setTxtFileName("");
@@ -172,8 +174,8 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
     if (parsed.length === 0) return;
     setImporting(true);
     try {
-      await onImport(parsed, targetColumn);
-      handleClose(false);
+      const succeeded = await onImport(parsed, targetColumn, importAction);
+      if (succeeded !== false) handleClose(false);
     } finally {
       setImporting(false);
     }
@@ -306,6 +308,29 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
 
           <div>
             <label className="text-xs font-medium text-slate-500 mb-1 block">
+              Cách nhập
+            </label>
+            <select
+              value={importAction}
+              onChange={(e) => setImportAction(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
+            >
+              <option value="create">Tạo chương mới</option>
+              <option value="update" disabled={existingChapterCount === 0}>
+                Điền vào chương hiện có — ghép theo thứ tự ({existingChapterCount} chương)
+              </option>
+            </select>
+            {importAction === "update" && (
+              <p className={`mt-1.5 text-xs ${parsed.length === existingChapterCount ? "text-emerald-700" : "text-red-600"}`}>
+                {parsed.length === existingChapterCount
+                  ? `Khớp ${existingChapterCount} chương. Chỉ điền ô đang trống, không ghi đè dữ liệu cũ.`
+                  : `Không thể ghép: file có ${parsed.length} chương nhưng dự án có ${existingChapterCount} chương.`}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-slate-500 mb-1 block">
               Đưa nội dung vào cột
             </label>
             <select
@@ -367,10 +392,10 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport }) {
           </Button>
           <Button
             onClick={handleImport}
-            disabled={parsed.length === 0 || importing}
+            disabled={parsed.length === 0 || importing || (importAction === "update" && parsed.length !== existingChapterCount)}
             className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
           >
-            {importing ? "Đang nhập..." : `Nhập ${parsed.length} chương`}
+            {importing ? "Đang nhập..." : importAction === "update" ? `Điền vào ${parsed.length} chương` : `Nhập ${parsed.length} chương`}
           </Button>
         </DialogFooter>
       </DialogContent>
