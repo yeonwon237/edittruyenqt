@@ -58,46 +58,97 @@ export function exportChaptersCsv(chapters, filename) {
 // Training dataset export. One record intentionally represents one chapter:
 // paragraph/sentence alignment cannot be inferred safely after a human edit
 // has merged, split, added or removed passages.
-export function buildChapterDataset(chapters, source = "raw") {
-  const sourceField = source === "qt" ? "qt_raw" : "raw_original";
-  const seenChapterIds = new Set();
-  return chapters
-    .map((chapter, index) => {
-      const input = String(chapter[sourceField] || "");
-      const output = String(chapter.edited || "");
-      return {
-        project_id: chapter.project_id || "",
-        chapter_id: chapter.id || "",
-        pair_id: `${chapter.id || `order-${chapter.chapter_order ?? index}`}:${source === "qt" ? "qt" : "zh_raw"}`,
-        chapter_order: chapter.chapter_order ?? index,
-        title: chapter.title || "",
-        source_type: source === "qt" ? "qt" : "zh_raw",
-        // Preserve the stored text byte-for-byte at the JavaScript string
-        // level. trim() is used only below to detect empty fields.
-        input,
-        output,
-      };
-    })
-    .filter((row) => {
-      if (!row.input.trim() || !row.output.trim() || seenChapterIds.has(row.chapter_id)) return false;
-      seenChapterIds.add(row.chapter_id);
-      return true;
-    });
+export function splitDatasetSegments(text, unit = "paragraph") {
+  const paragraphs = String(text || "")
+    .replace(/\r\n?/g, "\n")
+    .split(/\n+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (unit !== "sentence") return paragraphs;
+
+  const segments = [];
+  const sentenceEnd = new Set(["。", "！", "？", "!", "?", ".", "…"]);
+  const closingMarks = new Set(["”", "’", "\"", "'", "」", "』", "】", ")", "]"]);
+  paragraphs.forEach((paragraph) => {
+    let start = 0;
+    for (let index = 0; index < paragraph.length; index += 1) {
+      if (!sentenceEnd.has(paragraph[index])) continue;
+      while (index + 1 < paragraph.length && (sentenceEnd.has(paragraph[index + 1]) || closingMarks.has(paragraph[index + 1]))) index += 1;
+      const sentence = paragraph.slice(start, index + 1).trim();
+      if (sentence) segments.push(sentence);
+      start = index + 1;
+    }
+    const remainder = paragraph.slice(start).trim();
+    if (remainder) segments.push(remainder);
+  });
+  return segments;
 }
 
-export function exportChapterDataset(chapters, source, format, filename) {
-  const rows = buildChapterDataset(chapters, source);
+export function buildAlignedChapterDataset(chapters, source = "raw", unit = "paragraph") {
+  const sourceField = source === "qt" ? "qt_raw" : "raw_original";
+  const seenChapterIds = new Set();
+  const rows = [];
+  const skipped = [];
+  chapters.forEach((chapter, chapterIndex) => {
+    if (seenChapterIds.has(chapter.id)) return;
+    seenChapterIds.add(chapter.id);
+    const inputs = splitDatasetSegments(chapter[sourceField], unit);
+    const outputs = splitDatasetSegments(chapter.edited, unit);
+    const qtSegments = source === "raw" && String(chapter.qt_raw || "").trim()
+      ? splitDatasetSegments(chapter.qt_raw, unit)
+      : null;
+    const countsMatch = inputs.length > 0
+      && inputs.length === outputs.length
+      && (!qtSegments || qtSegments.length === inputs.length);
+    if (!countsMatch) {
+      skipped.push({
+        chapter_id: chapter.id || "",
+        title: chapter.title || "",
+        source_segments: inputs.length,
+        qt_segments: qtSegments?.length ?? null,
+        edited_segments: outputs.length,
+      });
+      return;
+    }
+    inputs.forEach((input, segmentIndex) => {
+      const sourceType = source === "qt" ? "qt" : "zh_raw";
+      const segmentNumber = segmentIndex + 1;
+      rows.push({
+        project_id: chapter.project_id || "",
+        chapter_id: chapter.id || "",
+        segment_id: `${chapter.id || `order-${chapter.chapter_order ?? chapterIndex}`}:${unit === "sentence" ? "s" : "p"}${String(segmentNumber).padStart(4, "0")}`,
+        pair_id: `${chapter.id || `order-${chapter.chapter_order ?? chapterIndex}`}:${sourceType}:${unit}:${segmentNumber}`,
+        chapter_order: chapter.chapter_order ?? chapterIndex,
+        segment_order: segmentNumber,
+        title: chapter.title || "",
+        source_type: sourceType,
+        segment_unit: unit,
+        input,
+        output: outputs[segmentIndex],
+      });
+    });
+  });
+  return { rows, skipped };
+}
+
+export function buildChapterDataset(chapters, source = "raw", unit = "paragraph") {
+  return buildAlignedChapterDataset(chapters, source, unit).rows;
+}
+
+export function exportChapterDataset(chapters, source, unit, format, filename) {
+  const { rows, skipped } = buildAlignedChapterDataset(chapters, source, unit);
+  if (!rows.length) return { rowCount: 0, skipped };
   if (format === "jsonl") {
     const jsonl = rows.map((row) => JSON.stringify(row)).join("\n");
     downloadBlob(new Blob([jsonl], { type: "application/x-ndjson;charset=utf-8" }), `${filename}.jsonl`);
   } else {
-    const headers = ["project_id", "chapter_id", "pair_id", "chapter_order", "title", "source_type", "input", "output"];
+    const headers = ["project_id", "chapter_id", "segment_id", "pair_id", "chapter_order", "segment_order", "title", "source_type", "segment_unit", "input", "output"];
     const csv = [headers, ...rows.map((row) => headers.map((key) => row[key]))]
       .map((row) => row.map((value) => escapeCsvField(value)).join(","))
       .join("\n");
     downloadBlob(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }), `${filename}.csv`);
   }
-  return rows.length;
+  return { rowCount: rows.length, skipped };
 }
 
 // Plain-text bulk export — chapters joined with a "Chương N: Title" heading

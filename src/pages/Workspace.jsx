@@ -3714,7 +3714,7 @@ ${sourceText}`;
     setExportingSelected(false);
   };
 
-  const handleExportDataset = async (chapterIds, source = "raw", format = "csv") => {
+  const handleExportDataset = async (chapterIds, source = "raw", unit = "paragraph", format = "csv") => {
     if (!chapterIds?.length) return;
     setExportingDataset(true);
     try {
@@ -3727,24 +3727,24 @@ ${sourceText}`;
       }
       picked.sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
       const sourceLabel = source === "qt" ? "QT" : "TrungRaw";
-      const count = exportChapterDataset(
+      const { rowCount, skipped } = exportChapterDataset(
         picked,
         source,
+        unit,
         format,
-        `${project?.title || "Chuong"}_Dataset_${sourceLabel}_Edit`
+        `${project?.title || "Chuong"}_Dataset_${sourceLabel}_Edit_${unit === "sentence" ? "Cau" : "Doan"}`
       );
-      const skipped = picked.length - count;
-      if (!count) {
+      if (!rowCount) {
         toast({
-          title: "Không có cặp dữ liệu hoàn chỉnh",
-          description: `Các chương đã chọn cần có cả ${source === "qt" ? "QT" : "Trung raw"} và Bản edit.`,
+          title: "Không có cặp đoạn/câu an toàn để xuất",
+          description: `Số ${unit === "sentence" ? "câu" : "đoạn"} giữa các cột đang lệch nhau. Không xuất để tránh ghép sai.`,
           variant: "destructive",
         });
         return;
       }
       toast({
-        title: `Đã xuất ${count} cặp dữ liệu ${sourceLabel} → Edit`,
-        description: skipped ? `Đã bỏ qua ${skipped} chương thiếu một trong hai cột.` : undefined,
+        title: `Đã xuất ${rowCount} cặp ${unit === "sentence" ? "câu" : "đoạn"} ${sourceLabel} → Edit`,
+        description: skipped.length ? `Đã bỏ qua ${skipped.length} chương có số ${unit === "sentence" ? "câu" : "đoạn"} không khớp để tránh ghép sai.` : undefined,
       });
     } catch (e) {
       toast({ title: "Lỗi xuất dataset", description: e.message, variant: "destructive" });

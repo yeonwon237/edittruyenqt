@@ -75,15 +75,19 @@ function DatasetMenuButton({ busy, disabled, onPick }) {
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>Trung raw → Edit</DropdownMenuSubTrigger>
           <DropdownMenuPortal><DropdownMenuSubContent>
-            <DropdownMenuItem onClick={() => onPick("raw", "csv")}>CSV</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onPick("raw", "jsonl")}>JSONL</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("raw", "paragraph", "csv")}>Theo đoạn — CSV</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("raw", "paragraph", "jsonl")}>Theo đoạn — JSONL</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("raw", "sentence", "csv")}>Theo câu — CSV</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("raw", "sentence", "jsonl")}>Theo câu — JSONL</DropdownMenuItem>
           </DropdownMenuSubContent></DropdownMenuPortal>
         </DropdownMenuSub>
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>QT → Edit</DropdownMenuSubTrigger>
           <DropdownMenuPortal><DropdownMenuSubContent>
-            <DropdownMenuItem onClick={() => onPick("qt", "csv")}>CSV</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onPick("qt", "jsonl")}>JSONL</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("qt", "paragraph", "csv")}>Theo đoạn — CSV</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("qt", "paragraph", "jsonl")}>Theo đoạn — JSONL</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("qt", "sentence", "csv")}>Theo câu — CSV</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onPick("qt", "sentence", "jsonl")}>Theo câu — JSONL</DropdownMenuItem>
           </DropdownMenuSubContent></DropdownMenuPortal>
         </DropdownMenuSub>
       </DropdownMenuContent>
@@ -298,7 +302,7 @@ export default function ChapterManagerDialog({
                   <DatasetMenuButton
                     busy={exportingDataset}
                     disabled={selectedIds.size === 0}
-                    onPick={(source, format) => onExportDataset([...selectedIds], source, format)}
+                    onPick={(source, unit, format) => onExportDataset([...selectedIds], source, unit, format)}
                   />
                   <Button
                     size="sm"
