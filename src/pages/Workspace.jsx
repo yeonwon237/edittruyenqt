@@ -42,6 +42,7 @@ import {
   exportChaptersDocx,
   exportChaptersPdf,
   exportChapterDataset,
+  chaptersWithExportColumn,
 } from "@/lib/exportUtils";
 import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBase64 } from "@/lib/llm";
 import ImageTranslateDialog from "@/components/workspace/ImageTranslateDialog";
@@ -3739,7 +3740,7 @@ ${sourceText}`;
   // so re-exporting after editing a few more chapters doesn't re-download
   // the whole novel's content every time — the user reported that repeatedly
   // exporting "all edited" got heavy as more chapters piled up.
-  const handleExportSelectedChapters = async (chapterIds, format = "csv") => {
+  const handleExportSelectedChapters = async (chapterIds, contentField = "edited", format = "csv") => {
     if (!chapterIds || chapterIds.length === 0) return;
     setExportingSelected(true);
     try {
@@ -3756,8 +3757,14 @@ ${sourceText}`;
         picked.push(chapter);
       }
       picked.sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
-      await runChaptersExport(format, picked, `${project?.title || "Chuong"}_ChonLoc`);
-      toast({ title: `Đã xuất ${picked.length} chương đã chọn! 📤` });
+      const explicit = chaptersWithExportColumn(picked, contentField);
+      const emptyCount = picked.filter((chapter) => !String(chapter[contentField] || "").trim()).length;
+      const columnLabel = contentField === "raw_original" ? "Raw" : contentField === "qt_raw" ? "QT" : "Edit";
+      await runChaptersExport(format, explicit, `${project?.title || "Chuong"}_ChonLoc_${columnLabel}`);
+      toast({
+        title: `Đã xuất ${picked.length} chương · cột ${columnLabel}! 📤`,
+        description: emptyCount ? `${emptyCount} chương có cột ${columnLabel} đang trống.` : undefined,
+      });
     } catch (e) {
       toast({ title: "Lỗi xuất file", description: e.message, variant: "destructive" });
     }

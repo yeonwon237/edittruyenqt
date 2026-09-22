@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildAlignedChapterDataset, buildChapterDataset, splitDatasetSegments } from "../src/lib/exportUtils.js";
+import { buildAlignedChapterDataset, buildChapterDataset, chaptersWithExportColumn, splitDatasetSegments } from "../src/lib/exportUtils.js";
 
 const chapters = [
   { project_id: "p1", id: "c1", chapter_order: 1, title: "Một", raw_original: " 中文一 ", qt_raw: " QT một ", edited: " Edit một " },
@@ -50,4 +50,14 @@ test("tách câu giữ dấu câu ở đúng segment", () => {
   assert.deepEqual(splitDatasetSegments("师傅饶命！跑还是没有跑？\n咳咳……咳~", "sentence"), [
     "师傅饶命！", "跑还是没有跑？", "咳咳……", "咳~",
   ]);
+});
+
+test("xuất một cột cụ thể không fallback sang cột khác", () => {
+  const [raw, qt, edited] = ["raw", "qt", "edit"].map((field) => chaptersWithExportColumn(chapters, {
+    raw: "raw_original", qt: "qt_raw", edit: "edited",
+  }[field])[0].export_content);
+  assert.equal(raw, " 中文一 ");
+  assert.equal(qt, " QT một ");
+  assert.equal(edited, " Edit một ");
+  assert.equal(chaptersWithExportColumn([{ id: "empty", edited: "fallback edit" }], "qt_raw")[0].export_content, "");
 });

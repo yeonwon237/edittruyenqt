@@ -8,7 +8,14 @@ function chapterHeading(c, i) {
 }
 
 function chapterBody(c) {
+  if (Object.prototype.hasOwnProperty.call(c, "export_content")) return c.export_content || "";
   return c.edited || c.qt_raw || c.raw_original || "";
+}
+
+export function chaptersWithExportColumn(chapters, field) {
+  const allowed = new Set(["raw_original", "qt_raw", "edited"]);
+  if (!allowed.has(field)) return chapters;
+  return chapters.map((chapter) => ({ ...chapter, export_content: chapter[field] || "" }));
 }
 
 function downloadBlob(blob, filename) {
@@ -47,7 +54,7 @@ export function exportChaptersCsv(chapters, filename) {
     rows.push([
       c.chapter_order ?? i,
       c.title || "",
-      c.edited || c.qt_raw || c.raw_original || "",
+      chapterBody(c),
     ]);
   });
   const csv = rows.map((r) => r.map((v) => escapeCsvField(v)).join(",")).join("\n");

@@ -63,6 +63,37 @@ function ExportMenuButton({ label, busyLabel, busy, disabled, onPick, buttonClas
   );
 }
 
+function SelectedExportMenuButton({ busy, disabled, onPick }) {
+  const columns = [
+    { key: "raw_original", label: "Văn bản gốc" },
+    { key: "qt_raw", label: "QT thô" },
+    { key: "edited", label: "Bản Edit" },
+  ];
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button size="sm" variant="outline" disabled={disabled || busy} className="w-full bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl h-8 px-2.5 text-xs">
+          <Download className="w-3.5 h-3.5 mr-1" /> {busy ? "Đang xuất..." : "Xuất đã chọn"}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start">
+        {columns.map((column) => (
+          <DropdownMenuSub key={column.key}>
+            <DropdownMenuSubTrigger>{column.label}</DropdownMenuSubTrigger>
+            <DropdownMenuPortal><DropdownMenuSubContent>
+              {EXPORT_FORMATS.map((format) => (
+                <DropdownMenuItem key={format.key} onClick={() => onPick(column.key, format.key)}>
+                  {format.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent></DropdownMenuPortal>
+          </DropdownMenuSub>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function DatasetMenuButton({ busy, disabled, onPick }) {
   return (
     <DropdownMenu>
@@ -291,13 +322,10 @@ export default function ChapterManagerDialog({
                   </button>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
-                  <ExportMenuButton
-                    label="Xuất đã chọn"
-                    busyLabel="Đang xuất..."
+                  <SelectedExportMenuButton
                     busy={exportingSelected}
                     disabled={selectedIds.size === 0}
-                    onPick={(format) => onExportSelected([...selectedIds], format)}
-                    buttonClassName="w-full bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl h-8 px-2.5 text-xs"
+                    onPick={(column, format) => onExportSelected([...selectedIds], column, format)}
                   />
                   <DatasetMenuButton
                     busy={exportingDataset}
