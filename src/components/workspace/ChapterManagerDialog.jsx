@@ -33,6 +33,7 @@ import {
   Languages,
   MoreHorizontal,
   Undo2,
+  Plus,
 } from "lucide-react";
 
 const EXPORT_FORMATS = [
@@ -138,6 +139,7 @@ export default function ChapterManagerDialog({
   onUndoDelete,
   deleteUndoCount,
   onReorder,
+  onInsertAfter,
   onOpenImport,
   onExportAll,
   exporting,
@@ -424,6 +426,13 @@ export default function ChapterManagerDialog({
                                   {betaIssuesByChapter[ch.id] > 0 && <button onClick={()=>onSelect(ch.id)} title={`${betaIssuesByChapter[ch.id]} nghi vấn Beta — bấm để tới chương`} className="shrink-0 rounded-full bg-fuchsia-100 px-2 py-1 text-[10px] font-bold text-fuchsia-700 hover:bg-fuchsia-200">Beta {betaIssuesByChapter[ch.id]}</button>}
                                   {!selectMode && (
                                     <>
+                                      <button
+                                        onClick={() => onInsertAfter(ch.id)}
+                                        className="p-1.5 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600 shrink-0"
+                                        title="Thêm chương ngay bên dưới (các chương sau tự nhảy số)"
+                                      >
+                                        <Plus className="w-3.5 h-3.5" />
+                                      </button>
                                       <button
                                         onClick={() => startEdit(ch)}
                                         className="p-1.5 rounded-md hover:bg-violet-50 text-slate-400 hover:text-violet-600 shrink-0"

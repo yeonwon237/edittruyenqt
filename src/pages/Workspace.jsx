@@ -4,6 +4,7 @@ import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/api/supabaseClient";
 import { Project, Chapter, GlossaryTerm, PromptPreset } from "@/api/dataClient";
 import { useToast } from "@/components/ui/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import EditorPanel from "@/components/workspace/EditorPanel";
 import EditorToolbar from "@/components/workspace/EditorToolbar";
 import MobileReadingEditor from "@/components/workspace/MobileReadingEditor";
@@ -50,6 +51,7 @@ import ContextualPronounDialog from "@/components/glossary/ContextualPronounDial
 import AISettingsDialog from "@/components/workspace/AISettingsDialog";
 import { buildPronounMatrixPrompt, buildNarrativeRulesPrompt } from "@/lib/pronounMatrix";
 import { diffTextChanges } from "@/lib/textDiff";
+import { planChapterDelete, planChapterInsert, planRenumberAll } from "@/lib/chapterNumbering";
 import { countForeignChars } from "@/lib/highlight";
 import { applyQualitySuggestion, runQualityCheck } from "@/lib/qualityCheck";
 import { buildSpeakerClfLookup } from "@/lib/speakerClf";
@@ -289,6 +291,9 @@ export default function Workspace() {
   const [qtCleanupRunning, setQtCleanupRunning] = useState(false);
   const [qtCleanupUndo, setQtCleanupUndo] = useState(null);
   const [chapterDeleteUndo, setChapterDeleteUndo] = useState(null);
+  // Titles renumbered by the last single-chapter delete, restored on undo.
+  const [chapterDeleteTitleUndo, setChapterDeleteTitleUndo] = useState(null);
+  const undoChapterDeleteRef = useRef(null);
   const [showImportChapters, setShowImportChapters] = useState(false);
   const [exportingChapters, setExportingChapters] = useState(false);
   const [exportingEdited, setExportingEdited] = useState(false);
@@ -3221,6 +3226,107 @@ ${sourceText}`;
     }
   };
 
+  const orderedChapterList = () =>
+    [...chapterList].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+
+  // Writes renumbered titles (only title/order columns — content untouched)
+  // and mirrors them into the list, cache and open chapter.
+  const applyChapterTitleRenames = async (renames) => {
+    if (!renames.length) return;
+    const orders = new Map(chapterList.map((c) => [c.id, c.chapter_order]));
+    const rows = renames.map((r) => ({ id: r.id, project_id: projectId, title: r.title, chapter_order: orders.get(r.id) ?? 0 }));
+    for (let i = 0; i < rows.length; i += 500) {
+      await Chapter.bulkUpsert(rows.slice(i, i + 500), { returning: false });
+    }
+    const titles = new Map(renames.map((r) => [r.id, r.title]));
+    titles.forEach((title, id) => {
+      const cached = chapterCacheRef.current.get(id);
+      if (cached) chapterCacheRef.current.set(id, { ...cached, title });
+    });
+    setChapterList((prev) => prev.map((c) => (titles.has(c.id) ? { ...c, title: titles.get(c.id) } : c)));
+    setCurrentChapter((prev) => (prev && titles.has(prev.id) ? { ...prev, title: titles.get(prev.id) } : prev));
+  };
+
+  // Insert/delete/renumber each plan against the current list; letting a
+  // second one start before the first has saved would shift titles twice.
+  const chapterStructureBusyRef = useRef(false);
+  const runChapterStructureOp = async (op) => {
+    if (chapterStructureBusyRef.current) {
+      toast({ title: "Đang xử lý thao tác chương trước, đợi chút nhé" });
+      return;
+    }
+    chapterStructureBusyRef.current = true;
+    try {
+      return await op();
+    } finally {
+      chapterStructureBusyRef.current = false;
+    }
+  };
+
+  // Adds a blank chapter right below ordered[afterIndex] (-1 = before the
+  // first one) and bumps the number in every later chapter's title
+  // (Chương 11 → 12, …), so inserting mid-story needs no manual renaming.
+  // See planChapterInsert for what is shifted.
+  const insertChapterAtIndex = (afterIndex) => runChapterStructureOp(async () => {
+    const ordered = orderedChapterList();
+    const plan = planChapterInsert(ordered, afterIndex);
+    try {
+      if (currentChapter) await flushSave(currentChapter);
+      await applyChapterTitleRenames(plan.renames);
+      const created = await Chapter.create({
+        project_id: projectId,
+        title: plan.title,
+        chapter_order: plan.chapterOrder,
+        raw_original: "",
+        qt_raw: "",
+        edited: "",
+      });
+      setChapterList((prev) =>
+        [...prev, { id: created.id, title: created.title, chapter_order: created.chapter_order }]
+          .sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0))
+      );
+      chapterCacheRef.current.set(created.id, created);
+      lastSavedRef.current.set(created.id, snapshotOf(created));
+      setCurrentChapter(created);
+      toast({
+        title: `Đã thêm "${created.title}"`,
+        description: plan.renames.length ? `Đã đánh lại số ${plan.renames.length} chương phía sau.` : undefined,
+      });
+    } catch (e) {
+      toast({ title: "Lỗi thêm chương", description: e.message, variant: "destructive" });
+      loadProjectData();
+    }
+  });
+
+  // Repair: renumber every "Chương N" title consecutively in list order.
+  const handleRenumberAllChapters = () => runChapterStructureOp(async () => {
+    const renames = planRenumberAll(orderedChapterList());
+    if (!renames.length) {
+      toast({ title: "Số chương đã liền mạch, không cần sửa" });
+      return;
+    }
+    try {
+      if (currentChapter) await flushSave(currentChapter);
+      await applyChapterTitleRenames(renames);
+      toast({ title: `Đã đánh lại số ${renames.length} chương` });
+    } catch (e) {
+      toast({ title: "Lỗi đánh lại số chương", description: e.message, variant: "destructive" });
+      loadProjectData();
+    }
+  });
+
+  const handleInsertChapterAfter = (afterChapterId) => {
+    const index = orderedChapterList().findIndex((c) => c.id === afterChapterId);
+    if (index >= 0) return insertChapterAtIndex(index);
+  };
+
+  // position is 1-based: the new chapter becomes the position-th chapter.
+  const handleInsertChapterAt = (position) => {
+    const count = chapterList.length;
+    const pos = Math.min(Math.max(1, Math.round(Number(position)) || 1), count + 1);
+    return insertChapterAtIndex(pos - 2);
+  };
+
   const handleRenameChapter = async (chapterId, newTitle) => {
     try {
       await Chapter.update(chapterId, { title: newTitle });
@@ -3238,12 +3344,15 @@ ${sourceText}`;
     }
   };
 
-  const handleDeleteChapter = async (chapterId) => {
+  const handleDeleteChapter = (chapterId) => runChapterStructureOp(async () => {
     try {
       if (currentChapter?.id === chapterId) await flushSave(currentChapter, true);
       const backup = currentChapter?.id === chapterId
         ? { ...currentChapter }
         : await Chapter.get(chapterId);
+      const ordered = orderedChapterList();
+      const { renames } = planChapterDelete(ordered, ordered.findIndex((c) => c.id === chapterId));
+      const oldTitles = renames.map((r) => ({ id: r.id, title: chapterList.find((c) => c.id === r.id)?.title }));
       await Chapter.delete(chapterId);
       const remaining = chapterList.filter((c) => c.id !== chapterId);
       setChapterList(remaining);
@@ -3264,11 +3373,18 @@ ${sourceText}`;
         }
       }
       setChapterDeleteUndo([backup]);
-      toast({ title: "Đã xóa chương" });
+      setChapterDeleteTitleUndo(null);
+      await applyChapterTitleRenames(renames);
+      setChapterDeleteTitleUndo(oldTitles.length ? oldTitles : null);
+      toast({
+        title: `Đã xóa "${backup.title}"`,
+        description: renames.length ? `Đã đánh lại số ${renames.length} chương phía sau.` : undefined,
+        action: <ToastAction altText="Hoàn tác xóa chương" onClick={() => undoChapterDeleteRef.current?.()}>Hoàn tác</ToastAction>,
+      });
     } catch (e) {
       toast({ title: "Lỗi xóa chương", description: e.message, variant: "destructive" });
     }
-  };
+  });
 
   const handleDeleteSelectedChapters = async (chapterIds) => {
     const ids = [...new Set(chapterIds)].filter((id) => chapterList.some((ch) => ch.id === id));
@@ -3309,6 +3425,7 @@ ${sourceText}`;
       }
 
       setChapterDeleteUndo(backups);
+      setChapterDeleteTitleUndo(null);
       toast({ title: `Đã xóa ${ids.length} chương` });
     } catch (e) {
       toast({
@@ -3323,6 +3440,10 @@ ${sourceText}`;
     if (!chapterDeleteUndo?.length) return;
 
     try {
+      if (chapterDeleteTitleUndo?.length) {
+        await applyChapterTitleRenames(chapterDeleteTitleUndo);
+        setChapterDeleteTitleUndo(null);
+      }
       const rows = chapterDeleteUndo.map((chapter) => ({
         id: chapter.id,
         project_id: chapter.project_id,
@@ -4472,10 +4593,14 @@ ${compact}`;
   // instead (same pattern as onTermClickRef in EditorPanel.jsx) so the
   // published callbacks stay stable while always calling the latest version.
   const chapterNavCallbacksRef = useRef({});
-  chapterNavCallbacksRef.current = { onSelect: switchChapter, onOpen: ensureWordCountsLoaded, onCreateChapter: handleCreateChapter };
+  chapterNavCallbacksRef.current = { onSelect: switchChapter, onOpen: ensureWordCountsLoaded, onCreateChapter: handleCreateChapter, onInsertChapterAt: handleInsertChapterAt, onDeleteChapter: handleDeleteChapter, onRenumberAll: handleRenumberAllChapters };
+  undoChapterDeleteRef.current = handleUndoChapterDelete;
   const stableOnSelectChapter = useMemo(() => (id) => chapterNavCallbacksRef.current.onSelect(id), []);
   const stableOnOpenChapterNav = useMemo(() => (...args) => chapterNavCallbacksRef.current.onOpen(...args), []);
   const stableOnCreateChapterNav = useMemo(() => (...args) => chapterNavCallbacksRef.current.onCreateChapter(...args), []);
+  const stableOnInsertChapterAt = useMemo(() => (...args) => chapterNavCallbacksRef.current.onInsertChapterAt(...args), []);
+  const stableOnDeleteChapter = useMemo(() => (...args) => chapterNavCallbacksRef.current.onDeleteChapter(...args), []);
+  const stableOnRenumberAll = useMemo(() => (...args) => chapterNavCallbacksRef.current.onRenumberAll(...args), []);
 
   const setDesktopChapterNav = useDesktopSidebarContext()?.setChapterNav;
   useEffect(() => {
@@ -4488,6 +4613,9 @@ ${compact}`;
       onSelect: stableOnSelectChapter,
       onOpen: stableOnOpenChapterNav,
       onCreateChapter: stableOnCreateChapterNav,
+      onInsertChapterAt: stableOnInsertChapterAt,
+      onDeleteChapter: stableOnDeleteChapter,
+      onRenumberAll: stableOnRenumberAll,
       wordCounts: editedWordCounts,
       averageWords: editedWordSummary.average,
       editedSampleSize: editedWordSummary.sampleSize,
@@ -4496,7 +4624,7 @@ ${compact}`;
       betaIssueIds,
     });
     return () => setDesktopChapterNav(null);
-  }, [setDesktopChapterNav, projectId, project?.title, chapterList, currentChapter?.id, editedWordCounts, editedWordSummary, editedChapterIds, qaIssueIds, betaIssueIds, stableOnSelectChapter, stableOnOpenChapterNav, stableOnCreateChapterNav]);
+  }, [setDesktopChapterNav, projectId, project?.title, chapterList, currentChapter?.id, editedWordCounts, editedWordSummary, editedChapterIds, qaIssueIds, betaIssueIds, stableOnSelectChapter, stableOnOpenChapterNav, stableOnCreateChapterNav, stableOnInsertChapterAt, stableOnDeleteChapter, stableOnRenumberAll]);
   const qaNeedsRecheck = chapterList.filter((chapter) => qaRecords[chapter.id] && qaStatusOf(chapter) === "stale").length;
   const betaCount=chapterList.filter(ch=>betaStatusOf(ch)==="done").length;
   const betaNeedsRecheck=chapterList.filter(ch=>betaRecords[ch.id]&&betaStatusOf(ch)==="stale").length;
@@ -4760,6 +4888,11 @@ ${compact}`;
                 <button onClick={() => { handleCreateChapter(); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
                   <Plus className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Tạo chương mới
                 </button>
+                {currentChapter && (
+                  <button onClick={() => { handleInsertChapterAfter(currentChapter.id); setShowHeaderMenu(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors hover:bg-violet-50">
+                    <Plus className="h-3.5 w-3.5 shrink-0 text-violet-600" /> Thêm chương ngay sau chương này
+                  </button>
+                )}
                 {draftMode && (
                   <button onClick={() => { handleManualSave(); setShowHeaderMenu(false); }} disabled={saving} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs text-amber-700 transition-colors hover:bg-amber-50 disabled:opacity-50">
                     <Check className="h-3.5 w-3.5 shrink-0" /> {saving ? "Đang lưu..." : "Chế độ nháp · Lưu chương này"}
@@ -5387,6 +5520,7 @@ ${compact}`;
         onUndoDelete={handleUndoChapterDelete}
         deleteUndoCount={chapterDeleteUndo?.length || 0}
         onReorder={handleReorderChapter}
+        onInsertAfter={handleInsertChapterAfter}
         onOpenImport={() => setShowImportChapters(true)}
         onExportAll={handleExportAllChapters}
         exporting={exportingChapters}

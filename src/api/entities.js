@@ -82,11 +82,15 @@ function makeEntity(table) {
       return data;
     },
 
-    async bulkUpsert(rows) {
+    // returning: false skips sending every upserted row back — callers that
+    // only touch title/order must not pull whole chapter texts down again.
+    async bulkUpsert(rows, { returning = true } = {}) {
       if (!Array.isArray(rows) || rows.length === 0) return [];
-      const { data, error } = await supabase.from(table).upsert(rows, { onConflict: 'id' }).select();
+      let query = supabase.from(table).upsert(rows, { onConflict: 'id' });
+      if (returning) query = query.select();
+      const { data, error } = await query;
       if (error) throw error;
-      return data;
+      return returning ? data : [];
     },
 
     async update(id, values, { returning = true } = {}) {

@@ -5,7 +5,10 @@ import { fetchAllPages } from "@/lib/paginate";
 import { useAuth } from "@/lib/AuthContext";
 import { useDesktopSidebarContext } from "@/lib/desktopSidebarContext";
 import { ChapterListBody } from "@/components/workspace/ChapterPicker";
-import { ArrowLeft, Plus, Settings as SettingsIcon, LogOut, Home } from "lucide-react";
+import { ArrowLeft, Plus, Settings as SettingsIcon, LogOut, Home, ListOrdered } from "lucide-react";
+import { planRenumberAll } from "@/lib/chapterNumbering";
+import ConfirmDialog from "@/components/workspace/ConfirmDialog";
+import InsertChapterDialog from "@/components/workspace/InsertChapterDialog";
 import logo from "@/assets/lilynovel-logo.png";
 import { isDesktopApp } from "@/lib/platform";
 
@@ -27,6 +30,9 @@ export default function AppSidebar() {
   const { chapterNav } = useDesktopSidebarContext() || {};
   const [projects, setProjects] = useState([]);
   const [loadingProjects, setLoadingProjects] = useState(true);
+  const [showInsertChapter, setShowInsertChapter] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [renumberCount, setRenumberCount] = useState(null);
 
   const inProject = Boolean(projectId) && Boolean(chapterNav);
 
@@ -34,7 +40,8 @@ export default function AppSidebar() {
     if (inProject) return;
     let cancelled = false;
     setLoadingProjects(true);
-    fetchAllPages((limit, skip) => Project.list("-updated_date", limit, skip), { pageSize: 200, maxItems: 5000 })
+    // Only id/title are shown — projects carry large JSON settings columns.
+    fetchAllPages((limit, skip) => Project.filter({}, "-updated_date", limit, skip, ["title"]), { pageSize: 200, maxItems: 5000 })
       .then((data) => { if (!cancelled) setProjects(data); })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoadingProjects(false); });
@@ -70,10 +77,19 @@ export default function AppSidebar() {
               <ArrowLeft className="h-4 w-4" />
             </button>
             <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-700 dark:text-slate-200">{chapterNav.projectTitle}</span>
+            {chapterNav.onRenumberAll && (
+              <button
+                onClick={() => setRenumberCount(planRenumberAll(chapterNav.chapters).length)}
+                className="flex h-8 w-8 shrink-0 items-center justify-center text-slate-500 hover:bg-slate-200 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-white/[0.06] dark:hover:text-slate-100"
+                title="Đánh lại số chương cho liền mạch (sửa chỗ bị lệch số)"
+              >
+                <ListOrdered className="h-4 w-4" />
+              </button>
+            )}
             <button
-              onClick={chapterNav.onCreateChapter}
+              onClick={() => (chapterNav.onInsertChapterAt ? setShowInsertChapter(true) : chapterNav.onCreateChapter())}
               className="flex h-8 w-8 shrink-0 items-center justify-center border border-amber-600/40 bg-amber-100 text-amber-700 hover:bg-amber-200 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300 dark:hover:bg-amber-400/20"
-              title="Tạo chương mới"
+              title="Thêm chương (chọn vị trí, các chương sau tự nhảy số)"
             >
               <Plus className="h-4 w-4" />
             </button>
@@ -90,8 +106,35 @@ export default function AppSidebar() {
               qaIssueIds={chapterNav.qaIssueIds}
               betaIssueIds={chapterNav.betaIssueIds}
               autoFocusSearch={false}
+              onDeleteChapter={chapterNav.onDeleteChapter ? setDeleteTarget : undefined}
             />
           </div>
+          <InsertChapterDialog
+            open={showInsertChapter}
+            onOpenChange={setShowInsertChapter}
+            chapters={chapterNav.chapters}
+            currentChapterId={chapterNav.currentChapterId}
+            onConfirm={chapterNav.onInsertChapterAt}
+          />
+          <ConfirmDialog
+            open={renumberCount != null}
+            onOpenChange={(open) => { if (!open) setRenumberCount(null); }}
+            title="Đánh lại số chương"
+            description={renumberCount
+              ? `Đổi tên ${renumberCount} chương để số chạy liền mạch theo thứ tự trong danh sách (chương không có số được giữ nguyên).`
+              : "Số chương đã liền mạch, không có gì cần sửa."}
+            confirmLabel={renumberCount ? "Đánh lại số" : "OK"}
+            destructive={false}
+            onConfirm={() => { if (renumberCount) chapterNav.onRenumberAll(); setRenumberCount(null); }}
+          />
+          <ConfirmDialog
+            open={Boolean(deleteTarget)}
+            onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+            title={`Xóa "${deleteTarget?.title || ""}"?`}
+            description="Các chương phía sau sẽ tự lùi số. Có thể hoàn tác ngay sau khi xóa."
+            confirmLabel="Xóa"
+            onConfirm={() => { chapterNav.onDeleteChapter(deleteTarget.id); setDeleteTarget(null); }}
+          />
         </>
       ) : (
         <>

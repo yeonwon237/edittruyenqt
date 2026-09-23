@@ -117,6 +117,8 @@ const EXPORT_INDEX_PREFIX = new RegExp(
   "iu"
 );
 const DECORATIVE_DIVIDER = /^\s*={5,}\s*$/;
+// documentImport's EPUB chapter marker line — structural, not part of the title
+const EPUB_MARKER_PREFIX = /^⟦CHUONG⟧\s*/;
 
 function cleanChapterContent(content) {
   const lines = String(content || "").split(/\r?\n/);
@@ -126,7 +128,7 @@ function cleanChapterContent(content) {
 }
 
 function cleanChapterTitle(heading) {
-  return String(heading || "").trim().replace(EXPORT_INDEX_PREFIX, "").trim();
+  return String(heading || "").trim().replace(EPUB_MARKER_PREFIX, "").replace(EXPORT_INDEX_PREFIX, "").trim();
 }
 
 export function splitByHeadingRegex(text, source) {

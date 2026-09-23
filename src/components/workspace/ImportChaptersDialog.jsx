@@ -8,7 +8,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { ArrowUpToLine, RotateCcw, Upload, FileSpreadsheet, Loader2 } from "lucide-react";
+import { ArrowUpToLine, RotateCcw, Upload, FileSpreadsheet, Loader2, ListOrdered } from "lucide-react";
 import {
   CHAPTER_HEADING_PRESETS,
   detectHeadingPreset,
@@ -23,6 +23,12 @@ import {
   epubChaptersToMarkedText,
   EPUB_CHAPTER_REGEX_SOURCE,
 } from "@/lib/documentImport";
+import {
+  NUMBERING_TEMPLATES,
+  findRepeatedLines,
+  headingRegexForTemplate,
+  numberChapters,
+} from "@/lib/chapterNumbering";
 import { useToast } from "@/components/ui/use-toast";
 
 export default function ImportChaptersDialog({ open, onOpenChange, onImport, existingChapterCount = 0 }) {
@@ -40,8 +46,55 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
   const [extracting, setExtracting] = useState(false);
   const fileInputRef = useRef(null);
   const txtFileInputRef = useRef(null);
+  const [numberingOpen, setNumberingOpen] = useState(false);
+  const [numberingMarker, setNumberingMarker] = useState("");
+  const [numberingTemplate, setNumberingTemplate] = useState(NUMBERING_TEMPLATES[0]);
+  const [numberingStart, setNumberingStart] = useState(1);
+  const [textBeforeNumbering, setTextBeforeNumbering] = useState(null);
 
   const pattern = presetKey === "custom" ? customPattern : CHAPTER_HEADING_PRESETS[presetKey].source;
+
+  // Repeated short lines (e.g. the book name at the top of every chapter)
+  // are the candidates for "this line marks a chapter start".
+  const repeatedLines = useMemo(
+    () => (numberingOpen ? findRepeatedLines(text) : []),
+    [numberingOpen, text]
+  );
+  useEffect(() => {
+    if (!numberingOpen) return;
+    if (!repeatedLines.some((r) => r.line === numberingMarker)) {
+      setNumberingMarker(repeatedLines[0]?.line || "");
+    }
+  }, [numberingOpen, repeatedLines, numberingMarker]);
+
+  const applyNumbering = () => {
+    const result = numberChapters(text, {
+      marker: numberingMarker,
+      template: numberingTemplate,
+      start: numberingStart,
+    });
+    if (result.count === 0) {
+      toast({ title: "Không có dòng nào để đánh số", variant: "destructive" });
+      return;
+    }
+    setTextBeforeNumbering({ text, presetKey, customPattern });
+    setText(result.text);
+    // EPUB text keeps its own marker-line split pattern; anything else is
+    // re-split on the headings just written.
+    if (!(presetKey === "custom" && customPattern === EPUB_CHAPTER_REGEX_SOURCE)) {
+      setPresetKey("custom");
+      setCustomPattern(headingRegexForTemplate(numberingTemplate));
+    }
+    toast({ title: `Đã đánh số ${result.count} chương` });
+  };
+
+  const undoNumbering = () => {
+    if (!textBeforeNumbering) return;
+    setText(textBeforeNumbering.text);
+    setPresetKey(textBeforeNumbering.presetKey);
+    setCustomPattern(textBeforeNumbering.customPattern);
+    setTextBeforeNumbering(null);
+  };
 
   const pasteParsed = useMemo(() => {
     if (!text.trim()) return [];
@@ -86,6 +139,10 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
       setFileName("");
       setTxtFileName("");
       setManualEdits(null);
+      setNumberingOpen(false);
+      setNumberingMarker("");
+      setNumberingStart(1);
+      setTextBeforeNumbering(null);
     }
     onOpenChange(v);
   };
@@ -107,6 +164,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
     // session would silently mis-split a plain .txt/.docx/.pdf loaded next.
     setPresetKey("vi");
     setCustomPattern("");
+    setTextBeforeNumbering(null);
     try {
       if (ext === "txt") {
         const raw = await file.text();
@@ -241,6 +299,15 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
                 {txtFileName && !extracting && (
                   <span className="text-xs text-slate-400">Đã tải: {txtFileName}</span>
                 )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setNumberingOpen((v) => !v)}
+                  disabled={!text.trim()}
+                  className={`ml-auto rounded-xl ${numberingOpen ? "border-violet-400 bg-violet-50 text-violet-700" : "border-violet-200 text-violet-600"}`}
+                >
+                  <ListOrdered className="w-3.5 h-3.5 mr-1" /> Đánh số chương
+                </Button>
               </div>
               <textarea
                 value={text}
@@ -249,6 +316,84 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
                 rows={8}
                 className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400 resize-none font-mono"
               />
+              {numberingOpen && (
+                <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-3 space-y-2.5">
+                  <p className="text-[11px] text-slate-500">
+                    Dùng khi mọi chương mở đầu bằng cùng một dòng (VD: tên truyện lặp lại ở đầu
+                    mỗi chương). Mỗi lần dòng đó xuất hiện sẽ được đổi thành tên chương có số.
+                  </p>
+                  {repeatedLines.length === 0 ? (
+                    <p className="text-xs text-red-600">
+                      Không thấy dòng ngắn nào lặp lại từ 3 lần trở lên.
+                    </p>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="text-xs font-medium text-slate-500 mb-1 block">
+                          Dòng đánh dấu đầu chương
+                        </label>
+                        <select
+                          value={numberingMarker}
+                          onChange={(e) => setNumberingMarker(e.target.value)}
+                          className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
+                        >
+                          {repeatedLines.map((r) => (
+                            <option key={r.line} value={r.line}>
+                              {r.line} — lặp {r.count} lần
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="grid grid-cols-[1fr_90px] gap-2">
+                        <div>
+                          <label className="text-xs font-medium text-slate-500 mb-1 block">
+                            Mẫu tên chương
+                          </label>
+                          <input
+                            value={numberingTemplate}
+                            onChange={(e) => setNumberingTemplate(e.target.value)}
+                            list="chapter-numbering-templates"
+                            className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400 font-mono"
+                          />
+                          <datalist id="chapter-numbering-templates">
+                            {NUMBERING_TEMPLATES.map((t) => <option key={t} value={t} />)}
+                          </datalist>
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium text-slate-500 mb-1 block">
+                            Bắt đầu từ
+                          </label>
+                          <input
+                            type="number"
+                            value={numberingStart}
+                            onChange={(e) => setNumberingStart(e.target.value)}
+                            className="w-full px-3 py-2 text-sm rounded-xl border border-violet-100 bg-white/70 focus:outline-none focus:border-violet-400"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        <code>{"{n}"}</code> số chương, <code>{"{nn}"}</code>/<code>{"{nnn}"}</code> số
+                        có 2/3 chữ số (01, 001), <code>{"{dong}"}</code> dòng chữ ngay sau dòng đánh dấu.
+                      </p>
+                    </>
+                  )}
+                  <div className="flex gap-2 justify-end">
+                    {textBeforeNumbering && (
+                      <Button size="sm" variant="ghost" onClick={undoNumbering} className="rounded-xl text-slate-500">
+                        <RotateCcw className="w-3.5 h-3.5 mr-1" /> Hoàn tác
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      onClick={applyNumbering}
+                      disabled={!numberingMarker || !numberingTemplate.trim()}
+                      className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
+                    >
+                      Áp dụng
+                    </Button>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-medium text-slate-500 mb-1 block">
                   Kiểu tiêu đề chương

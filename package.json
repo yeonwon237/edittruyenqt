@@ -13,6 +13,7 @@
     "tauri": "tauri",
     "test:sync": "node --test tests/lilybeta-sync.test.js",
     "test:chapter-stats": "node --test tests/chapter-edit-stats.test.js",
+    "test:chapter-numbering": "node --test tests/chapter-numbering.test.js",
     "test:pronoun-inventory": "node --test tests/pronoun-inventory.test.js",
     "test:pronoun-discovery": "node --test tests/pronoun-discovery.test.js",
     "test:narrative-pronoun": "node --test tests/narrative-pronoun-check.test.js",
