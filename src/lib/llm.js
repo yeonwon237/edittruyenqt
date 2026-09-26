@@ -229,17 +229,25 @@ export async function testLLMKey(provider, key, model) {
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
-// Loosened from Gemini's default (BLOCK_MEDIUM_AND_ABOVE) — webnovel content
-// (romance/intimacy, peril, dark themes) routinely trips the default
-// threshold on translation/edit requests that aren't actually generating
-// anything new, just carrying existing chapter text across languages. Still
-// blocks the most severe tier per category rather than disabling filtering.
+// Translation must preserve the source text, including mature/dark webnovel
+// scenes. Gemini 2.5/3 now defaults these four adjustable filters to OFF;
+// explicitly using BLOCK_ONLY_HIGH actually made the app stricter than the
+// current API default and caused legitimate chapters to fail with SAFETY.
+// Google's non-adjustable core-harm protections still apply regardless.
 const GEMINI_SAFETY_SETTINGS = [
-  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
-  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
-  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
-  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+  { category: "HARM_CATEGORY_HARASSMENT", threshold: "OFF" },
+  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "OFF" },
+  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "OFF" },
+  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "OFF" },
 ];
+
+function geminiSafetyDetails(data, candidate) {
+  const ratings = [...(data?.promptFeedback?.safetyRatings || []), ...(candidate?.safetyRatings || [])];
+  const flagged = ratings
+    .filter((rating) => rating?.blocked || ["HIGH", "MEDIUM"].includes(rating?.probability))
+    .map((rating) => `${String(rating.category || "").replace("HARM_CATEGORY_", "")} ${rating.probability || ""}`.trim());
+  return [...new Set(flagged)].join(", ");
+}
 
 async function callGeminiRaw(apiKey, prompt, image, model, maxTokens = 8192) {
   const parts = [{ text: prompt }];
@@ -272,8 +280,10 @@ async function callGeminiRaw(apiKey, prompt, image, model, maxTokens = 8192) {
   const finishReason = candidate?.finishReason;
   const text = candidate?.content?.parts?.[0]?.text;
   if (!text || !text.trim()) {
-    if (data?.promptFeedback?.blockReason) throw new Error(`Gemini chặn yêu cầu (${data.promptFeedback.blockReason}). Hãy chỉnh lại nội dung hoặc thử model/provider khác.`);
-    if (finishReason === "SAFETY" || finishReason === "RECITATION") throw new Error(`Gemini từ chối trả lời vì bộ lọc nội dung (${finishReason}). Hãy thử lại hoặc dùng provider khác cho đoạn này.`);
+    const safetyDetails = geminiSafetyDetails(data, candidate);
+    const detailSuffix = safetyDetails ? `: ${safetyDetails}` : "";
+    if (data?.promptFeedback?.blockReason) throw new Error(`Gemini chặn yêu cầu (${data.promptFeedback.blockReason}${detailSuffix}). Đây là lớp bảo vệ bắt buộc; hãy chia nhỏ đoạn hoặc dùng provider khác.`);
+    if (finishReason === "SAFETY" || finishReason === "RECITATION") throw new Error(`Gemini từ chối trả lời (${finishReason}${detailSuffix}). Hãy chia nhỏ đoạn hoặc dùng provider khác.`);
     if (finishReason === "MAX_TOKENS") throw new Error("Gemini bị cắt giữa chừng vì vượt giới hạn độ dài phản hồi. Hãy thử lại hoặc chọn ít chương hơn.");
     throw new Error("Gemini không trả kết quả");
   }
