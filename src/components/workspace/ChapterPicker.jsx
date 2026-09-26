@@ -22,7 +22,12 @@ export function ChapterListBody({ chapters, currentChapterId, onSelect, wordCoun
       const list = listRef.current;
       const option = currentOptionRef.current;
       if (!list || !option) return;
-      list.scrollTop = Math.max(0, option.offsetTop - (list.clientHeight - option.offsetHeight) / 2);
+      // `option` is wrapped by a position:relative action container in the
+      // desktop sidebar, so option.offsetTop is 0 relative to that wrapper
+      // for every chapter. Measure against the scrolling list itself or a
+      // chapter selection incorrectly sends the list back to chapter 1.
+      const optionTop = option.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+      list.scrollTop = Math.max(0, optionTop - (list.clientHeight - option.offsetHeight) / 2);
     });
     return () => cancelAnimationFrame(frame);
   }, [normalizedQuery, currentChapterId]);
@@ -73,7 +78,7 @@ export function ChapterListBody({ chapters, currentChapterId, onSelect, wordCoun
         // shown on hover and always on the open chapter.
         return <div key={chapter.id} className="group relative">
           {row}
-          {onRenameChapter && <button type="button" onClick={() => startRename(chapter)} title="Đổi tên chương" className={`absolute ${onDeleteChapter ? 'right-8' : 'right-1.5'} top-2 rounded-md p-1.5 text-slate-400 transition hover:bg-violet-100 hover:text-violet-600 focus:opacity-100 dark:hover:bg-violet-500/15 dark:hover:text-violet-400 ${chapter.id === currentChapterId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          {onRenameChapter && <button type="button" onClick={() => startRename(chapter)} title="Đổi tên chương" aria-label={`Đổi tên ${chapter.title}`} className={`absolute ${onDeleteChapter ? 'right-8' : 'right-1.5'} top-2 rounded-md p-1.5 text-violet-500 transition hover:bg-violet-100 hover:text-violet-700 dark:text-violet-400 dark:hover:bg-violet-500/15 dark:hover:text-violet-300`}>
             <Pencil className="h-3.5 w-3.5" />
           </button>}
           {onDeleteChapter && <button type="button" onClick={() => onDeleteChapter(chapter)} title="Xóa chương này (các chương sau tự lùi số)" className={`absolute right-1.5 top-2 rounded-md p-1.5 text-slate-400 transition hover:bg-red-100 hover:text-red-600 focus:opacity-100 dark:hover:bg-red-500/15 dark:hover:text-red-400 ${chapter.id === currentChapterId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
