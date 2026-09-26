@@ -229,18 +229,6 @@ export async function testLLMKey(provider, key, model) {
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
-// Translation must preserve the source text, including mature/dark webnovel
-// scenes. Gemini 2.5/3 now defaults these four adjustable filters to OFF;
-// explicitly using BLOCK_ONLY_HIGH actually made the app stricter than the
-// current API default and caused legitimate chapters to fail with SAFETY.
-// Google's non-adjustable core-harm protections still apply regardless.
-const GEMINI_SAFETY_SETTINGS = [
-  { category: "HARM_CATEGORY_HARASSMENT", threshold: "OFF" },
-  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "OFF" },
-  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "OFF" },
-  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "OFF" },
-];
-
 function geminiSafetyDetails(data, candidate) {
   const ratings = [...(data?.promptFeedback?.safetyRatings || []), ...(candidate?.safetyRatings || [])];
   const flagged = ratings
@@ -257,7 +245,10 @@ async function callGeminiRaw(apiKey, prompt, image, model, maxTokens = 8192) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       contents: [{ parts }],
-      safetySettings: GEMINI_SAFETY_SETTINGS,
+      // Do not send safetySettings here. Gemini 2.5/3 defaults the four
+      // adjustable filters to OFF, while some currently served model/API
+      // combinations reject the explicit OFF enum with INVALID_ARGUMENT.
+      // Built-in core-harm protections still apply on Google's side.
       // Gemini 2.5+/3 models "think" before answering by default, and those
       // thinking tokens are billed against maxOutputTokens — so a call that
       // used to fit now silently loses part of its budget to invisible
