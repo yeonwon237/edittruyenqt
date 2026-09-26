@@ -6,14 +6,14 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [react()],
   server: {
-    // STALI does not expose browser CORS headers. In local development Vite
-    // forwards the request server-side; production uses /api/stali-chat.
+    // Keep provider keys out of browser CORS trouble: Vite proxies locally;
+    // production uses the matching serverless proxy.
     proxy: {
-      '/stali-api': {
-        target: 'https://api.stali.vn',
+      '/orcarouter-api': {
+        target: 'https://api.orcarouter.ai',
         changeOrigin: true,
         secure: true,
-        rewrite: (requestPath) => requestPath.replace(/^\/stali-api/, ''),
+        rewrite: (requestPath) => requestPath.replace(/^\/orcarouter-api/, ''),
       },
     },
   },

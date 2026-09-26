@@ -1,13 +1,12 @@
-// Multi-provider LLM dispatch: Gemini / OpenAI (GPT) / Anthropic (Claude).
+// Multi-provider LLM dispatch: Gemini / OpenAI (GPT) / OrcaRouter.
 import { recordGeminiCall } from "@/lib/geminiUsage";
-import { STALI_CHAT_ENDPOINT } from "@/lib/staliModels";
+import { ORCAROUTER_CHAT_ENDPOINT } from "@/lib/orcarouterModels";
 
 const PROVIDER_KEY = "llm_provider";
 const KEY_STORE = {
   gemini: "gemini_api_key",
   openai: "openai_api_key",
-  claude: "claude_api_key",
-  stali: "stali_api_key",
+  orcarouter: "orcarouter_api_key",
 };
 // A provider can have several keys (e.g. multiple free-tier Gemini accounts)
 // so callLLM can rotate to the next one when one hits its quota, instead of
@@ -15,14 +14,12 @@ const KEY_STORE = {
 const KEYS_STORE = {
   gemini: "gemini_api_keys",
   openai: "openai_api_keys",
-  claude: "claude_api_keys",
-  stali: "stali_api_keys",
+  orcarouter: "orcarouter_api_keys",
 };
 const KEY_CURSOR_STORE = {
   gemini: "gemini_api_key_cursor",
   openai: "openai_api_key_cursor",
-  claude: "claude_api_key_cursor",
-  stali: "stali_api_key_cursor",
+  orcarouter: "orcarouter_api_key_cursor",
 };
 
 // Model IDs churn fast (providers rename/retire them every few months —
@@ -34,37 +31,34 @@ const KEY_CURSOR_STORE = {
 const MODEL_KEY_STORE = {
   gemini: "gemini_model",
   openai: "openai_model",
-  claude: "claude_model",
-  stali: "stali_model",
+  orcarouter: "orcarouter_model",
 };
 
 const DEFAULT_MODELS = {
   gemini: "gemini-3.5-flash-lite",
   openai: "gpt-4o-mini",
-  claude: "claude-sonnet-4-6",
-  stali: "gemini-3.5-flash",
+  orcarouter: "orcarouter/free",
 };
-const ENDPOINT_KEY_STORE = { stali:"stali_api_endpoint" };
-const DEFAULT_ENDPOINTS = { stali: STALI_CHAT_ENDPOINT };
+const ENDPOINT_KEY_STORE = {};
+const DEFAULT_ENDPOINTS = { orcarouter: ORCAROUTER_CHAT_ENDPOINT };
 
 const BASE_ENDPOINTS = {
   openai: "https://api.openai.com/v1/chat/completions",
-  claude: "https://api.anthropic.com/v1/messages",
 };
 
 function geminiEndpoint(model) {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
 }
 
-export const PROVIDERS = ["gemini", "openai", "claude", "stali"];
+export const PROVIDERS = ["gemini", "openai", "orcarouter"];
 
 export function getEndpoint(provider) {
   const p=provider||getProvider();
-  if (p === "stali") return STALI_CHAT_ENDPOINT;
+  if (p === "orcarouter") return ORCAROUTER_CHAT_ENDPOINT;
   try{return (localStorage.getItem(ENDPOINT_KEY_STORE[p])||"").trim()||DEFAULT_ENDPOINTS[p]||"";}catch{return DEFAULT_ENDPOINTS[p]||"";}
 }
 export function saveEndpoint(provider,value) {
-  if (provider === "stali") return;
+  if (provider === "orcarouter") return;
   if(!ENDPOINT_KEY_STORE[provider])return;
   const next=String(value||"").trim();
   if(next)localStorage.setItem(ENDPOINT_KEY_STORE[provider],next);else localStorage.removeItem(ENDPOINT_KEY_STORE[provider]);
@@ -72,7 +66,8 @@ export function saveEndpoint(provider,value) {
 
 export function getProvider() {
   try {
-    return localStorage.getItem(PROVIDER_KEY) || "gemini";
+    const stored = localStorage.getItem(PROVIDER_KEY);
+    return PROVIDERS.includes(stored) ? stored : "gemini";
   } catch {
     return "gemini";
   }
@@ -177,14 +172,13 @@ export function resetModel(provider) {
 }
 
 // `image`, when provided, is { base64, mimeType } — a data-URL-free base64
-// payload plus its MIME type (e.g. "image/png"). Only Gemini/OpenAI/Claude
-// (this custom-key path) support image input; the Base44 managed AI path
+// payload plus its MIME type (e.g. "image/png"). Gemini/OpenAI and compatible
+// OrcaRouter vision models support image input; the Base44 managed AI path
 // (InvokeLLM) is text-only.
 function dispatchLLM(provider, key, prompt, image, model, maxTokens) {
   if (provider === "gemini") return callGeminiRaw(key, prompt, image, model, maxTokens);
   if (provider === "openai") return callOpenAI(key, prompt, image, model, maxTokens);
-  if (provider === "claude") return callClaude(key, prompt, image, model, maxTokens);
-  if (provider === "stali") return callOpenAICompatible(key, prompt, image, model, getEndpoint("stali"), "STALI", maxTokens);
+  if (provider === "orcarouter") return callOpenAICompatible(key, prompt, image, model, getEndpoint("orcarouter"), "OrcaRouter", maxTokens);
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
@@ -228,8 +222,7 @@ export async function testLLMKey(provider, key, model) {
   const m = model || getModel(provider);
   if (provider === "gemini") return testGeminiRaw(key, m);
   if (provider === "openai") return testOpenAI(key, m);
-  if (provider === "claude") return testClaude(key, m);
-  if (provider === "stali") return testStali(key, m);
+  if (provider === "orcarouter") return testOpenAICompatible(key, m, getEndpoint("orcarouter"), "OrcaRouter");
   throw new Error("Provider AI không được hỗ trợ: " + provider);
 }
 
@@ -322,12 +315,12 @@ async function callOpenAI(apiKey, prompt, image, model, maxTokens = 8192) {
 async function callOpenAICompatible(apiKey,prompt,image,model,endpoint,label,maxTokens=8192) {
   const content=image?[{type:"text",text:prompt},{type:"image_url",image_url:{url:`data:${image.mimeType};base64,${image.base64}`}}]:prompt;
   const payload={model,messages:[{role:"user",content}],temperature:0.3,max_tokens:maxTokens};
-  const useProxy=label==="STALI";
-  const localStali=useProxy&&import.meta.env.DEV;
-  const target=localStali?"/stali-api/v1/chat/completions":useProxy?"/api/stali-chat":endpoint;
+  const useProxy=label==="OrcaRouter";
+  const localProxy=useProxy&&import.meta.env.DEV;
+  const target=localProxy?"/orcarouter-api/v1/chat/completions":useProxy?"/api/orcarouter-chat":endpoint;
   let res;
   try {
-    res=await fetch(target,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${apiKey}`},body:JSON.stringify(useProxy&&!localStali?{endpoint,payload}:payload)});
+    res=await fetch(target,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${apiKey}`},body:JSON.stringify(useProxy&&!localProxy?{payload}:payload)});
   } catch {
     throw new Error(`${label}: không kết nối được máy chủ. Hãy kiểm tra mạng hoặc thử lại sau.`);
   }
@@ -336,43 +329,6 @@ async function callOpenAICompatible(apiKey,prompt,image,model,endpoint,label,max
   if(!text||!String(text).trim())throw new Error(`${label} không trả kết quả`);
   if(data?.choices?.[0]?.finish_reason==="length")throw new Error(`${label} bị cắt giữa chừng vì vượt giới hạn độ dài phản hồi. Hãy thử lại hoặc chọn ít chương hơn.`);
   return String(text).trim();
-}
-
-async function callClaude(apiKey, prompt, image, model, maxTokens = 8192) {
-  const content = image
-    ? [
-        { type: "image", source: { type: "base64", media_type: image.mimeType, data: image.base64 } },
-        { type: "text", text: prompt },
-      ]
-    : prompt;
-  const res = await fetch(BASE_ENDPOINTS.claude, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      // Required for Anthropic to allow direct browser (CORS) requests.
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      messages: [{ role: "user", content }],
-    }),
-  });
-  if (!res.ok) {
-    let msg = `Claude ${res.status}`;
-    try {
-      const e = await res.json();
-      msg = e?.error?.message || msg;
-    } catch {}
-    throw new Error(msg);
-  }
-  const data = await res.json();
-  const text = data?.content?.[0]?.text;
-  if (!text || !text.trim()) throw new Error("Claude không trả kết quả");
-  if (data?.stop_reason === "max_tokens") throw new Error("Claude bị cắt giữa chừng vì vượt giới hạn độ dài phản hồi. Hãy thử lại hoặc chọn ít chương hơn.");
-  return text.trim();
 }
 
 async function testGeminiRaw(apiKey, model) {
@@ -423,60 +379,6 @@ async function testOpenAICompatible(apiKey,model,endpoint,label) {
   return true;
 }
 
-async function testStali(apiKey, model) {
-  const local = import.meta.env.DEV;
-  const target = local ? "/stali-api/v1/models" : "/api/stali-chat";
-  let response;
-  try {
-    response = await fetch(target, {
-      method: local ? "GET" : "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      ...(local ? {} : { body: JSON.stringify({ action: "models" }) }),
-    });
-  } catch {
-    throw new Error("STALI: không tới được máy chủ kiểm tra model.");
-  }
-  let data = null;
-  try { data = await response.json(); } catch {}
-  if (!response.ok) {
-    const detail = data?.error?.message || data?.message || `HTTP ${response.status}`;
-    const type = data?.error?.type;
-    throw new Error(`STALI: ${detail}${type ? ` (${type})` : ""}`);
-  }
-  const models = Array.isArray(data?.data) ? data.data : Array.isArray(data?.models) ? data.models : [];
-  if (models.length && !models.some((item) => item?.id === model)) {
-    throw new Error(`STALI: API key hợp lệ nhưng model “${model}” không có trong danh sách được cấp. Hãy chọn model khác.`);
-  }
-  await testOpenAICompatible(apiKey, model, getEndpoint("stali"), "STALI");
-  return true;
-}
-
-async function testClaude(apiKey, model) {
-  const res = await fetch(BASE_ENDPOINTS.claude, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 10,
-      messages: [{ role: "user", content: "Reply with exactly: OK" }],
-    }),
-  });
-  if (!res.ok) {
-    let msg = `Lỗi ${res.status}`;
-    try {
-      const e = await res.json();
-      msg = e?.error?.message || msg;
-    } catch {}
-    throw new Error(msg);
-  }
-  return true;
-}
-
 // Reads an image File into { base64, mimeType } for callLLM's `image` param.
 export function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -514,7 +416,7 @@ export function estimateTokens(text) {
 const ROUGH_PRICE_PER_1M_TOKENS = {
   gemini: { input: 0.1, output: 0.4 },
   openai: { input: 0.15, output: 0.6 },
-  claude: { input: 3.0, output: 15.0 },
+  orcarouter: { input: 0, output: 0 },
 };
 
 export function estimateCostUsd(provider, inputText, outputMultiplier = 1.3) {

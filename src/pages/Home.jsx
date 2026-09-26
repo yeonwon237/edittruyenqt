@@ -73,7 +73,7 @@ export default function Home() {
           <div className="relative z-10 mt-10 grid gap-3 border-t border-white/10 pt-6 sm:grid-cols-3">
             <div className="hero-stat"><Layers3 /><span><strong>7 công cụ</strong><small>Một quy trình thống nhất</small></span></div>
             <div className="hero-stat"><ShieldCheck /><span><strong>Riêng tư</strong><small>Dữ liệu trong tài khoản</small></span></div>
-            <div className="hero-stat"><Sparkles /><span><strong>AI linh hoạt</strong><small>Gemini · GPT · Claude</small></span></div>
+            <div className="hero-stat"><Sparkles /><span><strong>AI linh hoạt</strong><small>Gemini · GPT · OrcaRouter</small></span></div>
           </div>
         </section>
 

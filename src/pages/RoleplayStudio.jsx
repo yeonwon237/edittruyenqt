@@ -140,7 +140,7 @@ export default function RoleplayStudio() {
   const toggleChapter = (id) => setSelectedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : current.length < 10 ? [...current, id] : current);
   const generate = async () => {
     if (!activeProject || selectedIds.length === 0) return;
-    if (!hasCustomAI()) { toast({ title: "Chưa cấu hình AI", description: "Hãy cấu hình Gemini, GPT, Claude hoặc STALI từ trang chủ.", variant: "destructive" }); return; }
+    if (!hasCustomAI()) { toast({ title: "Chưa cấu hình AI", description: "Hãy cấu hình Gemini, GPT hoặc OrcaRouter từ trang chủ.", variant: "destructive" }); return; }
     setGenerating(true); setStep("context");
     try {
       const scenario = await generateRoleplay({ project: activeProject, chapterIds: selectedIds, onProgress: setStep });

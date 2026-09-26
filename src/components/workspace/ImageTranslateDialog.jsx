@@ -12,7 +12,7 @@ import { ImagePlus, Loader2, Settings as SettingsIcon } from "lucide-react";
 
 // Dịch từ ảnh (OCR + translate): lets a translator drop in a photo/screenshot
 // of source text and get both the transcription and a Vietnamese draft back.
-// Requires a custom AI key (Gemini/GPT/Claude) — the Base44 managed AI path
+// Requires a custom AI key (Gemini/GPT/OrcaRouter vision model) — the Base44 managed AI path
 // doesn't take image input here, and this is the one place in the app that
 // genuinely needs a real multimodal model.
 export default function ImageTranslateDialog({
@@ -56,7 +56,7 @@ export default function ImageTranslateDialog({
         {!hasCustomAI ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700 space-y-3">
             <p>
-              Tính năng này cần AI đọc được hình ảnh (Gemini / GPT / Claude) — chưa hỗ trợ qua AI
+              Tính năng này cần AI đọc được hình ảnh (Gemini / GPT / model vision trên OrcaRouter) — chưa hỗ trợ qua AI
               nền tảng mặc định. Vào Cài đặt để nhập API key riêng trước.
             </p>
             <Button

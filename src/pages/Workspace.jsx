@@ -2141,7 +2141,7 @@ export default function Workspace() {
     };
   };
 
-  // Custom AI edit (Gemini / GPT / Claude, user's own key)
+  // Custom AI edit (Gemini / GPT / OrcaRouter, user's own key)
   const doCustomEdit = async (mode = "polish") => {
     if (!currentChapter) {
       toast({ title: "Hãy chọn chương trước!", variant: "destructive" });
@@ -2204,7 +2204,7 @@ export default function Workspace() {
         }
       }
       const providerLabel =
-        ({ gemini: "Gemini", openai: "GPT", claude: "Claude", stali:"STALI" }[provider] || "AI");
+        ({ gemini: "Gemini", openai: "GPT", orcarouter: "OrcaRouter" }[provider] || "AI");
       toast({
         title: `${providerLabel} đã edit xong! ✨`,
         description: "Kiểm tra và chỉnh thêm nhé",

@@ -42,8 +42,8 @@ const PROVIDER_INFO = {
     label: "GPT",
     gradFrom: "from-violet-600", gradTo: "to-violet-700",
   },
-  claude: {
-    label: "Claude",
+  orcarouter: {
+    label: "OrcaRouter",
     gradFrom: "from-violet-600", gradTo: "to-violet-700",
   },
 };
@@ -379,7 +379,7 @@ export default function EditorToolbar({
         </div>
       )}
 
-      {/* Custom AI (Gemini / GPT / Claude) */}
+      {/* Custom AI (Gemini / GPT / OrcaRouter) */}
       {hasCustomAI ? (
         <div className="flex items-center gap-1 shrink-0">
           <button
