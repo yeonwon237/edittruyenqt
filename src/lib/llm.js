@@ -213,6 +213,10 @@ export async function callLLM(prompt, image, options = {}) {
       return result;
     } catch (e) {
       lastError = e;
+      // A different key cannot change request validation or content-policy
+      // decisions. Retrying all saved keys only wastes quota and delays the
+      // adaptive chunk fallback in Workspace.
+      if (/PROHIBITED_CONTENT|\bSAFETY\b|invalid argument|bộ lọc nội dung|lớp bảo vệ bắt buộc/i.test(String(e?.message || ""))) break;
     }
   }
   const suffix = keys.length > 1 ? ` (đã thử hết ${keys.length} key)` : "";

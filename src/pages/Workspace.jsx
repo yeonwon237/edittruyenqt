@@ -95,6 +95,7 @@ const CHAPTER_CACHE_LIMIT = 50;
 // AI calls get chunked past this many characters so a chapter never blows
 // past the provider's output token cap and gets silently truncated.
 const AI_CHUNK_CHARS = 3000;
+const AI_SAFETY_MIN_CHUNK_CHARS = 350;
 
 const snapshotOf = (ch) =>
   JSON.stringify({
@@ -2022,15 +2023,40 @@ export default function Workspace() {
       if (context.mode === "translate") return callFn(buildChineseTranslatePrompt(source, context));
       return callFn(buildEditPrompt(source, context));
     };
+    let warnedAboutSafetySplit = false;
+    const isContentBlock = (error) => /PROHIBITED_CONTENT|\bSAFETY\b|bộ lọc nội dung|lớp bảo vệ bắt buộc/i.test(String(error?.message || ""));
+    const editWithSafetySplit = async (source) => {
+      try {
+        return await editChunk(source);
+      } catch (error) {
+        if (!isContentBlock(error) || source.length <= AI_SAFETY_MIN_CHUNK_CHARS) throw error;
+        const nextSize = Math.max(AI_SAFETY_MIN_CHUNK_CHARS, Math.floor(source.length / 2));
+        const smallerChunks = chunkText(source, nextSize);
+        if (smallerChunks.length <= 1) throw error;
+        if (!warnedAboutSafetySplit) {
+          warnedAboutSafetySplit = true;
+          toast({
+            title: "Gemini chặn một đoạn — đang tự chia nhỏ",
+            description: "Ứng dụng sẽ dịch từng phần nhỏ hơn rồi ghép lại; Glossary và ma trận xưng hô vẫn được áp dụng.",
+          });
+        }
+        const results = [];
+        for (const smallerChunk of smallerChunks) {
+          // eslint-disable-next-line no-await-in-loop
+          results.push(await editWithSafetySplit(smallerChunk));
+        }
+        return results.join("\n\n");
+      }
+    };
     const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
     if (chunks.length <= 1) {
-      return editChunk(sourceText);
+      return editWithSafetySplit(sourceText);
     }
     const results = [];
     for (let i = 0; i < chunks.length; i++) {
       onProgress?.(i + 1, chunks.length);
       // eslint-disable-next-line no-await-in-loop
-      results.push(await editChunk(chunks[i]));
+      results.push(await editWithSafetySplit(chunks[i]));
     }
     return results.join("\n\n");
   };
