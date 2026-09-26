@@ -107,6 +107,7 @@ export default function AppSidebar() {
               betaIssueIds={chapterNav.betaIssueIds}
               autoFocusSearch={false}
               onDeleteChapter={chapterNav.onDeleteChapter ? setDeleteTarget : undefined}
+              onRenameChapter={chapterNav.onRenameChapter}
             />
           </div>
           <InsertChapterDialog

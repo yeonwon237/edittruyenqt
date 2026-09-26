@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, ChevronDown, Search, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Pencil, Search, Trash2, X } from 'lucide-react';
 import { chapterLengthWarning } from '@/lib/chapterEditStats';
 
 // Search box + chapter list, shared by the popover ChapterPicker (web) and
 // the persistent desktop sidebar (src/components/desktop/AppSidebar.jsx) —
 // same data, same rendering, just a different container around it.
-export function ChapterListBody({ chapters, currentChapterId, onSelect, wordCounts, averageWords, editedSampleSize, editedChapterIds, qaIssueIds, betaIssueIds, afterSelect, autoFocusSearch = true, listClassName = '', onDeleteChapter }) {
+export function ChapterListBody({ chapters, currentChapterId, onSelect, wordCounts, averageWords, editedSampleSize, editedChapterIds, qaIssueIds, betaIssueIds, afterSelect, autoFocusSearch = true, listClassName = '', onDeleteChapter, onRenameChapter }) {
   const [query, setQuery] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [savingTitle, setSavingTitle] = useState(false);
   const listRef = useRef(null);
   const currentOptionRef = useRef(null);
   const normalizedQuery = query.trim().toLocaleLowerCase('vi');
@@ -24,6 +27,23 @@ export function ChapterListBody({ chapters, currentChapterId, onSelect, wordCoun
     return () => cancelAnimationFrame(frame);
   }, [normalizedQuery, currentChapterId]);
 
+  const startRename = (chapter) => {
+    setEditingId(chapter.id);
+    setEditTitle(chapter.title || '');
+  };
+
+  const commitRename = async () => {
+    const title = editTitle.trim();
+    if (!editingId || !title || savingTitle) return;
+    setSavingTitle(true);
+    try {
+      await onRenameChapter(editingId, title);
+      setEditingId(null);
+    } finally {
+      setSavingTitle(false);
+    }
+  };
+
   return <>
     <div className="shrink-0 border-b border-slate-100 p-3 dark:border-white/10">
       <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 focus-within:border-violet-400 focus-within:bg-white dark:border-white/10 dark:bg-white/5 dark:focus-within:border-violet-500 dark:focus-within:bg-white/10">
@@ -37,19 +57,28 @@ export function ChapterListBody({ chapters, currentChapterId, onSelect, wordCoun
         const wordCount = wordCounts[chapter.id] || 0;
         const warning = chapterLengthWarning(wordCount, averageWords, editedSampleSize);
         const hasEdit = editedChapterIds.has(chapter.id);
-        const row = <button ref={chapter.id === currentChapterId ? currentOptionRef : null} key={chapter.id} type="button" role="option" aria-selected={chapter.id === currentChapterId} onClick={() => { onSelect(chapter.id); afterSelect?.(); }} className={`flex w-full items-start gap-2 rounded-xl px-3 py-2.5 text-left transition ${onDeleteChapter ? 'pr-9 ' : ''}${chapter.id === currentChapterId ? 'bg-violet-100 ring-1 ring-violet-300 dark:bg-violet-500/20 dark:ring-violet-500/40' : hasEdit ? 'bg-emerald-50/70 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20' : 'hover:bg-slate-50 dark:hover:bg-white/5'}`}>
+        const hasRowActions = onDeleteChapter || onRenameChapter;
+        const row = <button ref={chapter.id === currentChapterId ? currentOptionRef : null} key={chapter.id} type="button" role="option" aria-selected={chapter.id === currentChapterId} onClick={() => { onSelect(chapter.id); afterSelect?.(); }} className={`flex w-full items-start gap-2 rounded-xl px-3 py-2.5 text-left transition ${hasRowActions ? 'pr-16 ' : ''}${chapter.id === currentChapterId ? 'bg-violet-100 ring-1 ring-violet-300 dark:bg-violet-500/20 dark:ring-violet-500/40' : hasEdit ? 'bg-emerald-50/70 hover:bg-emerald-100 dark:bg-emerald-500/10 dark:hover:bg-emerald-500/20' : 'hover:bg-slate-50 dark:hover:bg-white/5'}`}>
           <span className="mt-0.5 w-5 shrink-0 text-xs font-semibold text-slate-400 dark:text-slate-500">{chapterNumbers.get(chapter.id)}</span>
           {hasEdit ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" /> : <span className="mt-1 h-3.5 w-3.5 shrink-0 rounded-full border-2 border-slate-300 dark:border-slate-600" />}
           <span className="min-w-0 flex-1"><span className={`block truncate text-sm ${hasEdit ? 'font-semibold text-emerald-950 dark:text-emerald-300' : 'text-slate-700 dark:text-slate-300'}`}>{qaIssueIds.has(chapter.id) ? '⚠ ' : ''}{betaIssueIds.has(chapter.id) ? '✍ ' : ''}{chapter.title}</span><span className="mt-0.5 flex flex-wrap items-center gap-x-2 text-xs"><span className={hasEdit ? 'font-medium text-emerald-700 dark:text-emerald-400' : 'text-slate-400 dark:text-slate-500'}>{hasEdit ? (wordCount ? `Đã edit · ${wordCount.toLocaleString('vi-VN')} chữ` : 'Đã edit') : 'Chưa có Bản edit'}</span>{warning && <span className="inline-flex items-center gap-1 font-semibold text-amber-700 dark:text-amber-400" title={`Trung bình truyện là ${averageWords.toLocaleString('vi-VN')} chữ`}><AlertTriangle className="h-3.5 w-3.5" />{warning.label}</span>}</span></span>
         </button>;
-        if (!onDeleteChapter) return row;
-        // Delete sits beside the row (not inside it — no nested buttons),
+        if (!hasRowActions) return row;
+        if (editingId === chapter.id) return <div key={chapter.id} ref={chapter.id === currentChapterId ? currentOptionRef : null} className="flex items-center gap-1.5 rounded-xl bg-white px-2 py-2 ring-1 ring-violet-300 dark:bg-slate-900 dark:ring-violet-500/50">
+          <input autoFocus value={editTitle} disabled={savingTitle} onChange={(event) => setEditTitle(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') commitRename(); if (event.key === 'Escape') setEditingId(null); }} className="min-w-0 flex-1 rounded-lg border border-violet-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-violet-500 dark:border-violet-500/50 dark:bg-slate-950 dark:text-slate-100" aria-label={`Tên mới cho ${chapter.title}`} />
+          <button type="button" disabled={!editTitle.trim() || savingTitle} onClick={commitRename} title="Lưu tên chương" className="rounded-md p-1.5 text-emerald-600 hover:bg-emerald-100 disabled:opacity-40 dark:text-emerald-400 dark:hover:bg-emerald-500/15"><Check className="h-4 w-4" /></button>
+          <button type="button" disabled={savingTitle} onClick={() => setEditingId(null)} title="Hủy" className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 dark:hover:bg-white/10"><X className="h-4 w-4" /></button>
+        </div>;
+        // Row actions sit beside the row (not inside it — no nested buttons),
         // shown on hover and always on the open chapter.
         return <div key={chapter.id} className="group relative">
           {row}
-          <button type="button" onClick={() => onDeleteChapter(chapter)} title="Xóa chương này (các chương sau tự lùi số)" className={`absolute right-1.5 top-2 rounded-md p-1.5 text-slate-400 transition hover:bg-red-100 hover:text-red-600 focus:opacity-100 dark:hover:bg-red-500/15 dark:hover:text-red-400 ${chapter.id === currentChapterId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+          {onRenameChapter && <button type="button" onClick={() => startRename(chapter)} title="Đổi tên chương" className={`absolute ${onDeleteChapter ? 'right-8' : 'right-1.5'} top-2 rounded-md p-1.5 text-slate-400 transition hover:bg-violet-100 hover:text-violet-600 focus:opacity-100 dark:hover:bg-violet-500/15 dark:hover:text-violet-400 ${chapter.id === currentChapterId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+            <Pencil className="h-3.5 w-3.5" />
+          </button>}
+          {onDeleteChapter && <button type="button" onClick={() => onDeleteChapter(chapter)} title="Xóa chương này (các chương sau tự lùi số)" className={`absolute right-1.5 top-2 rounded-md p-1.5 text-slate-400 transition hover:bg-red-100 hover:text-red-600 focus:opacity-100 dark:hover:bg-red-500/15 dark:hover:text-red-400 ${chapter.id === currentChapterId ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
             <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          </button>}
         </div>;
       })}
       {!filtered.length && <p className="p-6 text-center text-sm text-slate-500 dark:text-slate-500">Không tìm thấy chương phù hợp.</p>}

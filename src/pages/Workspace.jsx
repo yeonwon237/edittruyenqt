@@ -4593,13 +4593,14 @@ ${compact}`;
   // instead (same pattern as onTermClickRef in EditorPanel.jsx) so the
   // published callbacks stay stable while always calling the latest version.
   const chapterNavCallbacksRef = useRef({});
-  chapterNavCallbacksRef.current = { onSelect: switchChapter, onOpen: ensureWordCountsLoaded, onCreateChapter: handleCreateChapter, onInsertChapterAt: handleInsertChapterAt, onDeleteChapter: handleDeleteChapter, onRenumberAll: handleRenumberAllChapters };
+  chapterNavCallbacksRef.current = { onSelect: switchChapter, onOpen: ensureWordCountsLoaded, onCreateChapter: handleCreateChapter, onInsertChapterAt: handleInsertChapterAt, onDeleteChapter: handleDeleteChapter, onRenameChapter: handleRenameChapter, onRenumberAll: handleRenumberAllChapters };
   undoChapterDeleteRef.current = handleUndoChapterDelete;
   const stableOnSelectChapter = useMemo(() => (id) => chapterNavCallbacksRef.current.onSelect(id), []);
   const stableOnOpenChapterNav = useMemo(() => (...args) => chapterNavCallbacksRef.current.onOpen(...args), []);
   const stableOnCreateChapterNav = useMemo(() => (...args) => chapterNavCallbacksRef.current.onCreateChapter(...args), []);
   const stableOnInsertChapterAt = useMemo(() => (...args) => chapterNavCallbacksRef.current.onInsertChapterAt(...args), []);
   const stableOnDeleteChapter = useMemo(() => (...args) => chapterNavCallbacksRef.current.onDeleteChapter(...args), []);
+  const stableOnRenameChapter = useMemo(() => (...args) => chapterNavCallbacksRef.current.onRenameChapter(...args), []);
   const stableOnRenumberAll = useMemo(() => (...args) => chapterNavCallbacksRef.current.onRenumberAll(...args), []);
 
   const setDesktopChapterNav = useDesktopSidebarContext()?.setChapterNav;
@@ -4615,6 +4616,7 @@ ${compact}`;
       onCreateChapter: stableOnCreateChapterNav,
       onInsertChapterAt: stableOnInsertChapterAt,
       onDeleteChapter: stableOnDeleteChapter,
+      onRenameChapter: stableOnRenameChapter,
       onRenumberAll: stableOnRenumberAll,
       wordCounts: editedWordCounts,
       averageWords: editedWordSummary.average,
@@ -4623,8 +4625,12 @@ ${compact}`;
       qaIssueIds,
       betaIssueIds,
     });
-    return () => setDesktopChapterNav(null);
-  }, [setDesktopChapterNav, projectId, project?.title, chapterList, currentChapter?.id, editedWordCounts, editedWordSummary, editedChapterIds, qaIssueIds, betaIssueIds, stableOnSelectChapter, stableOnOpenChapterNav, stableOnCreateChapterNav, stableOnInsertChapterAt, stableOnDeleteChapter, stableOnRenumberAll]);
+  }, [setDesktopChapterNav, projectId, project?.title, chapterList, currentChapter?.id, editedWordCounts, editedWordSummary, editedChapterIds, qaIssueIds, betaIssueIds, stableOnSelectChapter, stableOnOpenChapterNav, stableOnCreateChapterNav, stableOnInsertChapterAt, stableOnDeleteChapter, stableOnRenameChapter, stableOnRenumberAll]);
+
+  // Clear the persistent sidebar only when Workspace actually unmounts.
+  // Keeping this separate prevents every chapter change from briefly
+  // removing/remounting ChapterListBody and resetting its scroll position.
+  useEffect(() => () => setDesktopChapterNav?.(null), [setDesktopChapterNav]);
   const qaNeedsRecheck = chapterList.filter((chapter) => qaRecords[chapter.id] && qaStatusOf(chapter) === "stale").length;
   const betaCount=chapterList.filter(ch=>betaStatusOf(ch)==="done").length;
   const betaNeedsRecheck=chapterList.filter(ch=>betaRecords[ch.id]&&betaStatusOf(ch)==="stale").length;
