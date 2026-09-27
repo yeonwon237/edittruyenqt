@@ -5,7 +5,7 @@ import { fetchAllPages } from "@/lib/paginate";
 import { useAuth } from "@/lib/AuthContext";
 import { useDesktopSidebarContext } from "@/lib/desktopSidebarContext";
 import { ChapterListBody } from "@/components/workspace/ChapterPicker";
-import { ArrowLeft, Plus, Settings as SettingsIcon, LogOut, Home, ListOrdered } from "lucide-react";
+import { ArrowLeft, Plus, Settings as SettingsIcon, LogOut, Home, ListOrdered, X } from "lucide-react";
 import { planRenumberAll } from "@/lib/chapterNumbering";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import InsertChapterDialog from "@/components/workspace/InsertChapterDialog";
@@ -22,7 +22,7 @@ import { isDesktopApp } from "@/lib/platform";
 // chapter list (inside one). See src/lib/desktopSidebarContext.jsx for how
 // Workspace publishes its already-loaded chapter data here instead of this
 // component re-fetching and re-running QA scans on its own.
-export default function AppSidebar() {
+export default function AppSidebar({ mobileOpen = false, onMobileClose }) {
   const navigate = useNavigate();
   const { projectId } = useParams();
   const location = useLocation();
@@ -35,6 +35,10 @@ export default function AppSidebar() {
   const [renumberCount, setRenumberCount] = useState(null);
 
   const inProject = Boolean(projectId) && Boolean(chapterNav);
+
+  useEffect(() => {
+    onMobileClose?.();
+  }, [location.pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (inProject) return;
@@ -56,7 +60,16 @@ export default function AppSidebar() {
   };
 
   return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-slate-300 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-[#1a1a1c] dark:text-slate-300">
+    <>
+    {mobileOpen && (
+      <button
+        type="button"
+        className="fixed inset-0 z-[80] bg-black/45 md:hidden"
+        onClick={onMobileClose}
+        aria-label="Đóng menu"
+      />
+    )}
+    <aside className={`fixed inset-y-0 left-0 z-[90] flex h-[100dvh] w-[min(19rem,88vw)] shrink-0 flex-col border-r border-slate-300 bg-slate-100 text-slate-700 shadow-2xl transition-transform duration-200 md:static md:h-full md:w-64 md:translate-x-0 md:shadow-none dark:border-white/10 dark:bg-[#1a1a1c] dark:text-slate-300 ${mobileOpen ? "translate-x-0" : "-translate-x-full"}`}>
       <button
         onClick={() => navigate("/stories")}
         className="flex items-center gap-2.5 border-b border-slate-300 px-4 py-3.5 text-left transition-colors hover:bg-slate-200 dark:border-white/10 dark:hover:bg-white/[0.06]"
@@ -64,6 +77,11 @@ export default function AppSidebar() {
       >
         <img src={logo} alt="" className="h-6 w-6 shrink-0" />
         <span className="truncate text-sm font-bold uppercase tracking-wide text-slate-800 dark:text-slate-100">LilyNovel</span>
+        <span
+          onClick={(event) => { event.stopPropagation(); onMobileClose?.(); }}
+          className="ml-auto flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 active:bg-slate-200 md:hidden dark:active:bg-white/10"
+          aria-label="Đóng menu"
+        ><X className="h-5 w-5" /></span>
       </button>
 
       {inProject ? (
@@ -98,7 +116,7 @@ export default function AppSidebar() {
             <ChapterListBody
               chapters={chapterNav.chapters}
               currentChapterId={chapterNav.currentChapterId}
-              onSelect={chapterNav.onSelect}
+              onSelect={(id) => { chapterNav.onSelect(id); onMobileClose?.(); }}
               wordCounts={chapterNav.wordCounts}
               averageWords={chapterNav.averageWords}
               editedSampleSize={chapterNav.editedSampleSize}
@@ -199,5 +217,6 @@ export default function AppSidebar() {
         </button>
       </div>
     </aside>
+    </>
   );
 }

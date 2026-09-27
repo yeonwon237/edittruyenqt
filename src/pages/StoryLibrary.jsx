@@ -25,6 +25,7 @@ import { formatDistanceToNow } from "date-fns";
 import { vi } from "date-fns/locale";
 import { fetchAllPages } from "@/lib/paginate";
 import { useInSidebarLayout } from "@/lib/desktopSidebarContext";
+import { retryAsync } from "@/lib/retryAsync";
 
 const EMOJIS = ["📚", "🌸", "⚔️", "👑", "💎", "🔥", "🌙", "❄️", "🌿", "🐉", "🦋", "🌹", "🔮", "⛩️", "🌉", "🐺"];
 const LANGUAGES = ["Trung", "Anh", "Nhật", "Hàn", "Việt"];
@@ -77,9 +78,11 @@ export default function StoryLibrary() {
 
   const loadProjects = async () => {
     try {
-      const data = await fetchAllPages(
-        (limit, skip) => Project.list("-updated_date", limit, skip),
-        { pageSize: 200, maxItems: 5000 }
+      const data = await retryAsync(() => fetchAllPages(
+          (limit, skip) => Project.list("-updated_date", limit, skip),
+          { pageSize: 200, maxItems: 5000 }
+        ),
+        { attempts: 3, delayMs: 450 }
       );
       setProjects(data);
     } catch (e) {

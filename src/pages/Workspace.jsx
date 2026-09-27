@@ -66,6 +66,7 @@ import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt, com
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
+import { retryAsync } from "@/lib/retryAsync";
 import { copyRichText } from "@/lib/clipboardHtml";
 import { isDraftMode } from "@/lib/draftMode";
 import { countVietnameseWords, summarizeChapterWordCounts } from "@/lib/chapterEditStats";
@@ -81,6 +82,7 @@ const COLUMN_DEFS = {
   qt: { shortLabel: "QT thô" },
   edited: { shortLabel: "Bản edit" },
 };
+const MOBILE_COLUMN_KEYS = ["raw", "qt", "edited"];
 
 const COLUMN_INDEX = { raw: 0, qt: 1, edited: 2 };
 
@@ -453,55 +455,42 @@ export default function Workspace() {
     }
   };
 
+  const loadProjectDataOnce = async () => {
+    const proj = await Project.get(projectId);
+    setProject(proj);
+    const vc = Array.isArray(proj.visible_columns) && proj.visible_columns.length
+      ? proj.visible_columns
+      : ["raw", "qt", "edited"];
+    setVisibleColumns(vc);
+    setMobileActiveCol(vc.includes("edited") ? "edited" : vc[0]);
+
+    chapterCacheRef.current.clear();
+    lastSavedRef.current.clear();
+    wordCountsLoadedRef.current = false;
+    setEditedWordCounts({});
+
+    const [lightChapters, terms, presetList] = await Promise.all([
+      fetchAllPages(
+        (limit, skip) => Chapter.filter({ project_id: projectId }, "chapter_order", limit, skip, ["title", "chapter_order", "updated_date"]),
+        { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
+      ),
+      fetchAllPages(
+        (limit, skip) => GlossaryTerm.filter({ project_id: projectId }, "-created_date", limit, skip),
+        { pageSize: 1000, maxItems: GLOSSARY_FETCH_CAP }
+      ),
+      PromptPreset.list("-created_date", 200),
+    ]);
+
+    return { proj, vc, lightChapters, terms, presetList };
+  };
+
   const loadProjectData = async () => {
     setLoading(true);
     try {
-      const proj = await Project.get(projectId);
-      setProject(proj);
-      const vc = Array.isArray(proj.visible_columns) && proj.visible_columns.length
-        ? proj.visible_columns
-        : ["raw", "qt", "edited"];
-      setVisibleColumns(vc);
-      setMobileActiveCol(vc.includes("edited") ? "edited" : vc[0]);
-
-      chapterCacheRef.current.clear();
-      lastSavedRef.current.clear();
-      wordCountsLoadedRef.current = false;
-      setEditedWordCounts({});
-
-      // Chapter list (lightweight: id/title/chapter_order only, never the
-      // potentially-huge chapter bodies), glossary and presets are mutually
-      // independent — fetch them concurrently instead of one after another.
-      const [lightChapters, terms, presetList] = await Promise.all([
-        fetchAllPages(
-          (limit, skip) =>
-            Chapter.filter(
-              { project_id: projectId },
-              "chapter_order",
-              limit,
-              skip,
-              ["title", "chapter_order", "updated_date"]
-            ),
-          { pageSize: 500, maxItems: CHAPTER_FETCH_CAP }
-        ),
-        // Glossary must be loaded in full (not just the first page) — it's
-        // used both for on-screen highlighting and injected into every AI
-        // prompt, so a silently-truncated glossary would break the "AI must
-        // follow 100% of glossary terms" guarantee. Paginating internally
-        // keeps this correct without adding UI complexity.
-        fetchAllPages(
-          (limit, skip) =>
-            GlossaryTerm.filter(
-              { project_id: projectId },
-              "-created_date",
-              limit,
-              skip
-            ),
-          { pageSize: 1000, maxItems: GLOSSARY_FETCH_CAP }
-        ),
-        // Prompt presets: a small personal library shared across all projects.
-        PromptPreset.list("-created_date", 200),
-      ]);
+      const { proj, lightChapters, terms, presetList } = await retryAsync(
+        loadProjectDataOnce,
+        { attempts: 3, delayMs: 450 }
+      );
 
       setChapterList(lightChapters);
       if (lightChapters.length === CHAPTER_FETCH_CAP) {
@@ -4562,9 +4551,16 @@ ${compact}`;
     toast({ title: "Đã xuất file! 📄" });
   };
 
-  const activeMobile = visibleColumns.includes(mobileActiveCol)
-    ? mobileActiveCol
-    : visibleColumns[0] || "edited";
+  // Phones use columns as three navigation tabs, so all content sources must
+  // remain reachable even when a column was hidden in the desktop layout.
+  const activeMobile = MOBILE_COLUMN_KEYS.includes(mobileActiveCol) ? mobileActiveCol : "edited";
+  const mobilePanelClass = (column) => {
+    const mobile = activeMobile === column ? "flex flex-1 flex-col min-w-0" : "hidden";
+    const desktop = visibleColumns.includes(column)
+      ? "md:flex md:flex-1 md:flex-col md:min-w-0"
+      : "md:hidden";
+    return `${mobile} ${desktop}`;
+  };
 
   const qualityRulesHash = useMemo(() => quickHash(stableSerialize({
     glossary: glossaryTerms
@@ -4766,7 +4762,7 @@ ${compact}`;
   }
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-slate-100/80 flex flex-col dark:bg-[#1e1e1e]">
+    <div className="h-full overflow-hidden bg-slate-100/80 flex flex-col dark:bg-[#1e1e1e]">
       <MobileReadingEditor
         open={mobileReadingMode}
         projectTitle={project.title}
@@ -5159,9 +5155,8 @@ ${compact}`;
         <div className="flex-1 flex flex-col gap-2 p-2 pb-20 min-w-0 min-h-0 md:gap-3 md:p-4">
           {currentChapter ? (
             <>
-              {visibleColumns.length > 1 && (
-                <div className="md:hidden flex min-h-11 gap-1.5 shrink-0 rounded-2xl bg-white p-1 shadow-sm">
-                  {visibleColumns.map((col) => {
+              <div className="md:hidden flex min-h-11 gap-1.5 shrink-0 rounded-2xl bg-white p-1 shadow-sm">
+                  {MOBILE_COLUMN_KEYS.map((col) => {
                     const def = COLUMN_DEFS[col];
                     return (
                       <button
@@ -5178,16 +5173,8 @@ ${compact}`;
                     );
                   })}
                 </div>
-              )}
               <div className="flex flex-1 gap-3 min-h-0 min-w-0">
-                {visibleColumns.includes("raw") && (
-                  <div
-                    className={
-                      activeMobile === "raw"
-                        ? "flex-1 flex flex-col min-w-0"
-                        : "hidden md:flex md:flex-1 md:flex-col md:min-w-0"
-                    }
-                  >
+                  <div className={mobilePanelClass("raw")}>
                     <EditorPanel
                       ref={panelRefs[0]}
                       title="Văn bản gốc"
@@ -5209,15 +5196,7 @@ ${compact}`;
                       onHide={() => handleToggleColumn("raw")}
                     />
                   </div>
-                )}
-                {visibleColumns.includes("qt") && (
-                  <div
-                    className={
-                      activeMobile === "qt"
-                        ? "flex-1 flex flex-col min-w-0"
-                        : "hidden md:flex md:flex-1 md:flex-col md:min-w-0"
-                    }
-                  >
+                  <div className={mobilePanelClass("qt")}>
                     <EditorPanel
                       ref={panelRefs[1]}
                       title="QT thô"
@@ -5251,15 +5230,7 @@ ${compact}`;
                       onHide={() => handleToggleColumn("qt")}
                     />
                   </div>
-                )}
-                {visibleColumns.includes("edited") && (
-                  <div
-                    className={
-                      activeMobile === "edited"
-                        ? "flex-1 flex flex-col min-w-0"
-                        : "hidden md:flex md:flex-1 md:flex-col md:min-w-0"
-                    }
-                  >
+                  <div className={mobilePanelClass("edited")}>
                     <EditorPanel
                       ref={panelRefs[2]}
                       title="Bản Edit"
@@ -5325,7 +5296,6 @@ ${compact}`;
                       }
                     />
                   </div>
-                )}
               </div>
             </>
           ) : (

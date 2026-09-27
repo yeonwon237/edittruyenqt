@@ -419,6 +419,17 @@ html.desktop-app {
   .auth-form-area { padding: 2rem 1.25rem; }
 }
 
+/* iOS Safari automatically zooms the page when an editable control uses a
+   font smaller than 16px. Keep compact labels/buttons, but render inputs at
+   16px on phones so focusing search/editor fields never enlarges the page. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
