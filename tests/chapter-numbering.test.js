@@ -105,6 +105,15 @@ test("đánh lại số cả truyện sửa chỗ bị lệch", () => {
   ]);
 });
 
+test("xóa chương mặc định trước truyện nhập không làm chương 1 thành 0", () => {
+  const chapters = list(["Chương 1", "1. 第 1 章 人形抑制剂", "2. 第 2 章 顾明澜"]);
+  assert.deepEqual(planChapterDelete(chapters, 0), { renames: [] });
+});
+
+test("xóa chương cuối quyển không đổi số quyển sau bắt đầu cùng số", () => {
+  assert.deepEqual(planChapterDelete(list(["Chương 1", "Chương 1", "Chương 2"]), 0), { renames: [] });
+});
+
 test("lùi số không đệm số 0 cho tiêu đề không đệm", () => {
   assert.equal(parseTitleNumber("Chương 10").shift(-2), "Chương 8");
   assert.equal(parseTitleNumber("Chương 100").shift(-1), "Chương 99");

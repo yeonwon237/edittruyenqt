@@ -198,7 +198,9 @@ function shiftFollowingTitles(chapters, fromNumber, delta) {
 export function planChapterDelete(orderedChapters, index) {
   const deleted = parseTitleNumber(orderedChapters[index]?.title);
   if (!deleted) return { renames: [] };
-  return { renames: shiftFollowingTitles(orderedChapters.slice(index + 1), deleted.number, -1) };
+  // A following chapter with the same number starts a separate sequence
+  // (e.g. imported chapter 1 after the default chapter 1). Keep it intact.
+  return { renames: shiftFollowingTitles(orderedChapters.slice(index + 1), deleted.number + 1, -1) };
 }
 
 // Repair pass: renumbers every numbered title consecutively in list order,
