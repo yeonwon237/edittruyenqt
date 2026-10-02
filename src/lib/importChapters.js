@@ -148,6 +148,15 @@ export function splitByHeadingRegex(text, source) {
     const contentStart = matches[i].index + matches[i][0].length;
     const contentEnd = i + 1 < matches.length ? matches[i + 1].index : String(text || "").length;
     const content = cleanChapterContent(String(text || "").slice(contentStart, contentEnd));
+    // Some exports print the heading in a divider banner, then repeat it
+    // before the body. Collapse only adjacent identical headings with no
+    // body between them; other empty chapters may be intentional.
+    const previous = chapters.at(-1);
+    const titleKey = (title) => title.normalize("NFC").replace(/\s+/g, " ").toLowerCase();
+    if (previous && !previous.content && titleKey(previous.title) === titleKey(heading)) {
+      previous.content = content;
+      continue;
+    }
     chapters.push({ title: heading || `Chương ${i + 1}`, content });
   }
   return chapters;
