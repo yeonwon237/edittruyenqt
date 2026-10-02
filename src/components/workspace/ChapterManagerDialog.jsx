@@ -151,6 +151,7 @@ export default function ChapterManagerDialog({
   exportingDataset,
   onBatchEdit,
   onBatchTitleEdit,
+  onParagraphSpacing,
   qaIssuesByChapter = {},
   betaIssuesByChapter = {},
 }) {
@@ -250,6 +251,9 @@ export default function ChapterManagerDialog({
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={onBatchTitleEdit} disabled={chapters.length === 0}>
                       <Languages className="w-3.5 h-3.5" /> Dịch tên chương bằng AI
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={onParagraphSpacing} disabled={chapters.length === 0}>
+                      Giãn đoạn Bản Edit
                     </DropdownMenuItem>
                     <DropdownMenuSub>
                       <DropdownMenuSubTrigger disabled={exportingEdited || chapters.length === 0}>

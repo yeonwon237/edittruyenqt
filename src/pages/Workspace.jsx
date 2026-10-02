@@ -1,4 +1,5 @@
 import LilyBetaSync from "@/components/workspace/LilyBetaSync";
+import ParagraphSpacingDialog from "@/components/workspace/ParagraphSpacingDialog";
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "@/api/supabaseClient";
@@ -282,6 +283,7 @@ export default function Workspace() {
   const storyPronounAiStopRef = useRef(false);
   const [showAISettings, setShowAISettings] = useState(false);
   const [showChapterManager, setShowChapterManager] = useState(false);
+  const [showParagraphSpacing, setShowParagraphSpacing] = useState(false);
   // Mobile-only "⋯" overflow menu for the header actions that don't fit a
   // 375px-wide row (QA/Beta scan, chapter manager, create, export, LilyBeta
   // sync, logout) — desktop keeps showing them inline.
@@ -3604,6 +3606,37 @@ ${sourceText}`;
 
   // Bulk-import can either create chapters or fill one column of the current
   // chapter list by position (raw file first, edited/QT file second).
+  const loadParagraphSpacingChapters = async (ids) => {
+    if (currentChapter) await flushSave(currentChapter, true);
+    let rows = [];
+    for (let i = 0; i < ids.length; i += 200) {
+      rows = rows.concat(await Chapter.getMany(ids.slice(i, i + 200)));
+    }
+    if (rows.length !== ids.length) throw new Error("Không tải đủ chương. Hãy thử lại.");
+    const active = rows.find(ch => ch.id === currentChapter?.id);
+    if (active && (active.edited || "") !== (currentChapter.edited || "")) {
+      throw new Error("Bản Edit đang mở chưa lưu xong. Hãy lưu chương rồi thử lại.");
+    }
+    const byId = new Map(rows.map(ch => [ch.id, ch]));
+    return ids.map(id => byId.get(id));
+  };
+
+  const saveParagraphSpacing = async (id, expected, edited) => {
+    if (currentChapter?.id === id && (currentChapter.edited || "") !== expected) {
+      throw new Error("Nội dung đã thay đổi. Hãy xem trước lại.");
+    }
+    const chapter = await Chapter.get(id);
+    if ((chapter.edited || "") !== expected) {
+      throw new Error("Nội dung đã thay đổi. Hãy xem trước lại.");
+    }
+    await Chapter.update(id, { edited }, { returning: false });
+    const updated = { ...chapter, edited, updated_date: new Date().toISOString() };
+    chapterCacheRef.current.set(id, updated);
+    lastSavedRef.current.set(id, snapshotOf(updated));
+    setChapterList(list => list.map(meta => meta.id === id ? { ...meta, updated_date: updated.updated_date } : meta));
+    if (currentChapter?.id === id) setCurrentChapter(updated);
+  };
+
   const handleImportChapters = async (parsedChapters, targetColumn, importAction = "create") => {
     try {
       if (importAction === "update") {
@@ -5534,8 +5567,17 @@ ${compact}`;
         exportingDataset={exportingDataset}
         onBatchEdit={() => openBatchEdit("polish")}
         onBatchTitleEdit={() => setShowBatchTitleEdit(true)}
+        onParagraphSpacing={() => { setShowChapterManager(false); setShowParagraphSpacing(true); }}
         qaIssuesByChapter={Object.fromEntries((storyQaReport?.chapters || []).map((chapter) => [chapter.id, chapter.count]))}
         betaIssuesByChapter={Object.fromEntries((storyBetaReport?.chapters || []).map(chapter=>[chapter.id,chapter.count]))}
+      />
+      <ParagraphSpacingDialog
+        key={projectId}
+        open={showParagraphSpacing}
+        onOpenChange={setShowParagraphSpacing}
+        chapters={chapterList}
+        onLoad={loadParagraphSpacingChapters}
+        onSave={saveParagraphSpacing}
       />
       <StoryQaDialog
         open={showStoryQa}
