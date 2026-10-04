@@ -46,7 +46,7 @@ import {
   exportChapterDataset,
   chaptersWithExportColumn,
 } from "@/lib/exportUtils";
-import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBase64 } from "@/lib/llm";
+import { callLLM, hasCustomAI, getProvider, chunkText, estimateCostUsd, fileToBase64, getLongEditLimits } from "@/lib/llm";
 import ImageTranslateDialog from "@/components/workspace/ImageTranslateDialog";
 import ContextualPronounDialog from "@/components/glossary/ContextualPronounDialog";
 import AISettingsDialog from "@/components/workspace/AISettingsDialog";
@@ -2010,9 +2010,10 @@ export default function Workspace() {
   // limits) and stitches the results back together. Chapters usually fit in
   // a single chunk; this only kicks in for unusually long ones.
   const runChunkedEdit = async (sourceText, callFn, onProgress, context = {}) => {
+    const { chunkChars, maxTokens } = getLongEditLimits();
     const editChunk = async (source) => {
-      if (context.mode === "translate") return callFn(buildChineseTranslatePrompt(source, context));
-      return callFn(buildEditPrompt(source, context));
+      if (context.mode === "translate") return callFn(buildChineseTranslatePrompt(source, context), { maxTokens });
+      return callFn(buildEditPrompt(source, context), { maxTokens });
     };
     let warnedAboutSafetySplit = false;
     const isContentBlock = (error) => /PROHIBITED_CONTENT|\bSAFETY\b|bộ lọc nội dung|lớp bảo vệ bắt buộc/i.test(String(error?.message || ""));
@@ -2039,7 +2040,7 @@ export default function Workspace() {
         return results.join("\n\n");
       }
     };
-    const chunks = chunkText(sourceText, AI_CHUNK_CHARS);
+    const chunks = chunkText(sourceText, chunkChars);
     if (chunks.length <= 1) {
       return editWithSafetySplit(sourceText);
     }
@@ -2164,7 +2165,7 @@ export default function Workspace() {
     try {
       const editedText = await runChunkedEdit(
         sourceText,
-        (prompt) => callLLM(prompt),
+        (prompt, options) => callLLM(prompt, undefined, options),
         (i, total) =>
           total > 1 && toast({ title: `Đang xử lý đoạn ${i}/${total}...` }),
         { mode }
@@ -4320,7 +4321,7 @@ ${sourceText}`;
 
         const editedText = await runChunkedEdit(
           sourceText,
-          (prompt) => callLLM(prompt),
+          (prompt, options) => callLLM(prompt, undefined, options),
           (chunkI, chunkTotal) =>
             chunkTotal > 1 &&
             setBatchProgress((p) => ({

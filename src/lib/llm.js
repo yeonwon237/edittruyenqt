@@ -430,6 +430,17 @@ export function estimateCostUsd(provider, inputText, outputMultiplier = 1.3) {
   return { inputTokens, outputTokens, cost };
 }
 
+// Chunk size + output cap for whole-chapter edit/translate calls. Gemini
+// Flash models allow up to 65k output tokens, so a 3000-char chunk (sized
+// for the 8192 default) split a normal QT chapter into 10+ sequential calls
+// — slow, and each one eats from the tiny free-tier per-minute/per-day
+// quota. ~12k chars of Vietnamese is ~5–6k tokens, well under 32k.
+// Other providers keep the conservative size since their caps vary by model.
+export function getLongEditLimits(provider = getProvider()) {
+  if (provider === "gemini") return { chunkChars: 12000, maxTokens: 32768 };
+  return { chunkChars: 3000, maxTokens: 8192 };
+}
+
 // Split long text into chunks along line (then sentence, then hard-cut)
 // boundaries so no chunk exceeds maxChars. Splits on single "\n" (not
 // "\n+") and tracks accumulation with a separate `started` flag rather than
