@@ -63,7 +63,7 @@ import { isDesktopApp } from "@/lib/platform";
 import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSidebarContext";
 import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
-import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt, composeTranslationPrompt } from "@/lib/editPrompts";
+import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt, composeTranslationPrompt, filterRulesForSource, filterTermsForSource } from "@/lib/editPrompts";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
@@ -1998,10 +1998,12 @@ export default function Workspace() {
   };
 
   const buildChineseTranslatePrompt = (sourceText, context = {}) => {
-    const terms = context.glossaryTerms || glossaryTerms;
+    const allTerms = context.glossaryTerms || glossaryTerms;
+    const terms = filterTermsForSource(allTerms, sourceText);
     const glossaryText = terms.map((term) => `- ${term.source_term} → ${term.translation}`).join("\n");
-    const dialogueMatrixText = buildPronounMatrixPrompt(context.pronounRules || project?.contextual_pronoun_rules || []);
-    const narrativeRules = context.narrativeRules || project?.style_toggles?.story_memory?.narrativeRules || [];
+    const pronounRules = filterRulesForSource(context.pronounRules || project?.contextual_pronoun_rules || [], (rule) => rule.speaker, allTerms, sourceText);
+    const dialogueMatrixText = buildPronounMatrixPrompt(pronounRules);
+    const narrativeRules = filterRulesForSource(context.narrativeRules || project?.style_toggles?.story_memory?.narrativeRules || [], (rule) => rule.character, allTerms, sourceText);
     const narrativeMatrixText = buildNarrativeRulesPrompt(narrativeRules);
     const pronounMatrixText = [dialogueMatrixText, narrativeMatrixText].filter(Boolean).join("\n\n");
     return composeTranslationPrompt(project?.style_toggles?.translate_prompt?.trim() || DEFAULT_TRANSLATE_PROMPT, sourceText, glossaryText, pronounMatrixText);

@@ -23,8 +23,44 @@ export function composeEditPrompt(template, sourceText, glossaryText = "") {
     : `${prompt}\n\nVĂN BẢN CẦN XỬ LÝ:\n${sourceText}`;
 }
 
+// Always appended to translation prompts (custom templates included): Gemini
+// tends to "reuse" a known character name from the Glossary/matrix for an
+// unknown name in the text instead of transliterating it.
+const NAME_GUARD_RULE = `QUY TẮC TÊN RIÊNG (BẮT BUỘC):
+- Chỉ dùng bản dịch trong Glossary khi ĐÚNG chữ Hán đó xuất hiện trong văn bản.
+- Tên người/địa danh không có trong Glossary phải phiên âm Hán Việt theo đúng chữ Hán gốc (ví dụ 戚林 → Thích Lâm).
+- TUYỆT ĐỐI không thay tên một nhân vật bằng tên của nhân vật khác trong Glossary hay Ma trận xưng hô.`;
+
+// Keep only glossary entries whose Chinese source actually occurs in the
+// text being translated, so unrelated names don't bleed into the output.
+export function filterTermsForSource(terms, sourceText) {
+  const text = String(sourceText || "");
+  return (terms || []).filter((term) => {
+    const src = String(term?.source_term || "").trim();
+    return src && text.includes(src);
+  });
+}
+
+// Drop pronoun/narrative rules for characters that the glossary maps to a
+// Chinese name absent from this text. Rules for names we can't map are kept.
+export function filterRulesForSource(rules, getName, allTerms, sourceText) {
+  const text = String(sourceText || "");
+  const present = new Set();
+  const absent = new Set();
+  (allTerms || []).forEach((term) => {
+    const src = String(term?.source_term || "").trim();
+    const name = String(term?.translation || "").trim().toLocaleLowerCase("vi");
+    if (!src || !name) return;
+    (text.includes(src) ? present : absent).add(name);
+  });
+  return (rules || []).filter((rule) => {
+    const name = String(getName(rule) || "").trim().toLocaleLowerCase("vi");
+    return !name || present.has(name) || !absent.has(name);
+  });
+}
+
 export function composeTranslationPrompt(template, sourceText, glossaryText = "", pronounMatrixText = "") {
-  const source = String(template || "").trim();
+  const source = `${String(template || "").trim()}\n\n${NAME_GUARD_RULE}`;
   let prompt = source
     .replaceAll("{{GLOSSARY}}", glossaryText || "(trống)")
     .replaceAll("{{PRONOUN_MATRIX}}", pronounMatrixText || "(trống)");
