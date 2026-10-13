@@ -1,13 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeEditPrompt, composeTranslationPrompt, DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, filterTermsForPolish } from "../src/lib/editPrompts.js";
+import { composeEditPrompt, composeTranslationPrompt, DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, enforcePolishGlossary, filterTermsForPolish } from "../src/lib/editPrompts.js";
 
 test("polish always receives glossary, pronoun matrix, and source text", () => {
   const result = composeEditPrompt("Chỉ làm mượt.", "Mạnh Lệnh Ô nói với cô.", "- Mạnh Lệnh Ô → Mạnh Lệnh Vu", "◆ Quý Khuynh Thời: xưng tôi");
   assert.match(result, /^Chỉ làm mượt\./);
   assert.match(result, /GLOSSARY \(TÊN VÀ THUẬT NGỮ CHUẨN\):\n- Mạnh Lệnh Ô → Mạnh Lệnh Vu/);
   assert.match(result, /MA TRẬN XƯNG HÔ VÀ NGÔI LỜI DẪN:\n◆ Quý Khuynh Thời: xưng tôi/);
-  assert.match(result, /VĂN BẢN CẦN XỬ LÝ:\nMạnh Lệnh Ô nói với cô\.$/);
+  assert.match(result, /VĂN BẢN CẦN XỬ LÝ:\nMạnh Lệnh Ô nói với cô\./);
+  assert.match(result, /TRƯỚC KHI TRẢ KẾT QUẢ, BẮT BUỘC TỰ RÀ SOÁT/);
 });
 
 test("polish placeholders insert project data without duplicate sections", () => {
@@ -31,6 +32,18 @@ test("QT glossary filtering keeps aliases and canonical forms but drops unrelate
   assert.deepEqual(
     filterTermsForPolish(terms, "Mạnh Lệnh Ô nhìn Quý Khuynh Thời."),
     terms.slice(0, 2)
+  );
+});
+
+test("polish glossary enforcement is exact, boundary-safe, and non-cascading", () => {
+  const terms = [
+    { source_term: "Mạnh Lệnh Ô", translation: "Mạnh Lệnh Vu" },
+    { source_term: "Mạnh Lệnh Vu", translation: "Tên Sai" },
+    { source_term: "chủ", translation: "chủ nhân" },
+  ];
+  assert.equal(
+    enforcePolishGlossary("Mạnh Lệnh Ô là chủ, không phải chủng loại.", terms),
+    "Mạnh Lệnh Vu là chủ nhân, không phải chủng loại."
   );
 });
 

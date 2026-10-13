@@ -23,6 +23,13 @@ const POLISH_RULE_GUARD = `QUY TẮC ƯU TIÊN KHI LÀM MƯỢT QT (BẮT BUỘC
 - Chỉ áp dụng quy tắc đối thoại khi xác định được người nói và người nghe; không gán tên hay quy tắc của nhân vật này cho nhân vật khác.
 - Không tự thay một tên lạ/không có trong Glossary bằng tên nhân vật đã biết.`;
 
+const POLISH_FINAL_AUDIT = `TRƯỚC KHI TRẢ KẾT QUẢ, BẮT BUỘC TỰ RÀ SOÁT THẦM LẶNG TOÀN BỘ BẢN VĂN:
+1. Mọi tên/thuật ngữ có trong Glossary đã đúng vế phải.
+2. Mỗi câu thoại đã đúng người nói, người nghe, cách tự xưng và cách gọi.
+3. Mỗi đại từ ngoài lời thoại đã đúng quy tắc NGÔI LỜI DẪN của nhân vật.
+4. Không còn tên hoặc xưng hô cũ trái bảng quy ước.
+Sau khi rà soát, chỉ xuất bản văn hoàn chỉnh; tuyệt đối không xuất checklist hay lời giải thích.`;
+
 export function composeEditPrompt(template, sourceText, glossaryText = "", pronounMatrixText = "") {
   const source = String(template || "").trim();
   let prompt = `${source}\n\n${POLISH_RULE_GUARD}`
@@ -33,9 +40,10 @@ export function composeEditPrompt(template, sourceText, glossaryText = "", prono
   // ignore imported terminology or address conventions.
   if (!source.includes("{{GLOSSARY}}")) prompt += `\n\nGLOSSARY (TÊN VÀ THUẬT NGỮ CHUẨN):\n${glossaryText || "(trống)"}`;
   if (!source.includes("{{PRONOUN_MATRIX}}")) prompt += `\n\nMA TRẬN XƯNG HÔ VÀ NGÔI LỜI DẪN:\n${pronounMatrixText || "(trống)"}`;
-  return prompt.includes("{{TEXT}}")
+  const withText = prompt.includes("{{TEXT}}")
     ? prompt.replaceAll("{{TEXT}}", sourceText)
     : `${prompt}\n\nVĂN BẢN CẦN XỬ LÝ:\n${sourceText}`;
+  return `${withText}\n\n${POLISH_FINAL_AUDIT}`;
 }
 
 // Always appended to translation prompts (custom templates included): Gemini
@@ -67,6 +75,32 @@ export function filterTermsForPolish(terms, sourceText) {
     const dest = String(term?.translation || "").trim().toLocaleLowerCase("vi");
     return (src && text.includes(src)) || (dest && text.includes(dest));
   });
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// AI instructions are probabilistic; canonical terminology does not need to
+// be. Apply every exact QT/alias → canonical mapping simultaneously after the
+// model returns, so one replacement cannot cascade into another mapping.
+export function enforcePolishGlossary(text, terms) {
+  const source = String(text || "");
+  const mappings = new Map();
+  (terms || []).forEach((term) => {
+    const from = String(term?.source_term || "").trim();
+    const to = String(term?.translation || "").trim();
+    if (from && to && from !== to && source.includes(from) && !mappings.has(from)) mappings.set(from, to);
+  });
+  if (!mappings.size) return source;
+
+  const alternatives = [...mappings.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map((term) => /\p{Script=Han}/u.test(term)
+      ? escapeRegex(term)
+      : `(?<![\\p{L}\\p{N}_])${escapeRegex(term)}(?![\\p{L}\\p{N}_])`);
+  const matcher = new RegExp(alternatives.join("|"), "gu");
+  return source.replace(matcher, (matched) => mappings.get(matched) || matched);
 }
 
 // Drop pronoun/narrative rules for characters that the glossary maps to a

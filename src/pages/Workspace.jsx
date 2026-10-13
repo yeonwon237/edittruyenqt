@@ -63,7 +63,7 @@ import { isDesktopApp } from "@/lib/platform";
 import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSidebarContext";
 import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
-import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt, composeTranslationPrompt, filterRulesForSource, filterTermsForPolish, filterTermsForSource } from "@/lib/editPrompts";
+import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt, composeTranslationPrompt, enforcePolishGlossary, filterRulesForSource, filterTermsForPolish, filterTermsForSource } from "@/lib/editPrompts";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
@@ -1980,8 +1980,9 @@ export default function Workspace() {
   // Post-processing applied after every AI edit result, in code (not
   // dependent on the AI actually following the prompt): preset forbidden
   // words and the "strip trailing ạ" toggle.
-  const applyHardRules = (text, mode = "edit") => {
-    if (mode === "polish" || mode === "translate") return text;
+  const applyHardRules = (text, mode = "edit", context = {}) => {
+    if (mode === "polish") return enforcePolishGlossary(text, context.glossaryTerms || glossaryTerms);
+    if (mode === "translate") return text;
     let result = text;
     const forbidden = (activePreset?.forbidden_words || []).filter((r) => r.find);
     if (forbidden.length) {
@@ -2181,7 +2182,7 @@ export default function Workspace() {
           total > 1 && toast({ title: `Đang xử lý đoạn ${i}/${total}...` }),
         { mode }
       );
-      const finalText = applyHardRules(editedText, mode);
+      const finalText = applyHardRules(editedText, mode, { glossaryTerms });
       setCurrentChapter((prev) =>
         prev && prev.id === chapterId ? { ...prev, edited: finalText } : prev
       );
@@ -4347,7 +4348,7 @@ ${sourceText}`;
             previousSummary,
           }
         );
-        const finalText = applyHardRules(editedText, mode);
+        const finalText = applyHardRules(editedText, mode, { glossaryTerms: batchGlossaryTerms });
 
         await Chapter.update(meta.id, { edited: finalText }, { returning: false });
         setEditedChapterIds((current) => new Set(current).add(meta.id));
