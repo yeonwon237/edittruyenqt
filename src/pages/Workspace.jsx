@@ -3650,10 +3650,18 @@ ${sourceText}`;
     if (currentChapter?.id === id) setCurrentChapter(updated);
   };
 
-  const handleImportChapters = async (parsedChapters, targetColumn, importAction = "create") => {
+  const handleImportChapters = async (parsedChapters, targetColumn, importAction = "create", options = {}) => {
     try {
-      if (importAction === "update") {
-        const ordered = [...chapterList].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+      if (!["raw_original", "qt_raw", "edited"].includes(targetColumn)) throw new Error("Cột đích không hợp lệ.");
+      if (importAction === "update" || importAction === "range") {
+        let ordered = [...chapterList].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0));
+        if (importAction === "range") {
+          const ids = options.targetIds || [];
+          const start = ordered.findIndex((c) => c.id === ids[0]);
+          const selected = ordered.slice(start, start + ids.length);
+          if (!ids.length || start < 0 || selected.length !== ids.length || selected.some((c, i) => c.id !== ids[i])) throw new Error("Khoảng chương đích đã thay đổi. Hãy chọn lại.");
+          ordered = selected;
+        }
         if (parsedChapters.length !== ordered.length) {
           toast({
             title: "Số chương không khớp",
@@ -3675,7 +3683,7 @@ ${sourceText}`;
         let occupied = 0;
         ordered.forEach((meta, index) => {
           const chapter = byId.get(meta.id);
-          if (String(chapter[targetColumn] || "").trim()) {
+          if (String(chapter[targetColumn] || "").trim() && !(importAction === "range" && options.overwrite)) {
             occupied += 1;
             return;
           }
@@ -5635,6 +5643,8 @@ ${compact}`;
         onOpenChange={setShowImportChapters}
         onImport={handleImportChapters}
         existingChapterCount={chapterList.length}
+        existingChapters={chapterList}
+        projectTitle={project?.title || ""}
       />
       <BatchEditDialog
         open={showBatchEdit}

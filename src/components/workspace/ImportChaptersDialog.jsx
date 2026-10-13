@@ -31,7 +31,7 @@ import {
 } from "@/lib/chapterNumbering";
 import { useToast } from "@/components/ui/use-toast";
 
-export default function ImportChaptersDialog({ open, onOpenChange, onImport, existingChapterCount = 0 }) {
+export default function ImportChaptersDialog({ open, onOpenChange, onImport, existingChapterCount = 0, existingChapters = [], projectTitle = "" }) {
   const { toast } = useToast();
   const [mode, setMode] = useState("paste"); // "paste" | "file"
   const [text, setText] = useState("");
@@ -39,6 +39,13 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
   const [customPattern, setCustomPattern] = useState("");
   const [targetColumn, setTargetColumn] = useState("raw_original");
   const [importAction, setImportAction] = useState("create");
+  const [startId, setStartId] = useState("");
+  const [endId, setEndId] = useState("");
+  const [overwrite, setOverwrite] = useState(false);
+  const ordered = useMemo(() => [...existingChapters].sort((a, b) => (a.chapter_order ?? 0) - (b.chapter_order ?? 0)), [existingChapters]);
+  const startIndex = ordered.findIndex((c) => c.id === startId);
+  const endIndex = ordered.findIndex((c) => c.id === endId);
+  const targets = startIndex >= 0 && endIndex >= startIndex ? ordered.slice(startIndex, endIndex + 1) : [];
   const [importing, setImporting] = useState(false);
   const [fileParsed, setFileParsed] = useState([]);
   const [fileName, setFileName] = useState("");
@@ -128,6 +135,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
   };
 
   const handleClose = (v) => {
+    if (importing || extracting) return;
     if (!v) {
       setMode("paste");
       setText("");
@@ -135,6 +143,9 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
       setCustomPattern("");
       setTargetColumn("raw_original");
       setImportAction("create");
+      setStartId("");
+      setEndId("");
+      setOverwrite(false);
       setFileParsed([]);
       setFileName("");
       setTxtFileName("");
@@ -202,9 +213,10 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
       setTxtFileName(file.name);
     } catch (err) {
       toast({ title: "Lỗi đọc file", description: err.message, variant: "destructive" });
+    } finally {
+      setExtracting(false);
+      e.target.value = "";
     }
-    setExtracting(false);
-    e.target.value = "";
   };
 
   const handleFileChange = async (e) => {
@@ -231,12 +243,13 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
   const handleImport = async () => {
     if (parsed.length === 0) return;
     setImporting(true);
+    let succeeded = false;
     try {
-      const succeeded = await onImport(parsed, targetColumn, importAction);
-      if (succeeded !== false) handleClose(false);
+      succeeded = await onImport(parsed, targetColumn, importAction, { targetIds: targets.map((c) => c.id), overwrite });
     } finally {
       setImporting(false);
     }
+    if (succeeded !== false) handleClose(false);
   };
 
   return (
@@ -247,6 +260,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
             <Upload className="w-4 h-4" /> Nhập hàng loạt chương
           </DialogTitle>
           <DialogDescription>
+            {projectTitle && <span className="block font-semibold">Truyện đích: {projectTitle}</span>}
             Dán toàn bộ văn bản để app tự tách chương, hoặc tải lên file có sẵn cột
             Chương/Tiêu đề/Nội dung.
           </DialogDescription>
@@ -271,7 +285,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
           </button>
         </div>
 
-        <div className="space-y-3">
+        <fieldset disabled={importing || extracting} className="space-y-3 min-w-0">
           {mode === "paste" ? (
             <>
               <div className="flex items-center gap-2 flex-wrap">
@@ -464,6 +478,7 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
               <option value="update" disabled={existingChapterCount === 0}>
                 Điền vào chương hiện có — ghép theo thứ tự ({existingChapterCount} chương)
               </option>
+              <option value="range" disabled={ordered.length === 0}>Điền vào khoảng chương đã chọn</option>
             </select>
             {importAction === "update" && (
               <p className={`mt-1.5 text-xs ${parsed.length === existingChapterCount ? "text-emerald-700" : "text-red-600"}`}>
@@ -473,6 +488,33 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
               </p>
             )}
           </div>
+
+          {importAction === "range" && (
+            <div className="rounded-xl border border-violet-200 p-3 space-y-3">
+              <p className="text-xs text-slate-600">Ghép lần lượt từng chương trong file vào khoảng chương đích. Tiêu đề và các cột khác được giữ nguyên.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-xs">Từ chương
+                  <select aria-label="Chương đích bắt đầu" value={startId} onChange={(e) => {
+                    setStartId(e.target.value);
+                    const index = ordered.findIndex((c) => c.id === e.target.value);
+                    setEndId(ordered[index + parsed.length - 1]?.id || "");
+                  }} className="mt-1 w-full rounded-lg border p-2">
+                    <option value="">Chọn chương bắt đầu</option>
+                    {ordered.map((c, i) => <option key={c.id} value={c.id}>{i + 1}. {c.title}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs">Đến chương
+                  <select aria-label="Chương đích kết thúc" value={endId} onChange={(e) => setEndId(e.target.value)} className="mt-1 w-full rounded-lg border p-2">
+                    <option value="">Chọn chương kết thúc</option>
+                    {ordered.map((c, i) => <option key={c.id} value={c.id} disabled={i < startIndex}>{i + 1}. {c.title}</option>)}
+                  </select>
+                </label>
+              </div>
+              <p className={`text-xs ${targets.length === parsed.length && targets.length ? "text-emerald-700" : "text-red-600"}`}>File có {parsed.length} chương · khoảng đích có {targets.length} chương. Hai số phải bằng nhau.</p>
+              <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={overwrite} onChange={(e) => setOverwrite(e.target.checked)} />Ghi đè nội dung đã có trong cột được chọn</label>
+              <p className="text-xs text-slate-500">{overwrite ? "Nội dung cũ ở cột đích sẽ được thay thế. Hãy kiểm tra bảng ghép bên dưới trước khi nhập." : "Chỉ điền ô trống; chương đã có nội dung sẽ được bỏ qua, không làm lệch các chương sau."}</p>
+            </div>
+          )}
 
           <div>
             <label className="text-xs font-medium text-slate-500 mb-1 block">
@@ -524,12 +566,13 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
                 )}
                 <span className={i === 0 ? "ml-[22px]" : ""}>
                   <span className="font-semibold">{c.title}</span>{" "}
+                  {importAction === "range" && <span className="block text-violet-700">→ {targets[i]?.title || "Chưa có chương đích"} · {targetColumn === "edited" ? "Bản Edit" : targetColumn === "qt_raw" ? "QT thô" : "Văn bản gốc"}</span>}
                   <span className="text-slate-400">({(c.content || "").length.toLocaleString("vi")} ký tự)</span>
                 </span>
               </div>
             ))}
           </div>
-        </div>
+        </fieldset>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => handleClose(false)}>
@@ -537,10 +580,10 @@ export default function ImportChaptersDialog({ open, onOpenChange, onImport, exi
           </Button>
           <Button
             onClick={handleImport}
-            disabled={parsed.length === 0 || importing || (importAction === "update" && parsed.length !== existingChapterCount)}
+            disabled={parsed.length === 0 || importing || extracting || (importAction === "update" && parsed.length !== existingChapterCount) || (importAction === "range" && parsed.length !== targets.length)}
             className="bg-violet-600 hover:bg-violet-700 text-white border-0 rounded-xl"
           >
-            {importing ? "Đang nhập..." : importAction === "update" ? `Điền vào ${parsed.length} chương` : `Nhập ${parsed.length} chương`}
+            {importing ? "Đang nhập..." : importAction !== "create" ? `${overwrite && importAction === "range" ? "Ghi đè" : "Điền vào"} ${parsed.length} chương` : `Nhập ${parsed.length} chương`}
           </Button>
         </DialogFooter>
       </DialogContent>
