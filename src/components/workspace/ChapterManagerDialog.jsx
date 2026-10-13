@@ -31,6 +31,7 @@ import {
   Sparkles,
   ListChecks,
   Languages,
+  ClipboardPaste,
   MoreHorizontal,
   Undo2,
   Plus,
@@ -151,6 +152,7 @@ export default function ChapterManagerDialog({
   exportingDataset,
   onBatchEdit,
   onBatchTitleEdit,
+  onBatchTitleImport,
   onParagraphSpacing,
   qaIssuesByChapter = {},
   betaIssuesByChapter = {},
@@ -251,6 +253,9 @@ export default function ChapterManagerDialog({
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={onBatchTitleEdit} disabled={chapters.length === 0}>
                       <Languages className="w-3.5 h-3.5" /> Dịch tên chương bằng AI
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={onBatchTitleImport} disabled={chapters.length === 0}>
+                      <ClipboardPaste className="w-3.5 h-3.5" /> Nhập tên chương hàng loạt
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={onParagraphSpacing} disabled={chapters.length === 0}>
                       Giãn đoạn Bản Edit

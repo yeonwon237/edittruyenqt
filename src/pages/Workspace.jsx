@@ -23,6 +23,7 @@ import BatchEditDialog from "@/components/workspace/BatchEditDialog";
 import TranslationWorkflowDialog from "@/components/workspace/TranslationWorkflowDialog";
 import BatchBetaAiDialog from "@/components/workspace/BatchBetaAiDialog";
 import BatchTitleEditDialog from "@/components/workspace/BatchTitleEditDialog";
+import BatchChapterTitlesDialog from "@/components/workspace/BatchChapterTitlesDialog";
 import ConfirmDialog from "@/components/workspace/ConfirmDialog";
 import QualityCheckDialog from "@/components/workspace/QualityCheckDialog";
 import StoryQaDialog from "@/components/workspace/StoryQaDialog";
@@ -333,6 +334,7 @@ export default function Workspace() {
   const [batchErrors, setBatchErrors] = useState([]);
   const batchStopRef = useRef(false);
   const [showBatchTitleEdit, setShowBatchTitleEdit] = useState(false);
+  const [showBatchTitleImport, setShowBatchTitleImport] = useState(false);
   const [batchTitleRunning, setBatchTitleRunning] = useState(false);
   const [batchTitleFinished, setBatchTitleFinished] = useState(false);
   const [batchTitleProgress, setBatchTitleProgress] = useState({
@@ -3374,6 +3376,17 @@ ${sourceText}`;
     }
   };
 
+  const handleBatchTitleImport = async (renames) => {
+    try {
+      if (currentChapter) await flushSave(currentChapter, true);
+      await applyChapterTitleRenames(renames);
+      toast({ title: `Đã điền tên cho ${renames.length} chương` });
+    } catch (error) {
+      toast({ title: "Lỗi nhập tên chương", description: error.message, variant: "destructive" });
+      throw error;
+    }
+  };
+
   const handleDeleteChapter = (chapterId) => runChapterStructureOp(async () => {
     try {
       if (currentChapter?.id === chapterId) await flushSave(currentChapter, true);
@@ -5588,6 +5601,7 @@ ${compact}`;
         exportingDataset={exportingDataset}
         onBatchEdit={() => openBatchEdit("polish")}
         onBatchTitleEdit={() => setShowBatchTitleEdit(true)}
+        onBatchTitleImport={() => setShowBatchTitleImport(true)}
         onParagraphSpacing={() => { setShowChapterManager(false); setShowParagraphSpacing(true); }}
         qaIssuesByChapter={Object.fromEntries((storyQaReport?.chapters || []).map((chapter) => [chapter.id, chapter.count]))}
         betaIssuesByChapter={Object.fromEntries((storyBetaReport?.chapters || []).map(chapter=>[chapter.id,chapter.count]))}
@@ -5698,6 +5712,12 @@ ${compact}`;
         errors={batchTitleErrors}
         onStart={handleStartBatchTitleEdit}
         onStop={handleStopBatchTitleEdit}
+      />
+      <BatchChapterTitlesDialog
+        open={showBatchTitleImport}
+        onOpenChange={setShowBatchTitleImport}
+        chapters={chapterList}
+        onApply={handleBatchTitleImport}
       />
       <DetectNamesDialog
         open={showDetectNames}
