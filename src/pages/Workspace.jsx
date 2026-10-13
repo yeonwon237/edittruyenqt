@@ -63,7 +63,7 @@ import { isDesktopApp } from "@/lib/platform";
 import { useDesktopSidebarContext, useInSidebarLayout } from "@/lib/desktopSidebarContext";
 import WorkspaceDesktopBar from "@/components/desktop/WorkspaceDesktopBar";
 import { addHanVietVocabulary, loadHanVietVocabulary, mergeHanVietVocabulary, removeHanVietVocabulary, saveHanVietVocabulary } from "@/lib/hanvietVocabulary";
-import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt, composeTranslationPrompt, filterRulesForSource, filterTermsForSource } from "@/lib/editPrompts";
+import { DEFAULT_POLISH_PROMPT, DEFAULT_TRANSLATE_PROMPT, composeEditPrompt, composeTranslationPrompt, filterRulesForSource, filterTermsForPolish, filterTermsForSource } from "@/lib/editPrompts";
 import { applyReplacements, stripPoliteA } from "@/lib/textReplace";
 import { cleanToolPartMarkers } from "@/lib/qtCleanup";
 import { fetchAllPages } from "@/lib/paginate";
@@ -1964,9 +1964,18 @@ export default function Workspace() {
   },[currentChapter?.edited,project?.style_toggles?.beta_settings]);
 
   const buildEditPrompt = (sourceText, context = {}) => {
-    const terms = context.glossaryTerms || glossaryTerms;
+    const allTerms = context.glossaryTerms || glossaryTerms;
+    const terms = filterTermsForPolish(allTerms, sourceText);
     const glossaryText = terms.map((term) => `- ${term.source_term} → ${term.translation}`).join("\n");
-    return composeEditPrompt(project?.style_toggles?.polish_prompt?.trim() || activePreset?.prompt_instructions?.trim() || DEFAULT_POLISH_PROMPT, sourceText, glossaryText);
+    const dialogueMatrixText = buildPronounMatrixPrompt(context.pronounRules || project?.contextual_pronoun_rules || []);
+    const narrativeMatrixText = buildNarrativeRulesPrompt(context.narrativeRules || project?.style_toggles?.story_memory?.narrativeRules || []);
+    const pronounMatrixText = [dialogueMatrixText, narrativeMatrixText].filter(Boolean).join("\n\n");
+    return composeEditPrompt(
+      project?.style_toggles?.polish_prompt?.trim() || activePreset?.prompt_instructions?.trim() || DEFAULT_POLISH_PROMPT,
+      sourceText,
+      glossaryText,
+      pronounMatrixText
+    );
   };
   // Post-processing applied after every AI edit result, in code (not
   // dependent on the AI actually following the prompt): preset forbidden
