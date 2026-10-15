@@ -2,9 +2,14 @@ import { escapeCsvField } from "./csvUtils.js";
 
 const CHUONG_KEYWORD = String.fromCharCode(0x43, 0x68, 0x01b0, 0x01a1, 0x6e, 0x67); // "Chương"
 
-function chapterHeading(c, i) {
+export function chapterHeading(c, i) {
   const order = c.chapter_order ?? i;
-  return c.title?.trim() ? `${CHUONG_KEYWORD} ${order}: ${c.title.trim()}` : `${CHUONG_KEYWORD} ${order}`;
+  const title = c.title?.trim();
+  if (!title) return `${CHUONG_KEYWORD} ${order}`;
+  // Imported titles often contain their own chapter number. chapter_order is
+  // only the sort position and can differ (e.g. after a preface).
+  if (/^(?:chương|chuong|chapter)\s+\d+/iu.test(title) || /^第[\d一二三四五六七八九十百千万零〇]+[章回]/u.test(title)) return title;
+  return `${CHUONG_KEYWORD} ${order}: ${title}`;
 }
 
 function chapterBody(c) {
